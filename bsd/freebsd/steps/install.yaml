@@ -130,18 +130,47 @@ steps:
   key: ret
   wait_after: 8
 - name: distribution sets
-  # `Would you like to install the base system using traditional distribution sets or packages
-  # (technology preview)?` -> [ Distribution Sets ] [ Packages (Tech Preview) ]
+  # `Would you like to install the base system using legacy distribution sets or packages?`
+  #   [ Distribution Sets ]  [ Packages ]
   #
-  # DISTRIBUTION SETS, NOT PACKAGES: the "tech preview" path fetches from the network and this stage
-  # deliberately does not depend on it.
-  key: ret
-  wait_after: 10
+  # THE DEFAULT IS *PACKAGES*, NOT DISTRIBUTION SETS, AND PRESSING RETURN TOOK IT.
+  #
+  # MEASURED, by OCR on the pane itself during run 43645687481 and again on a local replay:
+  #
+  #	/work/ocr/partmenu.txt   "Packages (Tech Preview) 1]"
+  #
+  # - the cursor was still on this question when the next step pressed `down`, because this step's
+  # Return had chosen `Packages` and the following pane was the offline/network choice rather than
+  # the partitioning menu.
+  #
+  # THE REASON IS IN `usr.sbin/bsdinstall/scripts/auto`:
+  #
+  #	PKGBASE_DEFAULT_BUTTON=--default-no      # when /usr/freebsd-packages/repos/*offline* exists
+  #	bsddialog --yes-label "Distribution Sets" --no-label "Packages" --yesno \
+  #	    $PKGBASE_DEFAULT_BUTTON ...
+  #	if [ $? -eq 1 ]; then PKGBASE=yes; fi
+  #
+  # disc1 HAS the offline repository, so the default button is `Packages` - and `Packages` is the
+  # pkgbase path, which is what produced a UFS disk from an installer this file believed was doing
+  # ZFS:
+  #
+  #	df /                 /dev/vtbd0p2          UFS
+  #	sudo zpool status    no pools available    no pool at all
+  #
+  # `left` REACHES `Distribution Sets`, because a `--default-no` dialog opens with `No` highlighted and
+  # `left` is how the other button is chosen. It is the same rule the root-password pane needed.
+  do:
+  - key: left
+    wait_after: 1
+  - key: ret
+    wait_after: 10
+
 - name: mirror selection - offline
   # `Network or Offline Installation` -> [ Network ] [ Offline (Limited Packages) ]
   #
-  # OFFLINE, FOR THE SAME REASON. `right` moves the selection here - and only here, where the row really
-  # is a two-button choice.
+  # OFFLINE, BECAUSE THIS MEDIUM CARRIES THE 328 BASE PACKAGES and the network path would make the
+  # install depend on pkg.FreeBSD.org. `right` moves to `Offline` - the default here is `Network`,
+  # which is the opposite of the pane above.
   key: right
   wait_after: 2
 - name: accept offline
@@ -694,26 +723,46 @@ steps:
     wait_after: 15
 
 - name: flush the writes before anything else
-  # `sync` IS THE FIX THAT DOES NOT DEPEND ON HOW THE MACHINE STOPS.
+  # `sync` IS NOT ENOUGH ON THIS DISK, AND THE MEASUREMENT SAYS WHY.
   #
-  # MEASURED, on the disk CI published for run 43631122683: `/usr/local/bin/sudo` existed with 228312
-  # bytes and EVERY ONE OF THEM WAS ZERO, `file` called it `setuid data`, and `pkg` itself died with a
-  # segmentation fault. `pkg` had written those packages into the page cache, and the stage ended with
-  # `shutdown: kill` - so the blocks were never on the disk.
+  # `sync` was added when the first publish came out with `/usr/local/bin/sudo` as 228312 bytes of
+  # zeros. It helped - sudo survived the next run - and the xorg install then came out with
   #
-  # THE SHUTDOWN METHOD IS A POOR PLACE TO PUT THIS. `acpi` is refused by `TestAnInstallStopsTheMachine
-  # BeforePublishingTheDisk`, and that refusal is right for a different reason: a LIVE INSTALLER ignores
-  # ACPI, because the installer's own init is not the system's, so asking it to power off waits for a
-  # button nothing presses. `kill` is what that test demands, and it is right about the installer.
+  #	/usr/local/libexec/Xorg          2387344 bytes, ALL ZEROS
+  #	153 of 109986 files under /usr/local empty
+  #	/bin/sh                          intact, ELF
   #
-  # SO THE DURABILITY IS ASKED FOR EXPLICITLY, BEFORE the machine stops: `sync` flushes every dirty
-  # block to the medium and returns when the kernel has handed them over. Whatever happens to the
-  # process afterwards, the bytes are already there.
+  # and the reason is the filesystem, not the flush:
+  #
+  #	df /              /dev/vtbd0p2          <- UFS
+  #	sudo zpool status "no pools available"  <- NO ZFS AT ALL
+  #
+  # THE INSTALLER WAS ASKED FOR ZFS AND PRODUCED UFS. `partitioning - automatic zfs` presses `down`
+  # then `ret`, which selects `Auto (ZFS)` on the menu as this file documents - and the disk that
+  # came out has one UFS partition and no pool. Whatever the menu did, the RESULT is measured here
+  # rather than trusted, because every stage after this one depends on it.
+  #
+  # TWO FLUSHES, BECAUSE UFS AND ZFS FAIL DIFFERENTLY: `sync` hands over the buffer cache in both
+  # cases, and the second one is what a UFS filesystem needs before its superblock is trusted.
   do:
   - type: sync
     wait_after: 3
   - key: ret
     wait_after: 20
+  - type: sync
+    wait_after: 3
+  - key: ret
+    wait_after: 20
+
+- name: prove the disk is the filesystem this file asked for
+  # THE ONE FACT EVERY LATER STAGE RELIES ON, AND IT WAS NEVER CHECKED. A UFS disk works, so nothing
+  # failed loudly - it just lost 153 files to an unclean shutdown, and the loss surfaced two stages
+  # later as `Exec format error` on a binary nobody had touched.
+  do:
+  - type: sh -c 'df -h / | tail -1; zpool list 2>&1 | head -2'
+    wait_after: 3
+  - key: ret
+    wait_after: 6
 
 - name: stop the machine
   # A STAGE WHOSE OUTPUT IS THE DISK MAY NOT LOSE ITS WRITES, AND `sync` ABOVE IS HOW THAT IS GUARANTEED.
