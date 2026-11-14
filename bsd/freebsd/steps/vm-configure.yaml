@@ -1,0 +1,109 @@
+name: freebsd 15.1 - the desktop is up
+resolution:
+- 1920
+- 1080
+ssh_user: vmuser
+ssh_port: 2222
+vars:
+  user:
+    from: args.user
+    default: vmuser
+  password:
+    from: args.password
+    default: admin
+  out:
+    from: args.out
+    default: out/freebsd-vm-configure.qcow2
+  shutdown:
+    from: args.shutdown
+    default: ssh
+steps:
+- name: start recording
+  record: freebsd-vm-configure.mp4
+- name: boot the disk
+  boot: true
+  os: bsd
+  memory_mb: 8192
+  timeout: 900
+- name: wait for sshd
+  require_ssh: true
+  timeout: 600
+
+# THE DESKTOP IS THE VERDICT ON THE WHOLE CHAIN, AND IT IS A PICTURE RATHER THAN A PHRASE.
+#
+# `desktop: bsd` WOULD BE THE OBVIOUS TEST AND IT DOES NOT EXIST: `internal/screen` has
+# `IsWindowsDesktop`, `IsLinuxDesktop` and `IsMacOSDesktop`, and a BSD desktop with XFCE draws the same
+# panel a Linux XFCE does - so `IsLinuxDesktop` is the right measurement, and the boot menu behind it
+# is what makes the distinction meaningless at this point (xfce's own panel is the thing being looked
+# for, not the kernel).
+- name: the session is running
+  # `startx` IS NOT USED: lightdm starts the session at boot because `lightdm_enable=YES` and
+  # `autologin-user` were set by the ssh stage. What this asks is whether lightdm actually got there.
+  ssh: pgrep -x lightdm >/dev/null && echo LIGHTDM_UP
+  timeout: 180
+
+- name: wait for the desktop
+  loop:
+    max: 40
+    do:
+    - wait: 10
+    ocr:
+      name: desk
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: ready
+      from: desk
+      # AN XFCE SESSION DRAWS `Applications` IN ITS PANEL AND SITS ON A DESKTOP WHOSE CONTEXT MENU SAYS
+      # `Desktop`. Both are absent from the boot log, from a login prompt and from a black screen -
+      # which is what the three failure modes look like.
+      mode: says_any
+      words:
+      - - applications
+      - - desktop
+      - - xfce
+    until:
+      fact: ready
+
+- name: the desktop is not a login prompt
+  # A GREETER ALSO DRAWS TEXT, so "something is on screen" is not enough: `/etc/issue` and the greeter's
+  # own `Password:` line are what a session that never started looks like, and this fails the stage on
+  # them rather than publishing a disk that boots to a prompt.
+  ocr:
+    name: greeter
+    region:
+    - 0
+    - 0
+    - 1920
+    - 1080
+    region_at:
+    - 1920
+    - 1080
+    scale: 1
+    wait: 0
+- name: check there is no login prompt
+  check:
+    name: no_prompt
+    from: greeter
+    mode: says_without
+    words:
+    - freebsd
+    without:
+    - login
+    - password
+
+- name: stop the machine
+  shutdown: '{{ shutdown }}'
+  timeout: 300
+- name: publish the disk
+  compress: '{{ out }}'
+- name: stop recording
+  record: false

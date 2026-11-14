@@ -386,12 +386,22 @@ func cmdRun(args []string) int {
 	// FLAGS AFTER THE FILE ARE STILL FLAGS. Go's flag package stops at the first non-flag argument,
 	// so `easyvm run f.yaml --work /tmp/x` would leave --work unread and the work directory at its
 	// default - which is the invocation people actually type.
-	rest := fs.Args()
-	_ = rest
-	if err := fs.Parse(args); err != nil {
+	//
+	// AND A `--name=value` THAT IS NOT A FLAG IS THE FILE'S OWN VARIABLE, so it has to be taken out
+	// before `fs.Parse` sees it. THE TWO ARE THE SAME SHAPE ON THE COMMAND LINE and the flag package
+	// cannot tell them apart: `--shutdown=kill` is not declared here because it is a variable of the
+	// walkthrough, and `fs.Parse` answered
+	//
+	//	flag provided but not defined: -shutdown
+	//
+	// which is a usage error for something the help text advertises. Splitting them first is what
+	// makes `--shutdown=kill` and `--mirror=<url>` work at all - measured on this build, where
+	// passing either returned exit 2 before running a single step.
+	flags, named := splitVars(args)
+	if err := fs.Parse(flags); err != nil {
 		return 2
 	}
-	rest = fs.Args()
+	rest := fs.Args()
 	if len(rest) == 0 {
 		fmt.Fprintln(os.Stderr, "easyvm run: a walkthrough file is required")
 		return 2
@@ -402,7 +412,6 @@ func cmdRun(args []string) int {
 			return 2
 		}
 	}
-
 	// A FILE THAT CANNOT LOAD IS REFUSED HERE, not by the daemon. The daemon would refuse it too,
 	// but the client has the file on disk and can say what is wrong without a round trip - and a
 	// client that hands over a broken file has made the daemon's log the place to look for a
@@ -427,7 +436,7 @@ func cmdRun(args []string) int {
 	// THE FILE'S OWN VARIABLES COME FROM THE COMMAND LINE, because a run fact is not a property of
 	// the walkthrough: the same file runs against a throwaway overlay (`shutdown: kill`) and against
 	// a disk it owns (`shutdown: ssh`).
-	vars := gatherVars(args)
+	vars := named
 
 	resp, err := cl.Do(client.Request{
 		Command:  "run",
@@ -658,6 +667,57 @@ func gatherVars(args []string) map[string]string {
 		out[kv[0]] = kv[1]
 	}
 	return out
+}
+
+// splitVars separates the command's own flags from the walkthrough's variables.
+//
+// THE PROBLEM IT SOLVES IS THAT `--out=x` AND `--shutdown=x` ARE THE SAME SHAPE. One is a flag this
+// command declares; the other is a variable the FILE declares, and the flag package refuses it with
+// `flag provided but not defined` before `gatherVars` ever runs. So the declared flag names are
+// enumerated here, everything else of the `--name=value` form is lifted out, and both halves are
+// handed on: the flags to `fs.Parse`, the variables to the request.
+//
+// A FLAG THAT TAKES A VALUE IS RECOGNISED WITH ITS VALUE, whether it is written `--work /tmp` or
+// `--work=/tmp`, because the two halves must not be separated or `fs.Parse` would read the path as
+// the file to run.
+func splitVars(args []string) (flags []string, vars map[string]string) {
+	// THE DECLARED FLAGS OF `run`, WHICH IS THE ONLY COMMAND THAT TAKES VARIABLES.
+	valued := map[string]bool{"work": true, "boot-disk": true, "out": true, "password": true}
+	vars = map[string]string{}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "--") {
+			flags = append(flags, a)
+			continue
+		}
+		name := strings.TrimPrefix(a, "--")
+		if eq := strings.Index(name, "="); eq >= 0 {
+			base := name[:eq]
+			if valued[base] {
+				flags = append(flags, a)
+				continue
+			}
+			if base != "" {
+				vars[base] = name[eq+1:]
+				continue
+			}
+			flags = append(flags, a)
+			continue
+		}
+		if valued[name] {
+			// A VALUE-TAKING FLAG TAKES THE NEXT ARGUMENT TOO.
+			flags = append(flags, a)
+			if i+1 < len(args) {
+				flags = append(flags, args[i+1])
+				i++
+			}
+			continue
+		}
+		// A BARE `--name` WITH NO `=` IS NOT A VARIABLE (there is no value), so it is left for
+		// `fs.Parse` to refuse with its own message rather than silently ignored.
+		flags = append(flags, a)
+	}
+	return flags, vars
 }
 
 // cmdCreate starts a machine and leaves it running, for a sandbox pod.

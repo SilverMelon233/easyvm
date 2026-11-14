@@ -101,6 +101,23 @@ jobs:
           - { tag: "iso-popos-desktop", group: "linux", url: "https://iso.pop-os.org/24.04/amd64/intel/10/pop-os_24.04_amd64_intel_10.iso", sha: "a5b7321babdef75d86c688d3429fbd5525689d80a1a8b94bc393eea84f372b62", size: "2583691264" }
           - { tag: "iso-nixos-graphical", group: "linux", url: "https://releases.nixos.org/nixos/26.05/nixos-26.05.13627.c56a87d8e41c/nixos-graphical-26.05.13627.c56a87d8e41c-x86_64-linux.iso", sha: "62900e47b6bea0917c491ac0a8e18dd4e3b7579d9b60ee8e0bbbd8945162256d", size: "3888513024" }
           - { tag: "iso-ghostbsd-mate", group: "linux", url: "https://download.ghostbsd.org/releases/amd64/26.3.R15.1p6/GhostBSD-26.3.R15.1p6.iso", sha: "2d1b46e7d0d9339ef04d2ee386783a2431f43eecb873b8f11b7109a43c577f7f", size: "4122404864" }
+          # FREEBDS 15.1, THE MEDIUM `bsd/freebsd/steps/install.yaml` FETCHES AS `release: freebsd`.
+          #
+          # THIS ROW IS NOT OPTIONAL, AND `TestEveryFetchedTagIsPublishedAndEveryPublishedTagIsFetched`
+          # IS WHY: `release: freebsd` resolves to the tag `iso-freebsd` through `linuxISOTag`, and a
+          # tag that no publish row writes is a stage that spends its download budget and then fails
+          # with a 404. The test names that exact failure, and it caught this file.
+          #
+          # THE CHECKSUM IS FREEBDS'S OWN, NOT ONE COMPUTED FROM A LOCAL COPY:
+          #
+          #	https://download.freebsd.org/releases/amd64/amd64/ISO-IMAGES/15.1/CHECKSUM.SHA256-FreeBSD-15.1-RELEASE-amd64
+          #	SHA256 (FreeBSD-15.1-RELEASE-amd64-disc1.iso) = fa27646f...
+          #
+          # disc1 RATHER THAN bootonly OR dvd1: `usr.sbin/bsdinstall` on disc1 is a PKGBASE image, so
+          # `bsdinstall script` installs the base system from the 328 packages under
+          # /usr/freebsd-packages/offline with no network at all. See `bsd/freebsd/steps/install.yaml`
+          # for why that choice is what makes this stage work.
+          - { tag: "iso-freebsd", group: "linux", url: "https://download.freebsd.org/releases/amd64/amd64/ISO-IMAGES/15.1/FreeBSD-15.1-RELEASE-amd64-disc1.iso", sha: "fa27646f05a1440fd26ffbb85e06a50bc86e128242a4e9cb7bb3ea76e1aa5fd9", size: "1352255488" }
           - { tag: "macos-asset-opencore", group: "macos", url: "https://github.com/acidanthera/OpenCorePkg/releases/download/1.0.7/OpenCore-1.0.7-RELEASE.zip", sha: "2ffab6ebf58c7aefb0bcb3a1a385d207746823d6dd87d44bd666e1286939943e", size: "10437696" }
           - { tag: "macos-asset-opencore-template", group: "macos", url: "https://github.com/LongQT-sea/OpenCore-ISO/releases/download/v0.7/LongQT-OpenCore-v0.7.iso", sha: "287328995d4198f1b05166f087d85bf7ef66bedafe150d17ad112ac8de60051d", size: "15884288" }
           - { tag: "macos-asset-ovmf-code", group: "macos", url: "https://raw.githubusercontent.com/kholia/OSX-KVM/326053dd61f49375d5dfb28ee715d38b04b5cd8e/OVMF_CODE.fd", sha: "52a625db5a45329bf8005232db33e94781787d92ae8d088f2f73332dd4ded3a9", size: "1966080" }

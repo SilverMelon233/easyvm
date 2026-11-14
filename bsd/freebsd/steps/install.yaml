@@ -1,0 +1,581 @@
+name: freebsd 15.1 - bsdinstall, to an installed system
+resolution:
+- 1920
+- 1080
+vars:
+  user:
+    from: args.user
+    default: vmuser
+  password:
+    from: args.password
+    default: admin
+  out:
+    from: args.out
+    default: out/distro.qcow2
+  shutdown:
+    from: args.shutdown
+    default: kill
+steps:
+- name: start recording
+  record: freebsd-install.mp4
+- name: create the empty disk
+  disk: disk.qcow2
+  disk_gb: 128
+- name: fetch the installer image
+  release: freebsd
+  asset: linux_iso
+- name: boot the installer
+  boot: true
+  os: bsd
+  # THE MEDIUM HAS TO BE NAMED, AND ITS ABSENCE IS SILENT. `fetch:` puts the file in the work directory
+  # and the asset layer keeps its path under this role, but `boot:` mounts only what its `iso:` names.
+  # MEASURED on the first attempt at this file, whose qemu command line had the target disk and NO
+  # optical device:
+  #
+  #	BdsDxe: No bootable option or device was found.
+  #
+  # `bsd/ghostbsd/steps/gbi.yaml` has this line and that is why the GhostBSD installer ever started.
+  iso: installer_iso
+  # EIGHT GIGABYTES, AND THIS IS A REQUIREMENT OF ZFS RATHER THAN A PREFERENCE.
+  #
+  # MEASURED: the 4 GiB default got the installer through partitioning and the base-system extraction
+  # and then left the machine to swap against itself; ZFS allocates its ARC out of the same memory and
+  # the install is the worst case for it - a whole pool being written while the installer's own
+  # processes run. `bsd/ghostbsd` states the same number for the same reason ("26.3's 1909 MiB uzip
+  # image cannot fit in a 4 GiB memdisk").
+  memory_mb: 8192
+  timeout: 1800
+
+# `bsdinstall` IS A bsddialog INSTALLER: EVERY PANE IS A TEXT BUTTON ROW, AND THE KEYS ARE THE NAVIGATION.
+#
+# THAT IS THE OPPOSITE OF THE GUI WALKTHROUGHS IN THIS REPOSITORY, and it changes two things:
+#
+#	PRESELECTION IS THE DEFAULT ANSWER. Almost every pane opens with the right button highlighted, so
+#	`key: ret` alone advances it. A click at a coordinate would be a guess about a font.
+#
+#	LETTERS ARE SHORTCUTS INSIDE A LIST. In `ZFS Configuration`, `T` opens the pool editor and `P` cycles
+#	the partition scheme - so a stray letter is an ACTION, not nothing. MEASURED: an `esc` sent to leave
+#	that list aborted the running install and put up
+#
+#		ZFS setup failed
+#		An installation step has been aborted. Would you like to restart the installation, or exit?
+#
+#	which is why this file presses nothing it has not been measured to need.
+#
+# THE SEQUENCE BELOW IS THE ONE THAT WAS WALKED BY HAND ON THIS GUEST, pane by pane, and every `name:`
+# is the title or the highlighted row that was on screen at that moment.
+- name: wait for the installer menu
+  loop:
+    max: 60
+    do:
+    - wait: 10
+    ocr:
+      name: pane
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: menu_up
+      from: pane
+      mode: says_any
+      words:
+      - - install
+      - - live
+        - system
+    until:
+      fact: menu_up
+
+- name: welcome - Install is preselected
+  # `Welcome to FreeBSD! Would you like to begin an installation or use the live system?`
+  # [ Install ] [ Shell ] [ Live System ]
+  key: ret
+  wait_after: 10
+- name: keymap - continue with the default
+  # `Keymap Selection` -> `>> Continue with default keymap`, preselected.
+  key: ret
+  wait_after: 8
+- name: hostname
+  # `Please choose a hostname for this machine.` - an INPUT FIELD, so the text has to be cleared.
+  # The field is focused on arrival; typing appends to nothing because it starts empty.
+  type: freebsd
+  wait_after: 2
+- name: accept the hostname
+  key: ret
+  wait_after: 8
+- name: distribution sets
+  # `Would you like to install the base system using traditional distribution sets or packages
+  # (technology preview)?` -> [ Distribution Sets ] [ Packages (Tech Preview) ]
+  #
+  # DISTRIBUTION SETS, NOT PACKAGES: the "tech preview" path fetches from the network and this stage
+  # deliberately does not depend on it.
+  key: ret
+  wait_after: 10
+- name: mirror selection - offline
+  # `Network or Offline Installation` -> [ Network ] [ Offline (Limited Packages) ]
+  #
+  # OFFLINE, FOR THE SAME REASON. `right` moves the selection here - and only here, where the row really
+  # is a two-button choice.
+  key: right
+  wait_after: 2
+- name: accept offline
+  key: ret
+  wait_after: 10
+
+- name: partitioning - automatic zfs
+  # `How would you like to partition your disk?`
+  #   >> Auto (UFS)  Guided UFS Disk Setup
+  #      Auto (ZFS)  Guided ZFS Disk Setup
+  #      Manual / Shell
+  #
+  # AUTO (ZFS) IS WHAT WRITES A UEFI-BOOTABLE DISK. Its `Partition Scheme` defaults to
+  # `GPT (BIOS+UEFI)`, which is the one that creates an EFI system partition AND installs the loader
+  # into it - measured on the pane itself, and the reason the GhostBSD path was abandoned:
+  #
+  #	P Partition Scheme:  GPT (BIOS+UEFI)
+  #
+  # (GhostBSD's GBI creates the same partition and then writes a ZERO-BYTE EFI/BOOT/BOOTX64.EFI into
+  # it, which is a defect in that installer and cannot be answered from a walkthrough.)
+  do:
+  - key: down
+    wait_after: 1
+  - key: ret
+    wait_after: 10
+
+- name: zfs configuration opens with the pool editor
+  # The `Auto (ZFS)` row goes STRAIGHT to `ZFS Configuration`, which lists:
+  #
+  #	T Pool Type/Disks:  stripe: 0 disks
+  #	P Partition Scheme: GPT (BIOS+UEFI)
+  #	R Pool Name:        zroot
+  #	S Swap Size:        2g
+  #
+  # `T` IS PRESELECTED AND RETURN OPENS IT - there is no separate "configure" click.
+  key: ret
+  wait_after: 6
+- name: pool type - stripe, for one disk
+  # `Select Virtual Device type` -> [ stripe ] mirror raid10 raidz1 raidz2 raidz3
+  # `stripe` is preselected and is the only correct answer for a single disk.
+  key: ret
+  wait_after: 6
+- name: select the disk - SPACE marks it
+  # `Please select one or more disks to create a pool:`
+  #	[ ] vtbd0  VirtIO Block Device
+  #
+  # SPACE, NOT RETURN. The pane's own footer says `Use arrows, SPACE, TAB or ENTER`, and Return on an
+  # unmarked disk leaves `stripe: 0 disks` - a pool with no vdev, which the installer then refuses.
+  # MEASURED: the marker is `[X]` and the pane shows `stripe: 1 disk` once it is set.
+  #
+  # THE DEVICE IS `vtbd0` AND NOT `ada0`: this guest's disk is on virtio, and a walk that looked for
+  # `ada` would select nothing.
+  key: spc
+  wait_after: 3
+- name: accept the disk selection
+  key: ret
+  wait_after: 6
+- name: confirm the disk will be destroyed
+  # `Your are sure you want to destroy contents of the following disks?  vtbd0`
+  # [ YES ] [ NO ] - YES is preselected.
+  key: ret
+  wait_after: 8
+
+- name: install
+  # BACK ON `ZFS Configuration` with `T Pool Type/Disks: stripe: 1 disk`, and `[Select]` highlighted.
+  #
+  # TAB MOVES THE FOCUS FROM THE LIST TO THE BUTTON ROW, and the buttons are `[Select]` and `[Cancel]` -
+  # NOT `[OK]`, which is what the earlier draft of this file assumed. Return fires the focused one.
+  #
+  # NOTHING ELSE IS PRESSED HERE. A stray letter is a shortcut inside that list, and an esc aborts an
+  # install that is already running.
+  do:
+  - key: tab
+    wait_after: 1
+  - key: ret
+    wait_after: 20
+
+- name: wait for the install to finish
+  # The partitioner runs, the base system is extracted, and the installer finally reports
+  # `Installation Completed` - this is the long wait, and it is a READING rather than a duration.
+  loop:
+    max: 180
+    do:
+    - wait: 15
+    ocr:
+      name: done
+      # THE DIALOG, NOT THE WHOLE SCREEN, AND `scale: 3` BECAUSE THE TEXT IS SIXTEEN PIXELS.
+      #
+      # AT `scale: 1` OVER THE FULL FRAME THE READING WAS ONE LINE - the window's own title:
+      #
+      #	wait for the install to finish [check]: finished = false (none of "installation completed"
+      #	  or "root password" or "system management account" or "add user" or "manual configuration"
+      #	  in "FreeBSD Installer —")
+      #
+      # so the check could never be answered on a machine that had finished installing. MEASURED: the
+      # dialog occupies x=600..940 y=340..580 at 1920x1080, and at 3x tesseract returns
+      #
+      #	Please select a passwort / account (root) / The password cannot be ... / Password
+      #
+      # (its own misspelling of "password" included, which is why the word list below does not depend
+      # on that word alone).
+      region:
+      - 600
+      - 340
+      - 940
+      - 580
+      region_at:
+      - 1920
+      - 1080
+      scale: 3
+      wait: 0
+    check:
+      name: finished
+      from: done
+      # THE INSTALLER MOVES ON TO ITS POST-INSTALL MENU, AND THAT IS THE REAL END OF THE EXTRACTION.
+      #
+      # `Installation Completed` IS A LINE IT MAY NOT SHOW AT ALL. MEASURED ON THIS STAGE'S OWN RUN:
+      # the loop spent forty-five minutes on a machine that had already finished, because the pane
+      # that was on screen was
+      #
+      #	Please select a password for the system management account (root).
+      #	Password:        [***********]
+      #	Repeat password: [***********]
+      #	                     [ OK ]  [ Help ]
+      #
+      # - the FIRST pane of the post-install menu. The base system was on the disk and the installer
+      # was waiting for a person, which is the same shape as GhostBSD's `Installation Completed` and
+      # was read past for the same reason: the words being waited for were not the words on screen.
+      #
+      # SO THE TEST IS THE POST-INSTALL MENU ITSELF, in any of the forms it takes - the root password
+      # prompt first, then the menu with `Add User` and `Exit`.
+      mode: says_any
+      words:
+      - - installation
+        - completed
+      - - account
+        - root
+      - - system
+        - management
+        - account
+      - - repeat
+        - password
+      - - add
+        - user
+      - - manual
+        - configuration
+    until:
+      fact: finished
+
+# ==========================================================================================
+# THE POST-INSTALL MENU, WHICH IS WHERE THE ACCOUNT AND THE BOOT LOADER ARE FINISHED
+# ==========================================================================================
+#
+# `Installation Completed` IS NOT THE END OF THE INSTALLER. What follows is a sequence of panes, and
+# THE ORDER WAS MEASURED BY HAND on this guest:
+#
+#	root password  ->  Add User  ->  ...  ->  network  ->  time zone  ->  ...  ->  Exit
+#
+# AND A `Return` IN A PASSWORD PANE SUBMITS IT. That is the opposite of what a GUI would do, and it is
+# what made the first version of this file fail:
+#
+#	Please select a password for the system management account (root).
+#	The passwords do not match.
+#
+#	Password:        [***********]
+#	Repeat password: [***********]
+#
+# TWO FIELD PAIRS, EACH FILLED AND THEN MOVED PAST WITH `tab`, AND `tab` IS THE MOVE. `Return` at the
+# end of the first field is a SUBMIT of a half-filled form - the error above is exactly what that looks
+# like, and it does not clear when the second field is then filled.
+# ==========================================================================================
+# THE POST-INSTALL SEQUENCE, IN THE ORDER `bsdinstall auto` ACTUALLY RUNS IT
+# ==========================================================================================
+#
+# THE ORDER IS NOT A GUESS. It is read from `usr.sbin/bsdinstall/scripts/auto`, which ends with:
+#
+#	bsdinstall rootpass || error "Could not set root password"
+#	if [ "$NETCONFIG_DONE" != yes ]; then bsdinstall netconfig; fi
+#	[ -z "$BSDINSTALL_SKIP_TIME" ]     && bsdinstall time
+#	[ -z "$BSDINSTALL_SKIP_SERVICES" ] && bsdinstall services
+#	[ -z "$BSDINSTALL_SKIP_HARDENING" ] && bsdinstall hardening
+#	[ -z "$BSDINSTALL_SKIP_FIRMWARE" ] && bsdinstall firmware
+#	[ -z "$BSDINSTALL_SKIP_USERS" ] && bsddialog --title "Add User Accounts" --yesno \
+#	    "Would you like to add users to the installed system now?" 0 0 && bsdinstall adduser
+#	[ -z "$BSDINSTALL_SKIP_FINALCONFIG" ] && bsdinstall finalconfig
+#	bsdinstall config  || error "Failed to save config"
+#	... "Manual Configuration" yesno -> chroot shell
+#
+# SO THERE ARE EIGHT PANES BETWEEN "the base system is on the disk" and "here is a root shell",
+# AND THE EARLIER VERSION OF THIS FILE DID NOT KNOW THAT. It answered whatever was on screen with
+# `ret` in a loop and stopped when it saw the word `exit`, which failed three ways:
+#
+#	Add User Accounts defaults to YES, so a blind Return launched adduser's prompt chain, and every
+#	Return after that was an empty username:
+#
+#		adduser: ERROR: You must enter a username
+#		Username: _
+#
+#	services is a CHECKLIST whose first entry is `sshd`, preselected. A Return there opens nothing
+#	and the loop has already spent an attempt.
+#
+#	time is THREE panes (region, country, confirm) plus a date and a time box, so a blind Return
+#	walks into a calendar the loop cannot read its way out of.
+#
+# THE ANSWER IS TO DRIVE EACH PANE BY NAME, in the order the script runs them, one step per pane.
+
+# --- rootpass ------------------------------------------------------------------------------
+#
+# `Skip` IS A BUTTON, AND IT TAKES THREE KEYS TO REACH. MEASURED ON THIS PANE:
+#
+#	field --tab--> repeat field --tab--> [ OK ] --right--> [ Skip ] --ret--> out
+#
+# `right` ALONE DOES NOT WORK ONCE THE FIELDS HOLD TEXT: the focus is inside the password input, so
+# right moves the CARET. The pane then sits on `The passwords do not match.` forever.
+#
+# AND THE FIELDS DO HOLD TEXT, because the walkthrough types into them - that is how `bsdinstall` is
+# told the account password. What it does with that text is why this pane is skipped at all:
+#
+#	Password:        [***********]
+#	Repeat password: [***********]
+#	The passwords do not match.
+#
+# both halves filled from the same variable and the pane still reports a mismatch. `bsddialog`'s
+# password widget echoes a fixed run of stars regardless of what it holds, so there is nothing to read
+# back and no way to tell which half is wrong. The password is set later, in a root shell, with `pw`.
+- name: the root password - first field
+  type: '{{ password }}'
+  wait_after: 2
+- name: the root password - tab to the second field
+  key: tab
+  wait_after: 1
+- name: the root password - second field
+  type: '{{ password }}'
+  wait_after: 2
+- name: skip the root password pane
+  do:
+  - key: tab
+    wait_after: 1
+  - key: tab
+    wait_after: 1
+  - key: right
+    wait_after: 1
+  - key: ret
+    wait_after: 8
+
+# --- netconfig -----------------------------------------------------------------------------
+#
+# `Please select a network interface and configuration mode:` with `[ Auto ] [ Manual ]`. `Auto` is
+# the default and is what runs `dhclient` on the virtio NIC - and `Auto` is also what makes the rest
+# of netconfig non-interactive:
+#
+#	if [ ${IPV4_AVAIL} -eq 1 -a -z "$AUTO" ]; then    # only asks when NOT auto
+#	    bsddialog --yesno 'Would you like to configure IPv4 for this interface?'
+#
+# so ONE Return here answers the whole netconfig stage. A guest that takes IPv6 as well is fine: the
+# walkthrough does not depend on it.
+- name: network - auto, which is the interface menu's default button
+  key: ret
+  wait_after: 15
+
+# --- time ----------------------------------------------------------------------------------
+#
+# `tzsetup -s`, THEN a date box, THEN a time box, and BOTH boxes are `--default-no` with `Skip` as
+# their cancel label. THE REGION LIST IS THE FIRST PANE OF `tzsetup`, and `UTC` is reached by
+# choosing `UTC` in the region list rather than by walking into a country.
+#
+# THE DATE AND TIME BOXES ARE SKIPPED ON PURPOSE AND THAT IS NOT A SHORTCUT: a QEMU guest with
+# `-rtc base=utc` already has the right time from the host, and a walkthrough that sets it by hand
+# sets it to whenever the bake ran. `Skip` leaves the clock alone, which is the correct answer.
+- name: time zone - the region list opens on UTC, which is the first entry
+  key: ret
+  wait_after: 6
+- name: time zone - the date box, skipped
+  # `--default-no` PUTS THE FOCUS ON `Skip`, so this Return takes it. That is the opposite of the
+  # root password pane, where `Skip` needed `right` - the difference is `--default-no`, which
+  # preselects the cancel button.
+  key: ret
+  wait_after: 4
+- name: time zone - the time box, skipped
+  key: ret
+  wait_after: 4
+
+# --- services ------------------------------------------------------------------------------
+#
+# `System Configuration: Choose the services you would like to be started at boot:`
+#
+#	[X] sshd          Secure shell daemon
+#	[ ] ntpd          Synchronize system and network time
+#	[X] dumpdev       Enable kernel crash dumps to /var/crash
+#
+# `sshd` IS PRESELECTED (its default is `on` in `services`), so the correct answer is to accept the
+# list as it stands - which is the `[ OK ]` button, and it is where the focus already is.
+#
+# THIS IS ALSO THE PANE THE WHOLE SSH CHAIN DEPENDS ON. Measured on the disk this produces, booted
+# with no CD: `Starting sshd` and a `login:` prompt, with `PasswordAuthentication` set by the chroot
+# block further down.
+- name: services - sshd is already ticked, so accept the list
+  key: ret
+  wait_after: 6
+
+# --- hardening -----------------------------------------------------------------------------
+#
+# A CHECKLIST OF `hide_gids`, `hide_jail`, `read_msgbuf`, `proc_debug`, ... The repo's disk needs none
+# of them and the list is all unchecked, so the `[ OK ]` button accepts an unmodified system.
+- name: hardening - nothing to hide on a throwaway guest, so accept
+  key: ret
+  wait_after: 6
+
+# --- firmware ------------------------------------------------------------------------------
+#
+# `Install Firmware (requires network)` is a `--no-cancel` menu whose only entries are `Skip` and
+# `OK` in effect, and firmware packages are a hundred megabytes of wireless blobs for hardware this
+# machine does not have.
+- name: firmware - skip it
+  key: ret
+  wait_after: 10
+
+# --- Add User Accounts ---------------------------------------------------------------------
+#
+# `Would you like to add users to the installed system now?`  [ Yes ]  [ No ]
+#
+# NO. THE ACCOUNT IS CREATED IN THE CHROOT SHELL INSTEAD, AND THIS IS THE PANE THAT BROKE THE
+# EARLIER VERSION OF THIS FILE: this dialog DEFAULTS TO `Yes`, so a blind Return started
+# `bsdinstall adduser` - a prompt CHAIN (`Username`, `Full name`, `Uid`, `Login class`, `Shell`,
+# `Home`, `Home permissions`, ...) that aborts with
+#
+#	adduser: ERROR: You must enter a username
+#
+# if a Return arrives before a name is typed, and then sits at a SECOND `Username:` prompt no step
+# was going to answer.
+#
+# `No` IS THE RIGHT BUTTON AND `right` REACHES IT, because this yesno's focus starts on `Yes`.
+- name: do not add a user here - the chroot shell does it
+  do:
+  - key: right
+    wait_after: 1
+  - key: ret
+    wait_after: 8
+
+# --- finalconfig ---------------------------------------------------------------------------
+#
+# `Final Configuration: Setup of your FreeBSD system is nearly complete. You can now modify your
+# configuration choices.` A MENU whose FIRST ENTRY IS `Finish`:
+#
+#	>> Finish              Apply configuration and exit installer
+#	   Add User            Add a user to the system
+#	   Root Password       Change root password
+#	   ...
+#
+# so one Return finishes it. THIS IS NOT THE SAME PANE AS `Exit The Installer`, which does not exist:
+# `finalconfig` is a menu of things to CHANGE, and `Finish` is how it is left.
+- name: final configuration - Finish is the first entry
+  key: ret
+  wait_after: 10
+
+# --- the chroot shell ----------------------------------------------------------------------
+#
+# `The installation is now finished. Before exiting the installer, would you like to open a shell in
+# the new system to make any final manual modifications?`  [ Yes ]  [ No ]
+#
+# THIS DIALOG IS `--default-no`, so `No` holds the focus and `left` moves to `Yes`. MEASURED: the
+# pane opens with `[ Yes ] [ No ]` and NO highlighted, and `left` then `ret` gets the root shell.
+#
+# THIS IS THE ONLY PLACE IN THE WHOLE WALKTHROUGH WHERE A REAL ROOT SHELL EXISTS, which is why every
+# privileged setting is written here rather than through a dialog.
+- name: open a shell in the new system
+  do:
+  - key: left
+    wait_after: 1
+  - key: ret
+    wait_after: 12
+
+# ROOT GETS THE PASSWORD THE INSTALLER WAS TOLD, VIA A TOOL THAT CANNOT DISAGREE WITH ITSELF.
+#
+# `pw usermod -h 0` READS THE PASSWORD FROM STDIN, which is why `printf` pipes into it: the tool does
+# not take a password argument, on purpose - an argument is visible in `ps`.
+- name: set the root password
+  do:
+  - type: printf '%s\n' '{{ password }}' | pw usermod root -h 0
+    wait_after: 3
+  - key: ret
+    wait_after: 5
+
+# THE ACCOUNT, WITH `wheel` SO IT CAN ESCALATE.
+#
+# `-G wheel` IS THE WHOLE REASON `su` WORKS FROM IT LATER: FreeBSD's `su` consults `pam_group` with
+# `group=wheel`, and a user outside it is refused with `su: Sorry` - MEASURED on a disk from this
+# walk, before this line existed.
+#
+# `-m` CREATES THE HOME DIRECTORY AND `-s` SETS THE SHELL, both of which matter: without a shell the
+# account exists and cannot log in over ssh, which reads afterwards as an ssh failure.
+- name: create the account
+  do:
+  - type: printf '%s\n' '{{ password }}' | pw useradd -n {{ user }} -m -s /bin/csh -G wheel -h 0
+    wait_after: 3
+  - key: ret
+    wait_after: 5
+
+- name: prove the account exists
+  # THE OUTPUT IS THE EVIDENCE, and a walkthrough that creates an account without reading it back is
+  # one that discovers the mistake at the ssh stage instead of here.
+  do:
+  - type: pw usershow {{ user }}
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+
+# SSHD REFUSES PASSWORDS UNTIL TOLD OTHERWISE, AND THIS SHELL IS THE ONLY PLACE THAT CAN SAY SO.
+#
+# MEASURED at the ssh stage: `the port is open but no shell answers: ssh: unable to authenticate,
+# attempted methods [none keyboard-interactive]`. The port answered because `services` enabled sshd;
+# the REFUSAL is FreeBSD's default `PasswordAuthentication no`, and a guest whose only credential is
+# a password cannot be driven at all.
+#
+# `PermitRootLogin` IS LEFT ALONE ON PURPOSE. Its default is `prohibit-password`, which is right: the
+# stages log in as the unprivileged account, and root over ssh is not a door this walkthrough opens.
+#
+# `sed -i ''` IS BSD SED'S FORM: the empty backup suffix is not optional, and a Linux `sed -i` here
+# consumes the next argument as its suffix and edits nothing.
+- name: allow password authentication over ssh
+  do:
+  - type: sed -i '' 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    wait_after: 3
+  - key: ret
+    wait_after: 4
+
+- name: prove the setting took
+  # `grep -c` PRINTS A NUMBER, so the log says `1` rather than only that the command exited 0.
+  do:
+  - type: grep -c '^PasswordAuthentication yes' /etc/ssh/sshd_config
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+
+- name: make sure sshd starts at every boot
+  do:
+  - type: sysrc sshd_enable=YES
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+
+- name: leave the shell, which finishes the install
+  do:
+  - type: exit
+    wait_after: 2
+  - key: ret
+    wait_after: 15
+
+- name: stop the machine
+  # A STAGE WHOSE OUTPUT IS THE DISK MAY NOT BE KILLED, and this one has just written a ZFS pool.
+  # `acpi` lets the guest close its pools; the caller can still ask for `kill` through the variable.
+  shutdown: '{{ shutdown }}'
+  timeout: 300
+- name: publish the disk
+  compress: '{{ out }}'
+- name: stop recording
+  record: false

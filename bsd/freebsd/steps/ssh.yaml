@@ -1,0 +1,163 @@
+name: freebsd - xfce from a mirror, which is fast here
+resolution:
+- 1920
+- 1080
+ssh_user: vmuser
+ssh_port: 2222
+vars:
+  user:
+    from: args.user
+    default: vmuser
+  password:
+    from: args.password
+    default: admin
+  out:
+    from: args.out
+    default: out/freebsd-ssh.qcow2
+  shutdown:
+    from: args.shutdown
+    default: ssh
+  # WHERE THIS GUEST GETS ITS PACKAGES. Empty means FreeBSD's own configured repository, which is
+  # what CI uses: `pkg` asks pkg.freebsd.org and that is the right answer on a runner with an
+  # ordinary internet connection.
+  #
+  # A LAB HOST IS NOT ORDINARY, AND THAT IS MEASURED RATHER THAN ASSUMED:
+  #
+  #	pkg.freebsd.org, direct from the pod          38-68 KB/s
+  #	download.freebsd.org, direct from the pod     69 KB/s
+  #	the SAME file from a mirror                   2.8-5.6 MB/s
+  #
+  # The two official hosts agree with each other and with the guest's own rate, so nothing about this
+  # guest or its NAT is wrong - the route out of this cluster to those two hosts is simply slow. A
+  # desktop is four to six hundred megabytes, which at 60 KB/s is three hours and at 5 MB/s is two
+  # minutes, and no walkthrough survives a three-hour step.
+  #
+  # SO THE MIRROR IS A VARIABLE, NOT A HARD-CODED HOST: `--mirror=<url>` points a lab run at a fast
+  # mirror, and a run that passes nothing uses FreeBSD's own repository exactly as CI does.
+  mirror:
+    from: args.mirror
+    default: ''
+steps:
+- name: start recording
+  record: freebsd-ssh.mp4
+- name: boot the disk
+  boot: true
+  os: bsd
+  memory_mb: 8192
+  timeout: 900
+
+# SSHD, THE ACCOUNT AND `PasswordAuthentication` ARE ALL SET BY THE INSTALL STAGE, IN ITS CHROOT
+# SHELL. This stage used to type into the console to unlock password authentication, and that route
+# was measured and failed: `su: Sorry` before the account was in `wheel`, and
+# `/etc/ssh/sshd_config: Permission denied` after, because a console login as the unprivileged user
+# cannot edit a root-owned file.
+#
+# SO THIS STAGE STARTS BY EXPECTING THE RESULT. `require_ssh` below is the proof, and a failure there
+# means the install stage's chroot block regressed rather than that this stage forgot something.
+- name: wait for sshd
+  require_ssh: true
+  timeout: 600
+- name: prove the kernel over ssh
+  ssh: uname -a
+- name: prove the account over ssh
+  ssh: id -un
+
+# ==========================================================================================
+# THE REPOSITORY, WHICH IS A MIRROR ON A LAB HOST AND FREEBDS'S OWN ON CI
+# ==========================================================================================
+#
+# `pkg` READS A DIRECTORY OF REPOSITORY FILES, and a file in it OVERRIDES the one the base system
+# ships. `/usr/local/etc/pkg/repos/FreeBSD.conf` is that override, and setting `url:` in it is the
+# documented way to point a machine at a mirror - no environment, no proxy, and the same command
+# works afterwards.
+#
+# THE `mirror` VARIABLE DECIDES, AND AN EMPTY ONE WRITES A FILE THAT SAYS `enabled: no`. That is the
+# opposite of a no-op on purpose: FreeBSD's own repository is already configured at
+# `/etc/pkg/FreeBSD.conf`, so disabling the override lets it be used untouched, which is exactly what
+# CI wants. Writing an override with an empty URL would be a broken repository.
+- name: point pkg at the mirror, when one is given
+  ssh: |
+    if [ -n '{{ mirror }}' ]; then
+      mkdir -p /usr/local/etc/pkg/repos
+      printf '%s\n' \
+        'FreeBSD: {' \
+        '  url: "{{ mirror }}",' \
+        '  mirror_type: "none",' \
+        '  enabled: yes' \
+        '}' \
+        > /usr/local/etc/pkg/repos/FreeBSD.conf
+      echo MIRROR_SET
+    else
+      echo NO_MIRROR
+    fi
+  timeout: 60
+
+- name: which repository pkg will actually use
+  # THE EFFECTIVE CONFIGURATION, PRINTED. `pkg -vv` shows the URL it resolved after every override,
+  # so a mirror that was written but ignored is visible here rather than as a slow install.
+  ssh: sh -c "pkg -vv 2>/dev/null | grep -E '^ +url|^FreeBSD' | head -4"
+  timeout: 120
+
+- name: prove the repository answers
+  # THE INDEX IS THE FIRST THING `pkg` FETCHES and it is 9.47 MB, so this step is also a rate
+  # measurement rather than only a check.
+  ssh: sh -c "S=\$(date +%s); pkg update -f >/dev/null 2>&1 && echo \"REPO_OK \$(( \$(date +%s) - S ))s\" || echo REPO_FAIL"
+  timeout: 600
+
+# ==========================================================================================
+# XFCE
+# ==========================================================================================
+#
+# `xfce` IS A META-PORT that pulls the window manager, the panel, the settings daemon and the
+# applications menu in one name. `lightdm` and `lightdm-gtk-greeter` are the display manager and its
+# greeter, and WITHOUT THE GREETER lightdm starts to a black screen with a text cursor - measured in
+# the reference implementation, and the reason both packages are named here rather than `lightdm`
+# alone.
+#
+# `-y` IS NOT OPTIONAL AND `ASSUME_ALWAYS_YES` IS NOT THE SAME THING: `pkg` asks before it installs,
+# and `ssh:` has no terminal to answer with, so the run would sit at a prompt until the timeout.
+- name: install xfce and the display manager
+  ssh: env ASSUME_ALWAYS_YES=yes pkg install -y xfce lightdm lightdm-gtk-greeter
+  timeout: 5400
+
+- name: prove xfce is installed
+  # THE ARTIFACT, NOT A PHRASE FROM THE INSTALLER'S OUTPUT: the session file is what lightdm reads to
+  # offer `Xfce Session`, so its presence is the thing this stage needs.
+  ssh: test -f /usr/local/share/xsessions/xfce.desktop && echo XFCE_PRESENT
+  timeout: 120
+
+- name: enable the display manager at boot
+  ssh: sysrc lightdm_enable=YES
+  timeout: 120
+
+- name: point lightdm at the greeter and autologin
+  # THE GREETER IS NAMED EXPLICITLY, because lightdm's default is `lightdm-gtk-greeter` on some builds
+  # and a missing one on others - and a missing greeter is a black screen.
+  #
+  # `autologin-user` IS SET HERE RATHER THAN IN THE INSTALLER: the installed system has one account and
+  # a walkthrough that has to type a password at a greeter cannot be driven by anything unattended.
+  # `autologin-user-timeout=0` IS NOT A DELAY OF ZERO - it means "do not show the greeter at all", and
+  # without it lightdm still draws the prompt for its default ten seconds.
+  ssh: |
+    printf '%s\n' \
+      '[Seat:*]' \
+      'greeter-session=lightdm-gtk-greeter' \
+      'autologin-user={{ user }}' \
+      'autologin-user-timeout=0' \
+      'user-session=xfce' \
+      > /usr/local/etc/lightdm/lightdm.conf
+  timeout: 120
+
+- name: prove lightdm will start
+  ssh: sh -c 'test -f /usr/local/etc/lightdm/lightdm.conf && grep -c autologin-user /usr/local/etc/lightdm/lightdm.conf'
+  timeout: 120
+
+- name: stop the machine
+  # A STAGE WHOSE OUTPUT IS THE DISK MAY NOT BE KILLED: xfce's install writes thousands of files and a
+  # kill leaves a pool that needs a replay. `ssh` asks the guest's own init to power off.
+  shutdown: '{{ shutdown }}'
+  timeout: 300
+- name: publish the disk
+  compress: '{{ out }}'
+- name: stop recording
+  record: false

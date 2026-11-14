@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -2204,4 +2206,107 @@ func TestAConditionDoesNotCarryATimeout(t *testing.T) {
 		}
 	}
 	t.Logf("checked %d condition step(s)", checked)
+}
+
+// EVERY NAME A STEP HANDS TO THE ASSET LAYER MUST BE A KIND THAT EXISTS.
+//
+// MEASURED ON CI, ON `macos/15/steps/dev.yaml`, at the fourth stage of a chain that had already spent
+// three hours baking a disk:
+//
+//	fetch the packages on the host: "dev_packages" is not an asset this build knows; the kinds are
+//	  guest_agent_windows, guest_agent_macos, xcode, packages, virtio_win, answer_iso, windows_iso,
+//	  recovery_macos, opencore, linux_iso
+//
+// The error names the right answer in the same sentence, which means the check that should have caught
+// it did not exist: a walkthrough is DATA, so the Go compiler never sees the string, and the name only
+// fails when a run reaches that step.
+//
+// THE TEST ASKS THE SOURCE OF TRUTH - the `Kind` constants in internal/asset - and then refuses any
+// `asset:` value in any walkthrough that is not one of them. A file that names a PATH instead of a KIND
+// is `boot:`'s `iso:` (which goes through `assetPath` and may be a path) and is not checked here.
+func TestEveryAssetNameIsAKind(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "asset", "asset.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(\w+)\s+Kind\s*=\s*"([a-z_]+)"`).FindAllStringSubmatch(string(src), -1) {
+		kinds[m[2]] = true
+	}
+	if len(kinds) == 0 {
+		t.Fatal("no asset kinds were found in internal/asset/asset.go, so this checks nothing")
+	}
+
+	files, err := filepath.Glob(filepath.Join("..", "..", "**", "steps", "*.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// `**` is not expanded by filepath.Glob; walk the tree instead.
+	files = nil
+	err = filepath.Walk(filepath.Join("..", ".."), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(path, ".yaml") && strings.Contains(path, "/steps/") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checked := 0
+	for _, path := range files {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(body), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "#") || !strings.HasPrefix(trimmed, "asset:") {
+				continue
+			}
+			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "asset:"))
+			name = strings.Trim(name, `"'`)
+			checked++
+			// `guest_agent` IS A NAME THE ASSET LAYER RESOLVES, NOT A KIND IT STORES, and the
+			// distinction is the whole reason this list has an exception.
+			//
+			// `internal/asset.Fetch` opens with
+			//
+			//	if kind == "guest_agent" {
+			//		switch spec.Family {
+			//		case "macos": kind = GuestAgentMacOS
+			//		default:      kind = GuestAgentWindows
+			//
+			// so a file that says `asset: guest_agent` beside `family: macos` is asking for a real
+			// asset and the suffix is resolved for it. The alternative - making every file repeat
+			// `guest_agent_macos` - is the vocabulary leak that branch was written to remove.
+			//
+			// MEASURED: without this exception the test failed on macos/15/steps/vm-configure.yaml:41
+			// and windows/11/steps/vm-configure.yaml:42, both of which are correct files.
+			if name == "guest_agent" {
+				continue
+			}
+			if !kinds[name] {
+				t.Errorf("%s:%d names `asset: %s`, which is not a kind in internal/asset. The kinds are: %s",
+					path, i+1, name, strings.Join(sortedKeys(kinds), ", "))
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no `asset:` step was found in any walkthrough, so this checks nothing")
+	}
+	t.Logf("checked %d `asset:` name(s) against %d kind(s)", checked, len(kinds))
+}
+
+// sortedKeys is a stable ordering for the failure message.
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

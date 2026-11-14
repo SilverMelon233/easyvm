@@ -50,6 +50,8 @@ case "$leg" in
                  macos)    walk=/walks/macos-setup.yaml ;;
                  *)        walk="/walks/$os-install.yaml" ;;
              esac ;;
+    # freebsd falls through to the generic `$os-install.yaml`, `$os-ssh.yaml` and
+    # `$os-vm-configure.yaml` below - which is why those files are named exactly that way.
     setup)   walk=/walks/macos-setup.yaml ;;
     ssh)     walk="/walks/$os-ssh.yaml" ;;
     vm*)     walk="/walks/$os-vm-configure.yaml" ;;
