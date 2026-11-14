@@ -591,21 +591,51 @@ steps:
 # THE PARTITIONER IS ALREADY SEEDED, because `pkg` on a fresh install has no database. That is also
 # what makes the later `pkg install xfce` a download of its own rather than a re-bootstrap.
 - name: install sudo
-  # THE WAIT IS LONGER THAN THE INSTALL, AND THAT IS THE POINT: this is a 1 MB package plus the
-  # repository catalogue, and on CI the whole thing is seconds. NINETY SECONDS IS DELIBERATE HEADROOM
-  # rather than a measurement - the step after this one READS BACK whether sudo arrived, so a slow
-  # mirror costs a wait and not a wrong disk.
+  # A FIXED WAIT WAS THE BUG, AND THE SYMPTOM WAS THREE STEPS AWAY.
+  #
+  # MEASURED ON CI, run 43629665299: this step typed the command, waited 90 seconds, and pressed
+  # Return. The install stage then REPORTED SUCCESS - 48 of 48 - and the ssh stage failed with
+  #
+  #	/usr/local/bin/sudo: Exec format error. Binary file not executable.
+  #
+  # which is what a TRUNCATED binary looks like. `pkg` was still unpacking when the Return arrived,
+  # and the keystroke went to the console of a running install rather than after it.
+  #
+  # SO THE STEP DOES NOT GUESS: it asks `pkg` to finish, then polls for the file to stop changing.
+  # `pkg info sudo` is the installer's own record that the package is registered, which only happens
+  # once unpacking is complete - a half-written binary is never registered.
   do:
   - type: env ASSUME_ALWAYS_YES=yes pkg install -y sudo
     wait_after: 4
   - key: ret
-    wait_after: 90
+    wait_after: 20
+  # THE POLL LOOPS IN THE GUEST, because a `loop:` here would spend a step per attempt and this is
+  # one question with one answer. Thirty tries at five seconds is two and a half minutes, which is
+  # generous for a one-megabyte package and still bounded.
+  - type: sh -c 'i=0; while [ $i -lt 30 ]; do pkg info sudo >/dev/null 2>&1 && break; sleep 5; i=$((i+1)); done; pkg info sudo 2>&1 | head -2'
+    wait_after: 3
+  - key: ret
+    wait_after: 25
 
 - name: prove sudo arrived
-  # THE OUTPUT IS THE EVIDENCE. Without this, a failed install is invisible until the ssh stage's
-  # `sudo` answers "command not found" - a different stage, a different log, and a disk already baked.
+  # THE OUTPUT IS THE EVIDENCE, AND IT HAS TO NAME THE FILE, NOT ONLY ITS PRESENCE.
+  #
+  # MEASURED ON CI, run 43629665299's ssh leg:
+  #
+  #	/usr/local/bin/sudo: Exec format error. Binary file not executable.
+  #
+  # `pkg install` reported success and the file is there - so `which sudo` would have passed and told
+  # us nothing. `file` says WHAT arrived, which is the question `Exec format error` is asking: an ELF
+  # for another architecture, a truncated download, or a text stub all produce it.
+  #
+  # `ls -l` IS HERE FOR THE OTHER HALF: `Exec format error` is also what a file with no execute bit
+  # produces on some kernels, and the mode is one line away from the name.
   do:
-  - type: which sudo
+  - type: ls -l /usr/local/bin/sudo
+    wait_after: 2
+  - key: ret
+    wait_after: 3
+  - type: file /usr/local/bin/sudo
     wait_after: 2
   - key: ret
     wait_after: 4
