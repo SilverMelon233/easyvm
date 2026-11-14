@@ -96,6 +96,33 @@ steps:
   ssh: sudo sysrc lightdm_enable=YES
   timeout: 120
 
+- name: enable dbus, without which there is no session
+  # `lightdm_enable=YES` ALONE PRODUCES A MACHINE WHERE LIGHTDM NEVER RUNS. MEASURED TWICE, on runs
+  # 43637282104 and 43638592624, whose vm leg both failed with:
+  #
+  #	ssh: pgrep -x lightdm -> 1
+  #
+  # and the second of those ran against a disk that had been shut down gracefully, so it was not a
+  # missing write - the configuration itself was short one daemon.
+  #
+  # DBUS IS THE MISSING DAEMON. lightdm is a session bus client: it asks dbus to start the greeter and
+  # to hand the user's session its bus, and with no bus there is no greeter and no session - the rc
+  # script exits and nothing says why. The reference implementation puts it in the same breath as
+  # lightdm for exactly this reason ("Without dbus the session starts and every panel applet fails to
+  # talk to anything, which looks like a broken desktop rather than a missing daemon").
+  #
+  # `devfs_system_ruleset=desktop` IS THE OTHER HALF FOR INPUT: modern FreeBSD has no `hald`, and the
+  # device nodes an X session needs (/dev/input/*, /dev/video*) are granted by that devfs ruleset
+  # rather than by the packages. Without it the desktop starts and the keyboard does not work.
+  #
+  # `pw groupmod video` is what lets the session open /dev/dri and the framebuffer.
+  ssh: |
+    sudo sysrc dbus_enable=YES
+    sudo sysrc devfs_system_ruleset=desktop
+    sudo pw groupmod video -m {{ user }}
+    sysrc dbus_enable lightdm_enable devfs_system_ruleset 2>&1 | head -4
+  timeout: 180
+
 - name: point lightdm at the greeter and autologin
   # THE GREETER IS NAMED EXPLICITLY, because lightdm's default is `lightdm-gtk-greeter` on some builds
   # and a missing one on others - and a missing greeter is a black screen.
