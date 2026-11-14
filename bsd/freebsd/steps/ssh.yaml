@@ -88,7 +88,12 @@ steps:
   timeout: 120
 
 - name: enable the display manager at boot
-  ssh: sysrc lightdm_enable=YES
+  # `sudo` BECAUSE sysrc WRITES /etc/rc.conf, WHICH IS ROOT-OWNED. MEASURED on run 43635376123:
+  #
+  #	/usr/sbin/sysrc: cannot create /etc/rc.conf: Permission denied
+  #
+  # The xfce install above needed sudo for the same reason, and so does every write below this line.
+  ssh: sudo sysrc lightdm_enable=YES
   timeout: 120
 
 - name: point lightdm at the greeter and autologin
@@ -103,13 +108,16 @@ steps:
   # `echo` RATHER THAN A MULTI-LINE `printf` WITH A TRAILING `\`: those are the lines csh rejected with
   # `Unmatched '''`, because a single-quoted string may not span lines and every continuation put one
   # there. Nothing here needs a continuation.
+  #
+  # EVERY WRITE IS `sudo`: /usr/local/etc/lightdm is root-owned, and the same Permission denied that
+  # `sysrc` hit would land on the first redirect.
   ssh: |
-    mkdir -p /usr/local/etc/lightdm
-    echo '[Seat:*]' > /usr/local/etc/lightdm/lightdm.conf
-    echo 'greeter-session=lightdm-gtk-greeter' >> /usr/local/etc/lightdm/lightdm.conf
-    echo 'autologin-user={{ user }}' >> /usr/local/etc/lightdm/lightdm.conf
-    echo 'autologin-user-timeout=0' >> /usr/local/etc/lightdm/lightdm.conf
-    echo 'user-session=xfce' >> /usr/local/etc/lightdm/lightdm.conf
+    sudo mkdir -p /usr/local/etc/lightdm
+    echo '[Seat:*]' | sudo tee /usr/local/etc/lightdm/lightdm.conf > /dev/null
+    echo 'greeter-session=lightdm-gtk-greeter' | sudo tee -a /usr/local/etc/lightdm/lightdm.conf > /dev/null
+    echo 'autologin-user={{ user }}' | sudo tee -a /usr/local/etc/lightdm/lightdm.conf > /dev/null
+    echo 'autologin-user-timeout=0' | sudo tee -a /usr/local/etc/lightdm/lightdm.conf > /dev/null
+    echo 'user-session=xfce' | sudo tee -a /usr/local/etc/lightdm/lightdm.conf > /dev/null
     cat /usr/local/etc/lightdm/lightdm.conf
   timeout: 120
 
