@@ -125,11 +125,31 @@ steps:
   ssh: grep -c autologin-user /usr/local/etc/lightdm/lightdm.conf
   timeout: 120
 
+- name: flush the writes before anything else
+  # `sync` BEFORE THE SHUTDOWN, AND IT IS NOT REDUNDANT WITH IT.
+  #
+  # MEASURED on run 43637282104, whose ssh leg SUCCEEDED and still printed:
+  #
+  #	the guest did not power off within 5m0s; killing it - the disk will need a journal replay
+  #
+  # A guest that is killed while a pool is open leaves its writes to be replayed, and a disk that
+  # needs a replay is a disk whose next boot may or may not find what this stage wrote. `sync` asks
+  # the kernel to hand every dirty block over NOW, so what the stage produced is on the medium before
+  # anything decides how the machine ends.
+  #
+  # `sudo` BECAUSE THE ACCOUNT IS UNPRIVILEGED. It is in the NOPASSWD sudoers file the install stage
+  # wrote, so this is one command with no prompt.
+  ssh: sudo sync
+  timeout: 300
+
 - name: stop the machine
   # A STAGE WHOSE OUTPUT IS THE DISK MAY NOT BE KILLED: xfce's install writes thousands of files and a
   # kill leaves a pool that needs a replay. `ssh` asks the guest's own init to power off.
+  # TEN MINUTES RATHER THAN FIVE, because this guest has just written xfce and a display manager and
+  # its shutdown path touches every one of those files. The five-minute default ran out on a machine
+  # that was shutting down correctly, only slowly.
   shutdown: '{{ shutdown }}'
-  timeout: 300
+  timeout: 600
 - name: publish the disk
   compress: '{{ out }}'
 - name: stop recording
