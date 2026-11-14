@@ -153,10 +153,27 @@ func TestARefusedConnectDeliversNothingToTheGuest(t *testing.T) {
 
 	p := &TransparentProxy{Upstream: fake.Addr().String()}
 	client, server := net.Pipe()
+
+	// THE TUNNEL RUNS WHILE THE READ WAITS, AND THE ORDER MATTERS: `net.Pipe` IS UNBUFFERED, so a
+	// `Read` on the guest side before `tunnel` has closed its end blocks forever - which is exactly
+	// what made this test hang for the whole test timeout on CI before it was written this way.
+	done := make(chan struct{})
+	go func() {
+		p.tunnel(server, "pkg.freebsd.org:443")
+		close(done)
+	}()
+
+	// THE GUEST'S END CLOSES WHEN THE TUNNEL GIVES UP, so a Read returning 0 is the answer: nothing
+	// was written. A refusal that leaked its status line would return the bytes instead.
 	buf := make([]byte, 64)
+	_ = client.SetReadDeadline(time.Now().Add(5 * time.Second))
 	n, _ := client.Read(buf)
 	if n != 0 {
 		t.Fatalf("the guest received %q from a refused CONNECT; it must receive nothing", buf[:n])
 	}
-	p.tunnel(server, "pkg.freebsd.org:443")
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the tunnel did not finish after a refused CONNECT")
+	}
 }
