@@ -166,17 +166,24 @@ steps:
     wait_after: 10
 
 - name: mirror selection - offline
-  # `Network or Offline Installation` -> [ Network ] [ Offline (Limited Packages) ]
+  # THE PANE AFTER `Distribution Sets` IS NOT THE OFFLINE QUESTION, AND THIS FILE ASSUMED IT WAS.
   #
-  # OFFLINE, BECAUSE THIS MEDIUM CARRIES THE 328 BASE PACKAGES and the network path would make the
-  # install depend on pkg.FreeBSD.org. `right` moves to `Offline` - the default here is `Network`,
-  # which is the opposite of the pane above.
-  key: right
-  wait_after: 2
-- name: accept offline
+  # MEASURED, by OCR on the panes themselves during a local replay:
+  #
+  #	p1  the question as it opens       Packages (Tech Preview) 1]
+  #	p2  after `left`                  [ Distribution Sets ]
+  #	p3  after `ret`                   kernel-dbg libs2-dbg ports ... OK
+  #
+  # p3 is `Distribution Select` - the checklist of optional components - NOT `Network or Offline
+  # Installation`. The offline question only comes when the media carries a pkgbase repository AND
+  # the caller chose Packages; with Distribution Sets the installer goes straight to choosing what to
+  # unpack, which for disc1 means unpacking from the network because disc1 has no .txz files.
+  #
+  # SO THE KEY HERE IS `ret`: the checklist opens with `kernel-dbg` unticked and `base` implied, and
+  # OK is where the cursor already is. A `right` would move the cursor INTO the list and toggle
+  # nothing, and the Return after it would land on a checkbox instead of the button.
   key: ret
-  wait_after: 10
-
+  wait_after: 12
 - name: partitioning - automatic zfs
   # `How would you like to partition your disk?`
   #   >> Auto (UFS)  Guided UFS Disk Setup
