@@ -76,20 +76,34 @@ steps:
 # `/etc/pkg/FreeBSD.conf`, so disabling the override lets it be used untouched, which is exactly what
 # CI wants. Writing an override with an empty URL would be a broken repository.
 - name: point pkg at the mirror, when one is given
+  # THE BODY RUNS UNDER THE ACCOUNT'S LOGIN SHELL, WHICH IS `csh` HERE, SO IT IS HANDED TO `sh -c`.
+  #
+  # MEASURED ON CI, run 43626985538's ssh leg:
+  #
+  #	ssh: if [ -n '' ]; then   mkdir -p /usr/local/etc/pkg/repos   printf ... -> 1
+  #
+  # and the exit status was 1 with no output at all. `csh` does not have `[ -n ... ]` as a command -
+  # it has `if ( ... ) then` - so the whole block was a syntax error, and a syntax error is a non-zero
+  # exit even when the branch it "should" have taken would have done nothing.
+  #
+  # EVERY MULTI-LINE `ssh:` IN THIS FILE IS WRAPPED FOR THE SAME REASON. A single command needs no
+  # wrapper, but anything with `if`, a pipe into a variable, or a `for` loop does.
   ssh: |
-    if [ -n '{{ mirror }}' ]; then
-      mkdir -p /usr/local/etc/pkg/repos
-      printf '%s\n' \
-        'FreeBSD: {' \
-        '  url: "{{ mirror }}",' \
-        '  mirror_type: "none",' \
-        '  enabled: yes' \
-        '}' \
-        > /usr/local/etc/pkg/repos/FreeBSD.conf
-      echo MIRROR_SET
-    else
-      echo NO_MIRROR
-    fi
+    sh -c '
+      if [ -n "{{ mirror }}" ]; then
+        mkdir -p /usr/local/etc/pkg/repos
+        printf "%s\n" \
+          "FreeBSD: {" \
+          "  url: \"{{ mirror }}\"," \
+          "  mirror_type: \"none\"," \
+          "  enabled: yes" \
+          "}" \
+          > /usr/local/etc/pkg/repos/FreeBSD.conf
+        echo MIRROR_SET
+      else
+        echo NO_MIRROR
+      fi
+    '
   timeout: 60
 
 - name: which repository pkg will actually use
@@ -123,7 +137,10 @@ steps:
 - name: prove xfce is installed
   # THE ARTIFACT, NOT A PHRASE FROM THE INSTALLER'S OUTPUT: the session file is what lightdm reads to
   # offer `Xfce Session`, so its presence is the thing this stage needs.
-  ssh: test -f /usr/local/share/xsessions/xfce.desktop && echo XFCE_PRESENT
+  # `sh -c` BECAUSE THE LOGIN SHELL IS `csh`, WHICH HAS NO `&&`. See the mirror step for the measurement:
+  # a csh syntax error is a non-zero exit with no output, which reads in the log as the command failing
+  # rather than as the shell refusing to parse it.
+  ssh: sh -c 'test -f /usr/local/share/xsessions/xfce.desktop && echo XFCE_PRESENT'
   timeout: 120
 
 - name: enable the display manager at boot
@@ -139,13 +156,15 @@ steps:
   # `autologin-user-timeout=0` IS NOT A DELAY OF ZERO - it means "do not show the greeter at all", and
   # without it lightdm still draws the prompt for its default ten seconds.
   ssh: |
-    printf '%s\n' \
-      '[Seat:*]' \
-      'greeter-session=lightdm-gtk-greeter' \
-      'autologin-user={{ user }}' \
-      'autologin-user-timeout=0' \
-      'user-session=xfce' \
-      > /usr/local/etc/lightdm/lightdm.conf
+    sh -c '
+      printf "%s\n" \
+        "[Seat:*]" \
+        "greeter-session=lightdm-gtk-greeter" \
+        "autologin-user={{ user }}" \
+        "autologin-user-timeout=0" \
+        "user-session=xfce" \
+        > /usr/local/etc/lightdm/lightdm.conf
+    '
   timeout: 120
 
 - name: prove lightdm will start

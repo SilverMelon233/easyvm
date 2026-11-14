@@ -39,7 +39,8 @@ steps:
 - name: the session is running
   # `startx` IS NOT USED: lightdm starts the session at boot because `lightdm_enable=YES` and
   # `autologin-user` were set by the ssh stage. What this asks is whether lightdm actually got there.
-  ssh: pgrep -x lightdm >/dev/null && echo LIGHTDM_UP
+  # `sh -c` BECAUSE THE LOGIN SHELL IS `csh`, WHICH HAS NO `&&` AND NO `>/dev/null` IN THAT POSITION.
+  ssh: sh -c 'pgrep -x lightdm >/dev/null && echo LIGHTDM_UP'
   timeout: 180
 
 - name: wait for the desktop
