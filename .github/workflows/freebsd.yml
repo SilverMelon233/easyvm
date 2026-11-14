@@ -54,6 +54,16 @@ permissions:
 
 jobs:
   install:
+    # `from_tag:` NAMES A PUBLISHED DISK AND THE CHAIN STARTS FROM IT - SO THE INSTALL DOES NOT RUN.
+    #
+    # THIS JOB HAD NO `if:` AT ALL, which is the same defect `6643303` fixed for ubuntu and windows and
+    # `375c8c9` fixed for macos: `gh workflow run freebsd.yml -f from_tag=bsd-freebsd-install` was meant
+    # to pick up the disk install had already published and run the later stages against it, and instead
+    # it started the whole forty-four-step install that would REPUBLISH the very tag the caller named.
+    #
+    # MEASURED, on run 43628110384: dispatched with `from_tag=bsd-freebsd-install`, and the install job
+    # was `in_progress` at step 10 within three minutes.
+    if: github.event_name != 'workflow_dispatch' || inputs.from_tag == ''
     uses: ./.github/workflows/stage.yml
     secrets: inherit
     with:
