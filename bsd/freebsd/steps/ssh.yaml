@@ -120,7 +120,7 @@ steps:
     sudo sysrc dbus_enable=YES
     sudo sysrc devfs_system_ruleset=desktop
     sudo pw groupmod video -m {{ user }}
-    sysrc dbus_enable lightdm_enable devfs_system_ruleset 2>&1 | head -4
+    sysrc -a
   timeout: 180
 
 - name: point lightdm at the greeter and autologin
@@ -136,15 +136,21 @@ steps:
   # `Unmatched '''`, because a single-quoted string may not span lines and every continuation put one
   # there. Nothing here needs a continuation.
   #
-  # EVERY WRITE IS `sudo`: /usr/local/etc/lightdm is root-owned, and the same Permission denied that
-  # `sysrc` hit would land on the first redirect.
+  # THIS ONE COMMAND IS HANDED TO `sh`, BECAUSE THE LOGIN SHELL IS `csh` AND CSH REFUSES A PIPE WITH A
+  # REDIRECT. MEASURED on run 43640155201, whose ssh leg reached this stage and then reported:
+  #
+  #	Ambiguous output redirect.
+  #
+  # `echo x | sudo tee f > /dev/null` is the exact shape csh cannot parse: it has one redirection
+  # namespace and a pipe plus `>` in the same command is ambiguous to it. `sh -c` is what the other
+  # csh-sensitive steps in this file use, for the same reason.
+  #
+  # AND `tee` RATHER THAN `>` IS STILL RIGHT: the redirect in `sudo echo x > f` is performed by the
+  # CALLING shell, which is the unprivileged one, so it fails as a permission error that reads as if
+  # sudo did nothing.
   ssh: |
     sudo mkdir -p /usr/local/etc/lightdm
-    echo '[Seat:*]' | sudo tee /usr/local/etc/lightdm/lightdm.conf > /dev/null
-    echo 'greeter-session=lightdm-gtk-greeter' | sudo tee -a /usr/local/etc/lightdm/lightdm.conf > /dev/null
-    echo 'autologin-user={{ user }}' | sudo tee -a /usr/local/etc/lightdm/lightdm.conf > /dev/null
-    echo 'autologin-user-timeout=0' | sudo tee -a /usr/local/etc/lightdm/lightdm.conf > /dev/null
-    echo 'user-session=xfce' | sudo tee -a /usr/local/etc/lightdm/lightdm.conf > /dev/null
+    sudo sh -c 'printf "%s\n" "[Seat:*]" "greeter-session=lightdm-gtk-greeter" "autologin-user={{ user }}" "autologin-user-timeout=0" "user-session=xfce" > /usr/local/etc/lightdm/lightdm.conf'
     cat /usr/local/etc/lightdm/lightdm.conf
   timeout: 120
 
