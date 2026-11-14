@@ -214,7 +214,11 @@ func (e *Executor) doShutdown(s walk.Step) error {
 		return fail(s.Name, "`shutdown:` must name a method: guest_agent, ssh, acpi or kill")
 	}
 	e.Driver.Log(fmt.Sprintf("  stopping with method %q", method))
-	if err := m.Stop(method); err != nil {
+	// THE STEP'S OWN `timeout:` IS THE GRACE THE GUEST GETS, and passing it is the whole point: a
+	// stage that just wrote a desktop needs longer than the five-minute default, and a kill after a
+	// fixed five minutes leaves a filesystem that needs a replay.
+	grace := time.Duration(seconds(s, "timeout", 0)) * time.Second
+	if err := m.Stop(method, grace); err != nil {
 		return fail(s.Name, "%v", err)
 	}
 	return nil

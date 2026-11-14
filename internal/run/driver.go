@@ -55,7 +55,16 @@ type Machine interface {
 	// mapping is the thing this call exists to make single-sourced.
 	Boot(spec BootSpec) error
 	// Stop shuts down by a NAMED method, or reports that it cannot.
-	Stop(method string) error
+	//
+	// `grace` IS THE STEP'S OWN `timeout:`, AND IT USED TO BE IGNORED. The daemon waited a hard-coded
+	// five minutes for a guest to power off, so a stage whose file said `timeout: 600` still saw
+	// "the guest did not power off within 5m0s" - MEASURED on bsd/freebsd/steps/ssh.yaml, whose guest
+	// had just written xfce and a display manager and was shutting down correctly, only slowly. The
+	// kill that followed left a filesystem that needed a replay, and the next stage's disk had
+	// `/usr/local/bin/sudo` missing entirely because of it.
+	//
+	// A ZERO GRACE MEANS THE DEFAULT, so a caller that does not care keeps the old behaviour.
+	Stop(method string, grace time.Duration) error
 	// Reboot resets and waits for it to come back.
 	Reboot() error
 	// IsRunning reports whether qemu is still there.

@@ -98,7 +98,7 @@ func (d *fakeFrameDriver) Machine() Machine     { return recordingMachine{runnin
 type recordingMachine struct{ running bool }
 
 func (m recordingMachine) Boot(BootSpec) error { return nil }
-func (m recordingMachine) Stop(string) error   { return nil }
+func (m recordingMachine) Stop(string, time.Duration) error { return nil }
 func (m recordingMachine) Reboot() error       { return nil }
 func (m recordingMachine) IsRunning() bool     { return m.running }
 func (m recordingMachine) ReleaseDiff() error  { return nil }

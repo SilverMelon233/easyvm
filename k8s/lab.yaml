@@ -127,6 +127,29 @@ spec:
           value: http://mihomo.develop.svc.cluster.local:7890
         - name: NO_PROXY
           value: localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local
+        # THE GUEST'S OWN TRAFFIC GOES THROUGH THE SAME PROXY, AND IT IS NOT AN ENVIRONMENT VARIABLE.
+        #
+        # THE LINES ABOVE ONLY COVER THIS CONTAINER. A guest inside qemu runs its own programs, and
+        # whether any of them honours `http_proxy` is that program's business: `pkg` bundles a copy of
+        # libcurl, `fetch(8)` reads the variable but a TLS check may still take its own resolver, and
+        # anything written in Go reads `HTTPS_PROXY` and nothing else. MEASURED, on FreeBSD 15.1:
+        #
+        #	guest -> pkg.freebsd.org, direct       38-68 KB/s   and repeatedly froze outright
+        #	guest -> the same file via mihomo      1.78 MB/s    the whole 9.47 MB in 5.31 s
+        #
+        # and the rate is the same in the pod, so the guest is not the problem - the cluster's route to
+        # FreeBSD's mirrors is. A desktop is four to six hundred megabytes: three hours at 60 KB/s, two
+        # minutes through the proxy.
+        #
+        # SO THE REDIRECTION IS DONE IN iptables, WHERE THE GUEST CANNOT SEE IT. Every outbound TCP
+        # connection from 172.30.0.0/24 is REDIRECTed to a listener in this container, and that listener
+        # speaks HTTP CONNECT to the proxy on the guest's behalf. internal/net/proxy.go is the listener
+        # and documents why `REDIRECT` rather than `DNAT`. The guest configures nothing.
+        #
+        # UNCOMMENTING THIS LINE IS THE WHOLE SWITCH. With it unset - which is CI - no listener starts
+        # and no rule is added, exactly as a runner with an ordinary connection should behave.
+        - name: EASYVM_TRANSPARENT_PROXY
+          value: "172.17.0.121:7890"
         - name: GITHUB_TOKEN
           valueFrom:
             secretKeyRef:

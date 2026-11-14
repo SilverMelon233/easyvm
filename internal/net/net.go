@@ -323,6 +323,30 @@ func Down() {
 	_, _ = run("iptables", "-t", "nat", "-F", forwardChain)
 	_, _ = run("iptables", "-t", "nat", "-X", forwardChain)
 
+	// THE TRANSPARENT PROXY GOES WITH IT: jump, chain, listener, in that order. A listener left
+	// running would keep a port open for a bridge that no longer exists, and a chain left referenced
+	// makes the next `-N` fail with "already exists" for a chain nobody can see.
+	StopTransparentProxy()
+	for _, chain := range []string{"PREROUTING", "OUTPUT"} {
+		for {
+			if _, err := run("iptables", "-t", "nat", "-D", chain, "-s", spec,
+				"-j", proxyChain); err != nil {
+				break
+			}
+		}
+	}
+	// THE OUTPUT JUMP HAS A DIFFERENT SHAPE - it negates the destination - so it is removed by its
+	// own exact match rather than by the loop above, which would silently miss it and leave a rule
+	// pointing at a chain that is about to be deleted.
+	for {
+		if _, err := run("iptables", "-t", "nat", "-D", "OUTPUT", "-p", "tcp",
+			"!", "-d", spec, "-j", proxyChain); err != nil {
+			break
+		}
+	}
+	_, _ = run("iptables", "-t", "nat", "-F", proxyChain)
+	_, _ = run("iptables", "-t", "nat", "-X", proxyChain)
+
 	_, _ = run("iptables", "-F", "FORWARD")
 	_, _ = run("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", spec, "-j", "MASQUERADE")
 	stopDHCP()

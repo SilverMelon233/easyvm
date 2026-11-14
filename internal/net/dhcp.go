@@ -209,6 +209,14 @@ func applyNAT() error {
 		}
 	}
 
+	// THE TRANSPARENT PROXY GOES HERE, BETWEEN MASQUERADE AND THE MSS CLAMP, AND THE ORDER OF THE
+	// iptables CHAIN IS WHY IT IS A SEPARATE FUNCTION RATHER THAN A LINE: REDIRECT has to be jumped
+	// to BEFORE anything that DNATs the same packet, and the chain this writes is flushed and rebuilt
+	// on every Up.
+	if err := applyTransparentProxy(spec); err != nil {
+		return err
+	}
+
 	// MSS CLAMPING, WHICH IS THE SECOND HALF OF THE MTU FIX AND THE HALF THAT SURVIVES A GUEST THAT
 	// IGNORES THE LEASE.
 	//

@@ -868,7 +868,15 @@ func (e *MachineBusy) Error() string {
 }
 
 // Stop shuts down by the method the file named, and there is no silent fallback between them.
-func (m machineControl) Stop(method string) error {
+// graceOrDefault is the step's `timeout:` when the file gave one, and the build's default otherwise.
+func graceOrDefault(grace time.Duration) time.Duration {
+	if grace > 0 {
+		return grace
+	}
+	return shutdownTimeout
+}
+
+func (m machineControl) Stop(method string, grace time.Duration) error {
 	d := m.d
 	// THE LOCK IS TAKEN TO LOOK, NOT TO WORK.
 	//
@@ -933,7 +941,10 @@ func (m machineControl) Stop(method string) error {
 	if killNow {
 		err = d.killAndReap()
 	} else {
-		err = d.waitForExit(shutdownTimeout)
+		// THE STEP'S OWN TIMEOUT, AND THE DEFAULT WHEN IT DID NOT GIVE ONE. A `shutdown:` step that
+		// says `timeout: 600` means the guest gets ten minutes to power off, which is what a stage
+		// that just wrote a desktop needs - see the note on the interface.
+		err = d.waitForExit(graceOrDefault(grace))
 	}
 	if err != nil {
 		return err

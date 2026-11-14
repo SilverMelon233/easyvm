@@ -209,7 +209,8 @@ func (e *Executor) StopNow(method string) {
 		return
 	}
 	if m := e.Driver.Machine(); m != nil {
-		_ = m.Stop(method)
+		// NO STEP HERE, SO NO GRACE: this is the failure path, where patience is not wanted.
+		_ = m.Stop(method, 0)
 	}
 }
 

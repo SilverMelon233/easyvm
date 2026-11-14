@@ -78,7 +78,7 @@ func (m *fakeMachine) Boot(spec BootSpec) error {
 	m.d.started++
 	return nil
 }
-func (m *fakeMachine) Stop(method string) error {
+func (m *fakeMachine) Stop(method string, _ time.Duration) error {
 	m.d.stopped = append(m.d.stopped, method)
 	return nil
 }

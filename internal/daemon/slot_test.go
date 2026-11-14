@@ -225,7 +225,7 @@ type fakeOSMachine struct {
 }
 
 func (m fakeOSMachine) Boot(run.BootSpec) error { return nil }
-func (m fakeOSMachine) Stop(string) error       { return nil }
+func (m fakeOSMachine) Stop(string, time.Duration) error { return nil }
 func (m fakeOSMachine) Reboot() error           { return nil }
 func (m fakeOSMachine) IsRunning() bool         { return m.running }
 func (m fakeOSMachine) ReleaseDiff() error      { return nil }

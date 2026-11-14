@@ -71,9 +71,20 @@ steps:
   # password. `script -q /dev/null` was tried to provide a pty and failed the same way.
   #
   # SO `sudo` IS INSTALLED BY THE INSTALL STAGE, in the one place a root shell exists (its chroot),
-  # with a NOPASSWD sudoers file for this account. That is what `bsd/freebsd/steps/install.yaml`'s
-  # `install sudo` step does, and it is why this line can be a plain `sudo` with no password on stdin.
-  ssh: sudo env ASSUME_ALWAYS_YES=yes pkg install -y xfce lightdm lightdm-gtk-greeter
+  # with a NOPASSWD sudoers file for this account.
+  #
+  # `xorg` IS IN THE LIST AND `xfce` DOES NOT PULL IT IN. MEASURED, on the disk CI published for run
+  # 43640668746 - every switch was right and the session still never started:
+  #
+  #	/etc/rc.conf          lightdm_enable="YES", dbus_enable="YES", devfs_system_ruleset="desktop"
+  #	/usr/local/sbin/lightdm      present, 254912 bytes
+  #	/usr/local/share/xgreeters/  lightdm-gtk-greeter.desktop    present
+  #	/var/log/Xorg.0.log          No such file or directory
+  #
+  # X never ran, because there was no X to run. The reference implementation carries `xorg` beside
+  # `xfce` in the same list and this file had dropped it - a desktop meta-port is the session and the
+  # panel, not the server they draw on.
+  ssh: sudo env ASSUME_ALWAYS_YES=yes pkg install -y xorg xfce lightdm lightdm-gtk-greeter
   timeout: 5400
 
 - name: prove xfce is installed
