@@ -1,4 +1,4 @@
-name: freebsd - xfce from a mirror, which is fast here
+name: freebsd 15.1 - sshd, XFCE, and a desktop
 resolution:
 - 1920
 - 1080
@@ -17,26 +17,6 @@ vars:
   shutdown:
     from: args.shutdown
     default: ssh
-  # WHERE THIS GUEST GETS ITS PACKAGES. Empty means FreeBSD's own configured repository, which is
-  # what CI uses: `pkg` asks pkg.freebsd.org and that is the right answer on a runner with an
-  # ordinary internet connection.
-  #
-  # A LAB HOST IS NOT ORDINARY, AND THAT IS MEASURED RATHER THAN ASSUMED:
-  #
-  #	pkg.freebsd.org, direct from the pod          38-68 KB/s
-  #	download.freebsd.org, direct from the pod     69 KB/s
-  #	the SAME file from a mirror                   2.8-5.6 MB/s
-  #
-  # The two official hosts agree with each other and with the guest's own rate, so nothing about this
-  # guest or its NAT is wrong - the route out of this cluster to those two hosts is simply slow. A
-  # desktop is four to six hundred megabytes, which at 60 KB/s is three hours and at 5 MB/s is two
-  # minutes, and no walkthrough survives a three-hour step.
-  #
-  # SO THE MIRROR IS A VARIABLE, NOT A HARD-CODED HOST: `--mirror=<url>` points a lab run at a fast
-  # mirror, and a run that passes nothing uses FreeBSD's own repository exactly as CI does.
-  mirror:
-    from: args.mirror
-    default: ''
 steps:
 - name: start recording
   record: freebsd-ssh.mp4
@@ -63,73 +43,21 @@ steps:
   ssh: id -un
 
 # ==========================================================================================
-# THE REPOSITORY, WHICH IS A MIRROR ON A LAB HOST AND FREEBDS'S OWN ON CI
+# XFCE, FROM FREEBDS'S OWN REPOSITORY
 # ==========================================================================================
 #
-# `pkg` READS A DIRECTORY OF REPOSITORY FILES, and a file in it OVERRIDES the one the base system
-# ships. `/usr/local/etc/pkg/repos/FreeBSD.conf` is that override, and setting `url:` in it is the
-# documented way to point a machine at a mirror - no environment, no proxy, and the same command
-# works afterwards.
+# NO REPOSITORY FILE IS WRITTEN AND NONE IS NEEDED. The base system ships
+# `/etc/pkg/FreeBSD.conf`, which points at `pkg+https://pkg.FreeBSD.org/${ABI}/quarterly`, and a
+# run that touches nothing uses it. An override under `/usr/local/etc/pkg/repos/` would shadow that
+# file with a copy of itself - a second place the answer is written down, and one that goes stale the
+# day FreeBSD changes its own default.
 #
-# THE `mirror` VARIABLE DECIDES, AND AN EMPTY ONE WRITES A FILE THAT SAYS `enabled: no`. That is the
-# opposite of a no-op on purpose: FreeBSD's own repository is already configured at
-# `/etc/pkg/FreeBSD.conf`, so disabling the override lets it be used untouched, which is exactly what
-# CI wants. Writing an override with an empty URL would be a broken repository.
-- name: point pkg at the mirror, when one is given
-  # THE BODY RUNS UNDER THE ACCOUNT'S LOGIN SHELL, WHICH IS `csh` HERE, SO IT IS HANDED TO `sh -c`.
-  #
-  # MEASURED ON CI, run 43626985538's ssh leg:
-  #
-  #	ssh: if [ -n '' ]; then   mkdir -p /usr/local/etc/pkg/repos   printf ... -> 1
-  #
-  # and the exit status was 1 with no output at all. `csh` does not have `[ -n ... ]` as a command -
-  # it has `if ( ... ) then` - so the whole block was a syntax error, and a syntax error is a non-zero
-  # exit even when the branch it "should" have taken would have done nothing.
-  #
-  # EVERY MULTI-LINE `ssh:` IN THIS FILE IS WRAPPED FOR THE SAME REASON. A single command needs no
-  # wrapper, but anything with `if`, a pipe into a variable, or a `for` loop does.
-  ssh: |
-    sh -c '
-      if [ -n "{{ mirror }}" ]; then
-        mkdir -p /usr/local/etc/pkg/repos
-        printf "%s\n" \
-          "FreeBSD: {" \
-          "  url: \"{{ mirror }}\"," \
-          "  mirror_type: \"none\"," \
-          "  enabled: yes" \
-          "}" \
-          > /usr/local/etc/pkg/repos/FreeBSD.conf
-        echo MIRROR_SET
-      else
-        echo NO_MIRROR
-      fi
-    '
-  timeout: 60
-
-- name: which repository pkg will actually use
-  # THE EFFECTIVE CONFIGURATION, PRINTED. `pkg -vv` shows the URL it resolved after every override,
-  # so a mirror that was written but ignored is visible here rather than as a slow install.
-  ssh: sh -c "pkg -vv 2>/dev/null | grep -E '^ +url|^FreeBSD' | head -4"
-  timeout: 120
-
-- name: prove the repository answers
-  # THE INDEX IS THE FIRST THING `pkg` FETCHES and it is 9.47 MB, so this step is also a rate
-  # measurement rather than only a check.
-  ssh: sh -c "S=\$(date +%s); pkg update -f >/dev/null 2>&1 && echo \"REPO_OK \$(( \$(date +%s) - S ))s\" || echo REPO_FAIL"
-  timeout: 600
-
-# ==========================================================================================
-# XFCE
-# ==========================================================================================
-#
-# `xfce` IS A META-PORT that pulls the window manager, the panel, the settings daemon and the
-# applications menu in one name. `lightdm` and `lightdm-gtk-greeter` are the display manager and its
-# greeter, and WITHOUT THE GREETER lightdm starts to a black screen with a text cursor - measured in
-# the reference implementation, and the reason both packages are named here rather than `lightdm`
-# alone.
-#
-# `-y` IS NOT OPTIONAL AND `ASSUME_ALWAYS_YES` IS NOT THE SAME THING: `pkg` asks before it installs,
-# and `ssh:` has no terminal to answer with, so the run would sit at a prompt until the timeout.
+# A MIRROR WAS TRIED AND REMOVED. The route out of this lab to pkg.freebsd.org is slow (measured:
+# 38-68 KB/s direct from the pod, and the guest's own rate is the same, so nothing about the guest is
+# wrong), and a public mirror answers the same file in under a second. But a bake that points at a
+# mirror is a bake that measures a different machine than CI runs, and the whole reason these files
+# are byte-identical to CI's is that a local success has to mean something. The slow route is a fact
+# about the lab, not about FreeBSD.
 - name: install xfce and the display manager
   ssh: env ASSUME_ALWAYS_YES=yes pkg install -y xfce lightdm lightdm-gtk-greeter
   timeout: 5400
@@ -137,10 +65,12 @@ steps:
 - name: prove xfce is installed
   # THE ARTIFACT, NOT A PHRASE FROM THE INSTALLER'S OUTPUT: the session file is what lightdm reads to
   # offer `Xfce Session`, so its presence is the thing this stage needs.
-  # `sh -c` BECAUSE THE LOGIN SHELL IS `csh`, WHICH HAS NO `&&`. See the mirror step for the measurement:
-  # a csh syntax error is a non-zero exit with no output, which reads in the log as the command failing
-  # rather than as the shell refusing to parse it.
-  ssh: sh -c 'test -f /usr/local/share/xsessions/xfce.desktop && echo XFCE_PRESENT'
+  #
+  # `ls` RATHER THAN `test -f`: `test` succeeds silently, and a step whose log line is an exit status
+  # says nothing about WHAT is on the disk. `ls` prints the file and its size, so the log carries the
+  # evidence rather than only the verdict. A missing file makes `ls` exit non-zero, which is the same
+  # failure with more to read.
+  ssh: ls -l /usr/local/share/xsessions/xfce.desktop
   timeout: 120
 
 - name: enable the display manager at boot
@@ -155,20 +85,22 @@ steps:
   # a walkthrough that has to type a password at a greeter cannot be driven by anything unattended.
   # `autologin-user-timeout=0` IS NOT A DELAY OF ZERO - it means "do not show the greeter at all", and
   # without it lightdm still draws the prompt for its default ten seconds.
+  #
+  # `echo` RATHER THAN A MULTI-LINE `printf` WITH A TRAILING `\`: those are the lines csh rejected with
+  # `Unmatched '''`, because a single-quoted string may not span lines and every continuation put one
+  # there. Nothing here needs a continuation.
   ssh: |
-    sh -c '
-      printf "%s\n" \
-        "[Seat:*]" \
-        "greeter-session=lightdm-gtk-greeter" \
-        "autologin-user={{ user }}" \
-        "autologin-user-timeout=0" \
-        "user-session=xfce" \
-        > /usr/local/etc/lightdm/lightdm.conf
-    '
+    mkdir -p /usr/local/etc/lightdm
+    echo '[Seat:*]' > /usr/local/etc/lightdm/lightdm.conf
+    echo 'greeter-session=lightdm-gtk-greeter' >> /usr/local/etc/lightdm/lightdm.conf
+    echo 'autologin-user={{ user }}' >> /usr/local/etc/lightdm/lightdm.conf
+    echo 'autologin-user-timeout=0' >> /usr/local/etc/lightdm/lightdm.conf
+    echo 'user-session=xfce' >> /usr/local/etc/lightdm/lightdm.conf
+    cat /usr/local/etc/lightdm/lightdm.conf
   timeout: 120
 
 - name: prove lightdm will start
-  ssh: sh -c 'test -f /usr/local/etc/lightdm/lightdm.conf && grep -c autologin-user /usr/local/etc/lightdm/lightdm.conf'
+  ssh: grep -c autologin-user /usr/local/etc/lightdm/lightdm.conf
   timeout: 120
 
 - name: stop the machine
