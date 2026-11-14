@@ -129,61 +129,56 @@ steps:
 - name: accept the hostname
   key: ret
   wait_after: 8
-- name: distribution sets
+# `PACKAGES (TECH PREVIEW)` IS THE OFFLINE PATH, AND THIS FILE HAD IT BACKWARDS.
+#
+# THE COMMENT HERE USED TO SAY "DISTRIBUTION SETS, NOT PACKAGES: the tech preview path fetches from
+# the network and this stage deliberately does not depend on it." THE OPPOSITE IS TRUE, AND THE
+# MEDIUM SAYS SO:
+#
+#	xorriso -indev disc1.iso -find /usr/freebsd-dist
+#	  '/usr/freebsd-dist/MANIFEST'          <- a manifest
+#	  .txz files: 0                          <- and NOT ONE DISTRIBUTION SET
+#	xorriso -indev disc1.iso -find /usr/freebsd-packages/offline
+#	  328 packages                           <- base, kernel and the rest of the system
+#
+# So `Distribution Sets` cannot unpack anything from this disc: `fetchmissingdists` goes to a mirror,
+# which is the `Mirror Selection` pane and its `http://download.freebsd.org` list. MEASURED, on a
+# local replay: choosing Distribution Sets put that pane on screen within seconds.
+#
+# `Packages` is pkgbase, and pkgbase unpacks the 328 packages ALREADY ON THE DISC through
+# `BSDINSTALL_PKG_REPOS_DIR=/usr/freebsd-packages/repos/`, which is the "Offline (Limited Packages)"
+# answer to the question after this one.
+#
+# THE PARTITIONING MENU IS INDEPENDENT OF THIS CHOICE - ZFS is chosen on its own pane either way - so
+# what this actually decides is whether the install touches the network at all.
+- name: installation type - packages, which is offline
   # `Would you like to install the base system using legacy distribution sets or packages?`
   #   [ Distribution Sets ]  [ Packages ]
   #
-  # THE DEFAULT IS *PACKAGES*, NOT DISTRIBUTION SETS, AND PRESSING RETURN TOOK IT.
+  # `PACKAGES` IS ALREADY HIGHLIGHTED. From usr.sbin/bsdinstall/scripts/auto, when the medium carries
+  # /usr/freebsd-packages/repos (disc1 does):
   #
-  # MEASURED, by OCR on the pane itself during run 43645687481 and again on a local replay:
+  #	PKGBASE_DEFAULT_BUTTON=--default-no
+  #	bsddialog --yes-label "Distribution Sets" --no-label "Packages" --yesno $PKGBASE_DEFAULT_BUTTON
   #
-  #	/work/ocr/partmenu.txt   "Packages (Tech Preview) 1]"
-  #
-  # - the cursor was still on this question when the next step pressed `down`, because this step's
-  # Return had chosen `Packages` and the following pane was the offline/network choice rather than
-  # the partitioning menu.
-  #
-  # THE REASON IS IN `usr.sbin/bsdinstall/scripts/auto`:
-  #
-  #	PKGBASE_DEFAULT_BUTTON=--default-no      # when /usr/freebsd-packages/repos/*offline* exists
-  #	bsddialog --yes-label "Distribution Sets" --no-label "Packages" --yesno \
-  #	    $PKGBASE_DEFAULT_BUTTON ...
-  #	if [ $? -eq 1 ]; then PKGBASE=yes; fi
-  #
-  # disc1 HAS the offline repository, so the default button is `Packages` - and `Packages` is the
-  # pkgbase path, which is what produced a UFS disk from an installer this file believed was doing
-  # ZFS:
-  #
-  #	df /                 /dev/vtbd0p2          UFS
-  #	sudo zpool status    no pools available    no pool at all
-  #
-  # `left` REACHES `Distribution Sets`, because a `--default-no` dialog opens with `No` highlighted and
-  # `left` is how the other button is chosen. It is the same rule the root-password pane needed.
-  do:
-  - key: left
-    wait_after: 1
-  - key: ret
-    wait_after: 10
-
-- name: mirror selection - offline
-  # THE PANE AFTER `Distribution Sets` IS NOT THE OFFLINE QUESTION, AND THIS FILE ASSUMED IT WAS.
-  #
-  # MEASURED, by OCR on the panes themselves during a local replay:
-  #
-  #	p1  the question as it opens       Packages (Tech Preview) 1]
-  #	p2  after `left`                  [ Distribution Sets ]
-  #	p3  after `ret`                   kernel-dbg libs2-dbg ports ... OK
-  #
-  # p3 is `Distribution Select` - the checklist of optional components - NOT `Network or Offline
-  # Installation`. The offline question only comes when the media carries a pkgbase repository AND
-  # the caller chose Packages; with Distribution Sets the installer goes straight to choosing what to
-  # unpack, which for disc1 means unpacking from the network because disc1 has no .txz files.
-  #
-  # SO THE KEY HERE IS `ret`: the checklist opens with `kernel-dbg` unticked and `base` implied, and
-  # OK is where the cursor already is. A `right` would move the cursor INTO the list and toggle
-  # nothing, and the Return after it would land on a checkbox instead of the button.
+  # and MEASURED by OCR on the pane, it opens as `Packages (Tech Preview) 1]` - the No button - so a
+  # bare Return takes it.
   key: ret
-  wait_after: 12
+  wait_after: 10
+
+- name: offline - the packages are on this disc
+  # `Network or Offline Installation`  [ Network ]  [ Offline (Limited Packages) ]
+  #
+  # THIS PANE ONLY EXISTS ON THE PKGBASE PATH, which is why the Distribution Sets route never saw it.
+  # `OFFLINE` IS ALREADY HIGHLIGHTED - MEASURED on the pane - because the medium's own repository is
+  # the reason the installer offered the choice. A bare Return takes it, and the install then reads
+  # /usr/freebsd-packages/offline with no network at all.
+  #
+  # THAT IS ALSO WHY IT IS FAST: the earlier runs that chose Distribution Sets spent their install
+  # budget downloading base.txz from download.freebsd.org at 38-68 KB/s.
+  key: ret
+  wait_after: 10
+
 - name: partitioning - automatic zfs
   # `How would you like to partition your disk?`
   #   >> Auto (UFS)  Guided UFS Disk Setup
@@ -230,16 +225,40 @@ steps:
   #
   # THE DEVICE IS `vtbd0` AND NOT `ada0`: this guest's disk is on virtio, and a walk that looked for
   # `ada` would select nothing.
-  key: spc
+  #
+  # `space`, NOT `spc`, AND THAT IS MEASURED ON THE PANE. `spc` IS a name in keys.NamedKeys and it is
+  # a valid qcode, so it parses - and the checkbox stayed `[ ]` after it, twice:
+  #
+  #	key spc   ->   [ ] vtbd0 VirtIO Block Device
+  #	key space ->   [X] vtbd0 VirtIO Block Device
+  #
+  # `space` is not a name, so it goes through `ForText` and is typed as the CHARACTER 0x20, which is
+  # what ncurses' checklist reads for "toggle this row". `spc` asks QEMU for the named key and the
+  # dialog does not treat it as a space in this widget.
+  key: space
   wait_after: 3
 - name: accept the disk selection
   key: ret
   wait_after: 6
 - name: confirm the disk will be destroyed
-  # `Your are sure you want to destroy contents of the following disks?  vtbd0`
-  # [ YES ] [ NO ] - YES is preselected.
-  key: ret
-  wait_after: 8
+  # `Are you sure you want to destroy the current contents of the following disks:  vtbd0`
+  #   [ YES ]  [ NO ]
+  #
+  # `NO` IS THE HIGHLIGHTED BUTTON, AND THIS COMMENT SAID `YES is preselected` - MEASURED ON THE PANE,
+  # after the disk was ticked with `space`:
+  #
+  #	[ YES ]  [ NO ]          <- NO dark on blue, YES light
+  #
+  # A bare Return here answers NO, which cancels the partition step and returns to the menu - so the
+  # installer keeps whatever layout it had. That is the third way this walkthrough could produce a
+  # disk that was not the one it described.
+  #
+  # `left` REACHES `YES`, the same rule as the root-password pane and the installation-type question.
+  do:
+  - key: left
+    wait_after: 1
+  - key: ret
+    wait_after: 8
 
 - name: install
   # BACK ON `ZFS Configuration` with `T Pool Type/Disks: stripe: 1 disk`, and `[Select]` highlighted.
