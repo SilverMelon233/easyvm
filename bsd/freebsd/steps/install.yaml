@@ -563,6 +563,79 @@ steps:
   - key: ret
     wait_after: 4
 
+# SUDO, BECAUSE `su` CANNOT WORK ON AN SSH CHANNEL AND `pkg` NEEDS ROOT.
+#
+# MEASURED TWICE, ON DIFFERENT DISKS:
+#
+#	the ssh stage, with `pkg install` as the unprivileged account:
+#		pkg: Insufficient privileges to install packages
+#
+#	the console, piping the root password into `su`:
+#		BAD SU vmuser to root on /dev/pts/0
+#
+# The second one is the one that decides the design. FreeBSD's `su` reads the password from
+# `/dev/tty` - NOT stdin - and an `ssh:` command has no terminal, so `printf pw | su -c ...` is
+# answered with `su: Sorry` even when the password is correct. `script -q /dev/null` was tried too,
+# because it does allocate a pty: still `BAD SU`, because PAM's `pam_group` sees the request arriving
+# before the pty has a controlling terminal.
+#
+# THE BASE SYSTEM HAS NO OTHER OPTION: `sudo` and `doas` are both in ports, not in base. So the one
+# place a real root shell exists - this chroot - is where the escalation tool has to be installed.
+#
+# AND IT IS THE SAME ANSWER EVERY OTHER SYSTEM HERE ALREADY GIVES. Ubuntu's autoinstall writes
+# /etc/sudoers.d/90-... with NOPASSWD; macOS uses `printf pw | sudo -S -p ''`; the reference
+# implementation's FreeBSD bake does exactly this (`pkg install sudo` plus a NOPASSWD sudoers file).
+# Root over ssh stays closed: `PermitRootLogin` keeps its `prohibit-password` default, so the stages
+# log in as the unprivileged account and escalate, which is the shape the other three already use.
+#
+# THE PARTITIONER IS ALREADY SEEDED, because `pkg` on a fresh install has no database. That is also
+# what makes the later `pkg install xfce` a download of its own rather than a re-bootstrap.
+- name: install sudo
+  # THE WAIT IS LONGER THAN THE INSTALL, AND THAT IS THE POINT: this is a 1 MB package plus the
+  # repository catalogue, and on CI the whole thing is seconds. NINETY SECONDS IS DELIBERATE HEADROOM
+  # rather than a measurement - the step after this one READS BACK whether sudo arrived, so a slow
+  # mirror costs a wait and not a wrong disk.
+  do:
+  - type: env ASSUME_ALWAYS_YES=yes pkg install -y sudo
+    wait_after: 4
+  - key: ret
+    wait_after: 90
+
+- name: prove sudo arrived
+  # THE OUTPUT IS THE EVIDENCE. Without this, a failed install is invisible until the ssh stage's
+  # `sudo` answers "command not found" - a different stage, a different log, and a disk already baked.
+  do:
+  - type: which sudo
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+
+- name: let the account escalate without a password
+  # THE MODE IS 0440 BECAUSE SUDO REFUSES A SUDOERS FILE ANYONE ELSE CAN READ, and the DIRECTORY is
+  # created by the package - so this runs after the install above, never before it.
+  #
+  # `{{ user }}` RATHER THAN A FIXED NAME: the account is a variable of this walkthrough, and a
+  # sudoers line that names a different one is a permission error at the first privileged command.
+  do:
+  - type: printf '%s\n' '{{ user }} ALL=(ALL) NOPASSWD:ALL' > /usr/local/etc/sudoers.d/90-{{ user }}
+    wait_after: 2
+  - key: ret
+    wait_after: 3
+  - type: chmod 0440 /usr/local/etc/sudoers.d/90-{{ user }}
+    wait_after: 2
+  - key: ret
+    wait_after: 3
+
+- name: prove sudo works, as the account will use it
+  # `su -m {{ user }} -c ...` RUNS IT AS THE ACCOUNT rather than as root, so this is the real question
+  # and not a weaker one. `sudo -n` means "never prompt", so a sudoers file that did not take fails
+  # here instead of hanging at a password prompt in the next stage.
+  do:
+  - type: su -m {{ user }} -c 'sudo -n id -un'
+    wait_after: 3
+  - key: ret
+    wait_after: 6
+
 - name: leave the shell, which finishes the install
   do:
   - type: exit

@@ -59,7 +59,21 @@ steps:
 # are byte-identical to CI's is that a local success has to mean something. The slow route is a fact
 # about the lab, not about FreeBSD.
 - name: install xfce and the display manager
-  ssh: env ASSUME_ALWAYS_YES=yes pkg install -y xfce lightdm lightdm-gtk-greeter
+  # `sudo` IS THE ESCALATION, AND IT IS THE SAME ONE THE OTHER THREE SYSTEMS USE.
+  #
+  # MEASURED, at this step, on run 43628836904:
+  #
+  #	pkg: Insufficient privileges to install packages
+  #
+  # `pkg` needs root, and this account is not root. `su` cannot substitute for `sudo` here, and that
+  # is measured rather than assumed: FreeBSD's `su` reads the password from `/dev/tty`, not stdin, and
+  # an `ssh:` command has no terminal - `printf pw | su -c ...` answers `BAD SU` even with the right
+  # password. `script -q /dev/null` was tried to provide a pty and failed the same way.
+  #
+  # SO `sudo` IS INSTALLED BY THE INSTALL STAGE, in the one place a root shell exists (its chroot),
+  # with a NOPASSWD sudoers file for this account. That is what `bsd/freebsd/steps/install.yaml`'s
+  # `install sudo` step does, and it is why this line can be a plain `sudo` with no password on stdin.
+  ssh: sudo env ASSUME_ALWAYS_YES=yes pkg install -y xfce lightdm lightdm-gtk-greeter
   timeout: 5400
 
 - name: prove xfce is installed
