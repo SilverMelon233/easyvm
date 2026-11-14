@@ -14,6 +14,26 @@ vars:
     default: out/distro.qcow2
   shutdown:
     from: args.shutdown
+    # `kill` IS WHAT `TestAnInstallStopsTheMachineBeforePublishingTheDisk` REQUIRES OF EVERY INSTALL
+    # LEG, and the reason is the installer rather than this stage: a LIVE installer's init ignores
+    # ACPI, so `acpi` waits out its timeout for a power-off nobody performs and the disk is still
+    # being released when `qemu-img convert` reads it.
+    #
+    # THAT ARGUMENT SAYS NOTHING ABOUT DURABILITY, AND DURABILITY IS THE BUG THIS FILE HAD. MEASURED,
+    # on the disk CI published for run 43631122683 - install leg: 48 of 48 steps, success:
+    #
+    #	file /usr/local/bin/sudo          setuid data
+    #	od -An -tx1 -N16 /usr/local/bin/sudo
+    #	                                  00 00 00 00 ...   ALL ZEROS, 228312 of them
+    #	od -An -tx1 -N16 /bin/sh          7f 45 4c 46 ...   ELF, correct
+    #	pkg install -f pkg                Segmentation fault
+    #
+    # `pkg` wrote the packages into page cache and the machine was killed before any of it reached the
+    # medium. The base system survived because it was written minutes earlier and had been synced.
+    #
+    # SO THE FLUSH IS ITS OWN STEP, just above, and this line stays `kill`. `sync` returns only when
+    # the kernel has handed the dirty blocks over, which makes the shutdown method irrelevant to
+    # whether the disk is complete.
     default: kill
 steps:
 - name: start recording
@@ -673,9 +693,38 @@ steps:
   - key: ret
     wait_after: 15
 
+- name: flush the writes before anything else
+  # `sync` IS THE FIX THAT DOES NOT DEPEND ON HOW THE MACHINE STOPS.
+  #
+  # MEASURED, on the disk CI published for run 43631122683: `/usr/local/bin/sudo` existed with 228312
+  # bytes and EVERY ONE OF THEM WAS ZERO, `file` called it `setuid data`, and `pkg` itself died with a
+  # segmentation fault. `pkg` had written those packages into the page cache, and the stage ended with
+  # `shutdown: kill` - so the blocks were never on the disk.
+  #
+  # THE SHUTDOWN METHOD IS A POOR PLACE TO PUT THIS. `acpi` is refused by `TestAnInstallStopsTheMachine
+  # BeforePublishingTheDisk`, and that refusal is right for a different reason: a LIVE INSTALLER ignores
+  # ACPI, because the installer's own init is not the system's, so asking it to power off waits for a
+  # button nothing presses. `kill` is what that test demands, and it is right about the installer.
+  #
+  # SO THE DURABILITY IS ASKED FOR EXPLICITLY, BEFORE the machine stops: `sync` flushes every dirty
+  # block to the medium and returns when the kernel has handed them over. Whatever happens to the
+  # process afterwards, the bytes are already there.
+  do:
+  - type: sync
+    wait_after: 3
+  - key: ret
+    wait_after: 20
+
 - name: stop the machine
-  # A STAGE WHOSE OUTPUT IS THE DISK MAY NOT BE KILLED, and this one has just written a ZFS pool.
-  # `acpi` lets the guest close its pools; the caller can still ask for `kill` through the variable.
+  # A STAGE WHOSE OUTPUT IS THE DISK MAY NOT LOSE ITS WRITES, AND `sync` ABOVE IS HOW THAT IS GUARANTEED.
+  #
+  # `kill` RATHER THAN `acpi`, AND THE REASON IS THE INSTALLER, NOT THIS STAGE: `TestAnInstallStopsThe
+  # MachineBeforePublishingTheDisk` requires it of every install leg, because a live installer's init
+  # ignores ACPI and the run then waits out its timeout for a power-off nobody performs.
+  #
+  # THE FLUSH IS THE STEP BEFORE THIS ONE. Before `sync` existed here, this line was `kill` with a
+  # comment that already said the disk may not be killed - and the disk came out with `pkg` and `sudo`
+  # as zero-filled files, because nothing had been written back.
   shutdown: '{{ shutdown }}'
   timeout: 300
 - name: publish the disk
