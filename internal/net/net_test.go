@@ -380,3 +380,45 @@ func TestTheGuestsDNSUpstreamIsTheContainersOwnResolver(t *testing.T) {
 	}
 	t.Logf("upstream(s) from this container's resolv.conf: %v", got)
 }
+
+// THE PROXY RULE MUST BE `DNAT` TO THE BRIDGE, NEVER `REDIRECT` TO THE LOOPBACK.
+//
+// THIS IS THE BUG THAT KEPT EVERY GUEST OFFLINE, AND IT IS INVISIBLE FROM THE GUEST'S SIDE: `pkg`
+// says "Could not connect to server", which reads like a broken mirror.
+//
+// MEASURED, with `REDIRECT --to-ports`:
+//
+//	EASYVM_PROXY  REDIRECT   108 packets     the rule matched everything
+//	FORWARD       ACCEPT       0 packets     and not one packet was forwarded
+//	guest         pkg        Could not connect to server
+//
+// A `REDIRECT` rewrites the destination to 127.0.0.1:<port>. A connection this container made is
+// already local so that works, but a guest's packet arrives from 172.30.0.2 and is FORWARDED - it
+// cannot be delivered to 127.0.0.1 at all. `DNAT` to the bridge keeps it a routed packet to an
+// address on the guest's own /24.
+func TestTheProxyRedirectsToTheBridgeAndNotToTheLoopback(t *testing.T) {
+	body, err := os.ReadFile("proxy.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+
+	if !strings.Contains(src, `"-j", "DNAT", "--to-destination"`) {
+		t.Error("the proxy chain no longer DNATs to a destination; a REDIRECT to the loopback " +
+			"cannot deliver a forwarded guest packet, which is measured as zero packets in FORWARD " +
+			"and `Could not connect to server` inside the guest")
+	}
+	if strings.Contains(src, `"REDIRECT", "--to-ports"`) {
+		t.Error("the proxy chain still contains a REDIRECT --to-ports rule")
+	}
+	// AND THE LISTENER HAS TO BE ON THE ADDRESS THE RULE NAMES.
+	if !strings.Contains(src, "net.Listen(\"tcp\", BridgeIP+\":0\")") {
+		t.Error("the listener does not bind the bridge address, so a DNATed guest connection " +
+			"would arrive at a port nothing is listening on")
+	}
+	// AND THE UPSTREAM EXEMPTION THAT STOPS THE TUNNEL TALKING TO ITSELF.
+	if !strings.Contains(src, "upstreamHost") {
+		t.Error("the chain lost its exemption for the proxy's own upstream, which loops: the " +
+			"listener's connection to mihomo is itself DNATed back to the listener")
+	}
+}

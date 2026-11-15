@@ -106,7 +106,22 @@ func StartTransparentProxy(upstream string) (*TransparentProxy, error) {
 		return nil, fmt.Errorf("EASYVM_TRANSPARENT_PROXY=%q does not resolve: %w", upstream, err)
 	}
 
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	// THE LISTENER BINDS THE BRIDGE, NOT THE LOOPBACK, AND THAT IS THE WHOLE FIX.
+	//
+	// MEASURED: with the rule written as `REDIRECT --to-ports <port>` the listener came up on
+	// 127.0.0.1 and accepted nothing from a guest. The guest's packets are not addressed to this
+	// machine - they are FORWARDED through it from 172.30.0.2 - and a `REDIRECT` rewrites them to
+	// 127.0.0.1:<port>, an address that belongs to the guest's own stack the moment the packet is
+	// no longer local. The counters said exactly that:
+	//
+	//	EASYVM_PROXY  REDIRECT   108 packets
+	//	FORWARD       ACCEPT       0 packets
+	//	guest         pkg        Could not connect to server
+	//
+	// So the rule is `DNAT --to-destination <bridge>:<port>` and the listener has to be reachable at
+	// that address. Binding the bridge makes the guest's connection an ordinary one to a host on its
+	// own /24, which is the only shape a forwarded packet can complete.
+	l, err := net.Listen("tcp", BridgeIP+":0")
 	if err != nil {
 		return nil, fmt.Errorf("listening for the transparent proxy: %w", err)
 	}
@@ -383,17 +398,26 @@ func applyTransparentProxy(spec string) error {
 		// sent through it would be answered with a 400 that the resolver reads as a broken server.
 		// The DHCP lease already hands the guest a resolver that works.
 		{"-p", "tcp", "--dport", "53", "-j", "RETURN"},
-		// EVERYTHING ELSE GOES TO THE LISTENER.
+		// EVERYTHING ELSE GOES TO THE LISTENER, ON THE BRIDGE ADDRESS.
 		//
-		// `REDIRECT` RATHER THAN `DNAT --to-destination 127.0.0.1:port`, AND THE DIFFERENCE MATTERS
-		// HERE: the guest's packets are not addressed to this machine - they are FORWARDED through
-		// it - and `DNAT` to the loopback would make the reply path try to route 127.0.0.1 across the
-		// bridge. `REDIRECT` is the kernel's own "deliver this to a local socket" and reverse-NATs the
-		// reply back to the guest, which is the one behaviour a transparent proxy needs.
+		// `DNAT --to-destination <bridge>:<port>`, NOT `REDIRECT --to-ports <port>`, AND THE
+		// DIFFERENCE IS THE WHOLE BUG THAT KEPT THE GUEST OFFLINE.
 		//
-		// IT IS ALSO WHY SO_ORIGINAL_DST EXISTS: after REDIRECT the socket's peer address is this
-		// listener, and the destination the guest asked for is only available from that option.
-		{"-p", "tcp", "-j", "REDIRECT", "--to-ports", port},
+		// A `REDIRECT` rewrites the destination to 127.0.0.1:<port>. That works for a connection this
+		// container made itself, because such a packet is already local - but a guest's packet is
+		// FORWARDED, its source is 172.30.0.2, and 127.0.0.1 is not an address that packet can be
+		// delivered to. MEASURED:
+		//
+		//	EASYVM_PROXY  REDIRECT   108 packets      the rule matched
+		//	FORWARD       ACCEPT       0 packets      and nothing was ever forwarded
+		//	guest         pkg        Could not connect to server
+		//
+		// `DNAT` to the bridge address keeps the packet a routed one: the guest dials a host on its
+		// own /24, which is a connection it can complete, and the listener answers from that address.
+		//
+		// `SO_ORIGINAL_DST` IS STILL WHAT RECOVERS THE TARGET - after either rewrite the socket's
+		// peer is this listener, and the address the guest asked for survives only in that option.
+		{"-p", "tcp", "-j", "DNAT", "--to-destination", BridgeIP + ":" + port},
 	} {
 		args := append([]string{"-t", "nat", "-A", proxyChain}, rule...)
 		if out, err := run("iptables", args...); err != nil {
