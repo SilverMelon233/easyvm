@@ -1021,6 +1021,24 @@ func (d *Driver) shutdownOverACPI() error {
 //
 // IT REAPS THE WAIT, so the next `stop` or `start` does not find a zombie whose exit status nobody
 // collected - and so the disk is closed before the step that publishes it reads the file.
+// killAndReap stops qemu in a way that does not throw its writes away.
+//
+// SIGTERM, THEN SIGKILL ONLY IF IT REFUSES - AND THE DIFFERENCE IS A DISK, MEASURED.
+//
+// EVERY `Exec format error` IN THIS REPOSITORY'S FREEBSD CHAIN CAME FROM THIS FUNCTION. It sent
+// SIGKILL, which drops qemu's own write-back cache: the guest's `sync` puts the data in the VIRTUAL
+// disk's cache, and the cache lives in the qemu PROCESS. Killing it is the same as unplugging the
+// drive:
+//
+//	install leg   51 of 51 steps, success
+//	disk          /dev/vtbd0p2  freebsd-ufs  - and EVERY BYTE OF IT ZERO
+//	ESP           665600-byte loader.efi, intact, `4d 5a 90 00`   (written early, flushed by then)
+//	boot          BdsDxe: failed to load ... /\efi\freebsd\loader.efi: Load Error
+//
+// SIGTERM is qemu's documented "exit now": it closes the block layer, which flushes every cached
+// write to the qcow2 before the process goes away. The kill is kept as a FALLBACK for a qemu that
+// ignores it, because a machine that will not stop is worse than a disk that needs a replay - but it
+// is no longer the first thing that happens.
 func (d *Driver) killAndReap() error {
 	d.mu.Lock()
 	proc := d.proc
@@ -1028,6 +1046,24 @@ func (d *Driver) killAndReap() error {
 	if proc == nil {
 		return nil
 	}
+
+	// GRACEFUL FIRST. Ten seconds is generous: qemu's flush is bounded by the disk, and the whole
+	// point is that this machine is not busy when it is asked to stop.
+	if err := proc.Process.Signal(syscall.SIGTERM); err == nil {
+		done := make(chan struct{})
+		go func() {
+			_ = proc.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+			d.logf("  the guest stopped on SIGTERM, and qemu flushed the disk as it went")
+			return nil
+		case <-time.After(10 * time.Second):
+			d.logf("  qemu ignored SIGTERM for 10s; killing it - the disk will need a journal replay")
+		}
+	}
+
 	if err := proc.Process.Kill(); err != nil {
 		return fmt.Errorf("kill: %w", err)
 	}
