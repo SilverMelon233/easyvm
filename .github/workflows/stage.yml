@@ -474,9 +474,9 @@ jobs:
       #
       #   <leg>-video   the recording          "what was on screen" - tens of megabytes
       #   <leg>-logs    daemon.log, console.log  "what the guest said" - kilobytes
-      #   (nothing)     the qcow2              the disk is TRANSPORT, and its transport is `easyvm
-      #                                        push` -> `easyvm pull`, which is what the next stage
-      #                                        actually runs
+      #   (nothing)     the qcow2              the disk is TRANSPORT: `oci-push` writes it and
+      #                                        `pull-artifact.sh` reads it back, which is what the
+      #                                        next stage actually runs
       #
       # MEASURED: `windows-install` succeeded, published `windows11` (10,786 MiB in ghcr), and then
       # spent SEVEN MINUTES re-uploading the same file as a 22,133,669,203-byte artifact. Every

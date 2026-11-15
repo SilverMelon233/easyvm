@@ -32,7 +32,8 @@ const (
 	// IT IS THE CONTAINER'S OWN RESOLVER when there is one: that is the only server whose reachability
 	// has been established from inside this pod's network namespace, and the guest's queries leave
 	// through the same namespace once dnsmasq has them.
-	dhcpUpstreams = "172.18.0.10,1.1.1.1"
+	dhcpPrimaryDNS = "172.18.0.10"
+	dhcpSecondaryDNS = "1.1.1.1"
 )
 
 // startDHCP runs dnsmasq for this bridge, or confirms the one already running is right.
@@ -148,8 +149,14 @@ dhcp-leasefile=%s
 # server= IS THE UPLINK AND no-resolv STOPS dnsmasq ALSO READING /etc/resolv.conf, which would put
 # the same servers first and make the explicit line meaningless.
 port=53
-bind-dynamic
 no-resolv
+# ONE server= LINE PER UPSTREAM. A comma-separated server=a,b IS NOT two servers - dnsmasq reads it as
+# one address and refuses it:
+#
+#	dnsmasq: Name or service not known at line 34
+#
+# which is how this was found: dnsmasq --test -C on the generated file.
+server=%s
 server=%s
 # THE UPLINK'S MTU, TOLD TO THE CLIENT.
 #
@@ -163,8 +170,8 @@ dhcp-option=option:router,%s
 # 172.18.0.10 would be a lease that names an address outside its own /24.
 dhcp-option=option:dns-server,%s
 log-dhcp
-`, BridgeName, Prefix, BridgeName, GuestIP, GuestIP, TapMAC, GuestIP, dhcpLeasePath, dhcpUpstreams,
-		UplinkMTU(), BridgeIP, BridgeIP)
+`, BridgeName, Prefix, BridgeName, GuestIP, GuestIP, TapMAC, GuestIP, dhcpLeasePath,
+		dhcpPrimaryDNS, dhcpSecondaryDNS, UplinkMTU(), BridgeIP, BridgeIP)
 
 	if err := os.WriteFile(dhcpConfPath, []byte(conf), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", dhcpConfPath, err)

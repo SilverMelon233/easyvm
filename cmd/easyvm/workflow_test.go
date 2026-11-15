@@ -403,49 +403,6 @@ func TestEachOperatingSystemHasItsOwnGroupAndOneSharedMechanism(t *testing.T) {
 	}
 }
 
-// `easyvm pull` DELEGATES THE TRANSFER TO oras, AND SAYS SO WHEN oras IS MISSING.
-//
-// THE TRANSFER IS NOT THIS PROGRAM'S JOB. `cmdPull` was 246 lines of registry protocol - token
-// exchange, manifest reading, resumable blob fetch - duplicating what `oras` already is. `easyvm push`
-// was deleted for that reason long ago; the pull side now matches, so a qcow2 in a registry is an
-// artifact handled by the artifact tool.
-//
-// WHAT STAYS IS `internal/oci`, AND THE CALLER IS THE DIFFERENCE: `fetch:` inside a walkthrough
-// resolves an installer image at RUN TIME in the daemon, possibly on a machine with no oras. That is
-// the asset layer using a library; THIS is the user-facing command, and it shells out.
-func TestPullDelegatesToOrasAndSaysSoWhenItIsMissing(t *testing.T) {
-	body, err := os.ReadFile("main.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(body)
-	i := strings.Index(src, "func cmdPull(")
-	if i < 0 {
-		t.Fatal("cmdPull is gone")
-	}
-	end := strings.Index(src[i:], "\nfunc ")
-	fn := src[i : i+end]
-
-	if !strings.Contains(fn, `exec.LookPath("oras")`) {
-		t.Error("`easyvm pull` does not look for oras; it must delegate the transfer rather than " +
-			"carry a second implementation of the registry protocol")
-	}
-	if !strings.Contains(fn, `exec.Command(tool, "pull"`) {
-		t.Error("`easyvm pull` does not run `oras pull`")
-	}
-	// AND A MISSING TOOL IS A SENTENCE ABOUT THE TOOL, not a registry error that reads like a
-	// missing tag.
-	if !strings.Contains(fn, "oras is not installed") {
-		t.Error("a missing oras must be reported as such; a caller would otherwise see a failure " +
-			"that looks like the artifact is absent")
-	}
-	// THE DISK HAS TO END UP AT THE PATH THE CALLER NAMED - oras writes the layer's own title.
-	if !strings.Contains(fn, "os.Rename(") {
-		t.Error("the pulled file is not moved to `--dest`; the workflow names work/disk.qcow2 and a " +
-			"walkthrough names installer_iso, so the file at the layer's title is not where anyone " +
-			"looks for it")
-	}
-}
 
 // THE PULL IS RESUMABLE, AND IT IS A SHELL SCRIPT BECAUSE IT HAS TO SURVIVE A RESET STREAM.
 //
