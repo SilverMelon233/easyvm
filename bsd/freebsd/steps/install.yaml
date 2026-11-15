@@ -846,7 +846,25 @@ steps:
 # account exists and cannot log in over ssh, which reads afterwards as an ssh failure.
 - name: create the account
   do:
-  - type: printf '%s\n' '{{ password }}' | pw useradd -n {{ user }} -m -s /bin/csh -G wheel -h 0
+  # `pw useradd -m ... -h 0` WITH A PIPE DOES NOT SET THE PASSWORD, AND THE FIELD IS LEFT AS `*`.
+  #
+  # MEASURED on a disk from this walk:
+  #
+  #	pw usershow vmuser    vmuser:*:1001:1001::0:0:User &:...
+  #	                                          ^ a `*` is "no password", not a hash
+  #
+  # `-h 0` reads the password from stdin, and when the same invocation also creates the home
+  # directory `pw` consumes that stdin for its own prompts first - so the read finds nothing and
+  # leaves the account locked. A locked account cannot authenticate, and lightdm's autologin goes
+  # through PAM: the greeter appears instead of the session, with nothing said in any log.
+  #
+  # TWO COMMANDS, IN THIS ORDER: create the account, then set its password in a second `pw` that has
+  # nothing else to do with stdin.
+  - type: pw useradd -n {{ user }} -m -s /bin/csh -G wheel
+    wait_after: 3
+  - key: ret
+    wait_after: 4
+  - type: printf '%s\n' '{{ password }}' | pw usermod {{ user }} -h 0
     wait_after: 3
   - key: ret
     wait_after: 5
@@ -1048,7 +1066,22 @@ steps:
   #
   # AND `lightdm-gtk-greeter` IS SEPARATE FROM `lightdm`: without it lightdm starts to a black screen.
   do:
-  - type: env ASSUME_ALWAYS_YES=yes pkg install -y sudo xorg xfce lightdm lightdm-gtk-greeter
+  # `xf86-video-scfb` IS THE DRIVER THIS GUEST NEEDS AND IT IS NOT PULLED IN BY ANYTHING ABOVE.
+  #
+  # MEASURED, on a disk where every other piece was correct - lightdm, Xorg, xfce.desktop,
+  # dbus_enable, devfs_system_ruleset all present - and the session still would not start:
+  #
+  #	Fatal server error:
+  #	(EE) Cannot run in framebuffer mode. Please specify busIDs for all framebuffer devices
+  #
+  # QEMU presents a plain VGA adapter with no GPU driver behind it, so X has to draw through the
+  # kernel's framebuffer - `scfb`, the "simple framebuffer" driver. FreeBSD's `xorg` meta-port does
+  # not depend on it, and without it every X start exits on the first line of the log.
+  #
+  # `xf86-input-libinput` IS THE OTHER HALF: scfb gives X something to draw on, and libinput is what
+  # gives it the keyboard and the usb-tablet. A session with a display and no input device starts and
+  # ignores every click.
+  - type: env ASSUME_ALWAYS_YES=yes pkg install -y sudo xorg xf86-video-scfb xf86-input-libinput xfce lightdm lightdm-gtk-greeter
     wait_after: 4
   - key: ret
     wait_after: 60
@@ -1103,6 +1136,29 @@ steps:
   - key: ret
     wait_after: 6
 
+- name: tell Xorg to draw through the kernel framebuffer
+  # `scfb` HAS TO BE NAMED. Installing `xf86-video-scfb` puts the driver on the disk, but Xorg's
+  # autoconfiguration looks for a PCI GPU and QEMU's plain VGA adapter has none it recognises - so it
+  # falls back to "framebuffer mode" and refuses:
+  #
+  #	(EE) Cannot run in framebuffer mode. Please specify busIDs for all framebuffer devices
+  #
+  # A config that names the driver is the documented answer. `DefaultDepth 24` because QEMU's VGA is
+  # 32-bit colour at the resolution `boot:` sets (1920x1080).
+  do:
+  - type: mkdir -p /usr/local/etc/X11/xorg.conf.d
+    wait_after: 1
+  - key: ret
+    wait_after: 2
+  - type: sh -c 'printf "%s\n" "Section \"Device\"" "    Identifier \"Card0\"" "    Driver \"scfb\"" "EndSection" > /usr/local/etc/X11/xorg.conf.d/10-scfb.conf'
+    wait_after: 2
+  - key: ret
+    wait_after: 3
+  - type: cat /usr/local/etc/X11/xorg.conf.d/10-scfb.conf
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+
 - name: enable the desktop at boot
   # THE THREE SWITCHES THAT DECIDE WHETHER A SESSION APPEARS, AND ONE OF THEM IS EASY TO MISS.
   #
@@ -1111,11 +1167,10 @@ steps:
   #	                             greeter, the rc script exits, and NOTHING SAYS WHY.
   #	lightdm_enable=YES           the display manager itself
   #	devfs_system_ruleset=desktop modern FreeBSD has no hald; this ruleset grants /dev/input/* and
-  #	                             the other nodes a session opens. Without it the desktop starts and
-  #	                             the keyboard does not work.
+  #	                             the other nodes a session opens
   #
   # MEASURED on a disk whose rc.conf had only `lightdm_enable=YES`: `pgrep -x lightdm` never returned,
-  # twice, on two separate runs, and the log said nothing because the script had exited cleanly.
+  # twice, on two separate runs, and the log said nothing because the script exited cleanly.
   do:
   - type: sysrc dbus_enable=YES
     wait_after: 2
