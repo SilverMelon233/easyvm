@@ -200,64 +200,131 @@ steps:
     wait_after: 10
 
 - name: wait for the zfs configuration menu
-  # A KEY SENT BEFORE A PANE EXISTS IS A KEY SENT TO THE PREVIOUS ONE.
+  # A KEY SENT BEFORE A PANE EXISTS GOES TO THE PREVIOUS ONE, AND A FIXED WAIT CANNOT KNOW.
   #
-  # MEASURED on run i4 (local replay of this file): the two Returns below the partition menu were
-  # issued and the screen was still showing `Select Virtual Device type` when the step after them
-  # pressed `space` - so one of the two had gone nowhere, and every later key was one pane behind.
+  # MEASURED TWICE. Locally, the screen was still `Select Virtual Device type` when the step after the
+  # two Returns pressed `space`. On CI it failed the same way with a 25-second wait in place, because
+  # that runner's disk probe is slower than this one's.
   #
-  # `zfsboot` PROBES EVERY DISK BEFORE IT DRAWS THE MENU, and on a 128 GiB virtio disk that is not
-  # instant. The partitioning step's `wait_after: 10` covers the menu closing, not the probe.
-  #
-  # THE MAPPING, MEASURED BY PRESSING THE KEYS BY HAND AND READING THE SCREEN AFTER EACH:
-  #
-  #	ZFS Configuration  --ret-->  Select Virtual Device type
-  #	Select Virtual Device type  --ret-->  Please select one or more disks   [ ] vtbd0
-  #	disk list  --space-->  [X] vtbd0        (ret without the space cancels back to the menu)
-  wait: 25
+  # `zfsboot` PROBES every disk before it draws its menu, so the delay is proportional to the disk and
+  # the machine - a number this file cannot know. WHAT IT CAN DO IS LOOK: this loop reads the pane and
+  # leaves as soon as `ZFS Configuration` is on screen, and gives up after two minutes rather than
+  # hanging.
+  loop:
+    max: 20
+    do:
+    - wait: 6
+    ocr:
+      name: zfsmenu
+      region:
+      - 600
+      - 300
+      - 1350
+      - 800
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: zfs_showing
+      from: zfsmenu
+      mode: says_any
+      words:
+      - - pool
+      - - partition scheme
+    until:
+      fact: zfs_showing
 
 - name: zfs configuration opens with the pool editor
-  # The `Auto (ZFS)` row goes STRAIGHT to `ZFS Configuration`, which lists:
-  #
-  #	T Pool Type/Disks:  stripe: 0 disks
-  #	P Partition Scheme: GPT (BIOS+UEFI)
-  #	R Pool Name:        zroot
-  #	S Swap Size:        2g
-  #
-  # `T` IS PRESELECTED AND RETURN OPENS IT - there is no separate "configure" click.
+  # `T Pool Type/Disks:  stripe: 0 disks` is the first row and already highlighted, so Return opens
+  # the device-type list. No `t` keystroke: the letters on this pane are shortcuts and one of them,
+  # `p`, cycles the partition scheme - MEASURED as a way to lose the layout this file documents.
   key: ret
   wait_after: 6
+
+- name: wait for the device-type list
+  # THE SAME RULE ONE PANE DOWN: the list is drawn after the menu closes, and a Return sent early is
+  # a Return the menu eats.
+  loop:
+    max: 12
+    do:
+    - wait: 4
+    ocr:
+      name: vdev
+      region:
+      - 600
+      - 300
+      - 1350
+      - 800
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: vdev_showing
+      from: vdev
+      mode: says_any
+      words:
+      - - virtual device
+      - - stripe
+    until:
+      fact: vdev_showing
+
 - name: pool type - stripe, for one disk
-  # `Select Virtual Device type` -> [ stripe ] mirror raid10 raidz1 raidz2 raidz3
-  # `stripe` is preselected and is the only correct answer for a single disk.
+  # `Select Virtual Device type:` -> [ stripe ] mirror raid10 raidz1 raidz2 raidz3
+  # `stripe` IS THE FIRST ROW AND ALREADY SELECTED; it is the only correct answer for one disk.
   key: ret
   wait_after: 6
+
+- name: wait for the disk list
+  # AND AGAIN: the disk checklist is a DIFFERENT pane from the device-type list, and the space that
+  # ticks a disk is meaningless on the one before it. MEASURED: pressing space on the device-type
+  # list does nothing, and the disk list then arrives with `[ ]` still unticked.
+  loop:
+    max: 12
+    do:
+    - wait: 4
+    ocr:
+      name: disks
+      region:
+      - 600
+      - 300
+      - 1350
+      - 800
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: disks_showing
+      from: disks
+      mode: says
+      words:
+      - disks
+    until:
+      fact: disks_showing
+
 - name: select the disk - SPACE marks it
-  # THE DISK LIST HAS TO EXIST BEFORE THE SPACE ARRIVES, and the wait above this pair of Returns was
-  # not enough on its own: MEASURED, the pane was still `Select Virtual Device type` when the space
-  # was sent.
-  wait: 6
-  # `Please select one or more disks to create a pool:`
-  #	[ ] vtbd0  VirtIO Block Device
+  # `Please select one or more disks to create a pool:`  `[ ] vtbd0  VirtIO Block Device`
   #
   # SPACE, NOT RETURN. The pane's own footer says `Use arrows, SPACE, TAB or ENTER`, and Return on an
-  # unmarked disk leaves `stripe: 0 disks` - a pool with no vdev, which the installer then refuses.
-  # MEASURED: the marker is `[X]` and the pane shows `stripe: 1 disk` once it is set.
+  # unmarked disk takes `[Change Selection]` straight back to the ZFS menu - MEASURED, and it leaves
+  # `stripe: 0 disks`, which the installer then refuses.
+  #
+  # `space`, NOT `spc`. Both parse: `spc` is a QEMU qcode name and `space` is not, so `space` goes
+  # through ForText and is typed as the CHARACTER 0x20. MEASURED on the pane:
+  #
+  #	key spc     [ ] vtbd0
+  #	key space   [X] vtbd0
   #
   # THE DEVICE IS `vtbd0` AND NOT `ada0`: this guest's disk is on virtio, and a walk that looked for
   # `ada` would select nothing.
-  #
-  # `space`, NOT `spc`, AND THAT IS MEASURED ON THE PANE. `spc` IS a name in keys.NamedKeys and it is
-  # a valid qcode, so it parses - and the checkbox stayed `[ ]` after it, twice:
-  #
-  #	key spc   ->   [ ] vtbd0 VirtIO Block Device
-  #	key space ->   [X] vtbd0 VirtIO Block Device
-  #
-  # `space` is not a name, so it goes through `ForText` and is typed as the CHARACTER 0x20, which is
-  # what ncurses' checklist reads for "toggle this row". `spc` asks QEMU for the named key and the
-  # dialog does not treat it as a space in this widget.
   key: space
   wait_after: 3
+
 - name: accept the disk selection
   key: ret
   wait_after: 6
