@@ -27,14 +27,66 @@ const (
 	dhcpLeasePath = "/tmp/easyvm-dnsmasq.leases"
 	dhcpMacPath   = "/tmp/easyvm-dnsmasq.mac"
 	dhcpPIDPath   = "/tmp/easyvm-dnsmasq.pid"
-	// dhcpUpstreams is what dnsmasq forwards to on the guest's behalf.
+	// dnsFallback is what dnsmasq forwards to when the container's own resolv.conf names nothing.
 	//
-	// IT IS THE CONTAINER'S OWN RESOLVER when there is one: that is the only server whose reachability
-	// has been established from inside this pod's network namespace, and the guest's queries leave
-	// through the same namespace once dnsmasq has them.
-	dhcpPrimaryDNS = "172.18.0.10"
-	dhcpSecondaryDNS = "1.1.1.1"
+	// IT IS A LAST RESORT, NOT THE PLAN. The plan is ResolverUpstreams() below, which reads the file
+	// the container itself uses - a hard-coded address is right for exactly one cluster:
+	//
+	//	lab     /etc/resolv.conf   nameserver 172.18.0.10     (the cluster DNS)
+	//	CI      /etc/resolv.conf   nameserver <runner's own>  (a GitHub runner has its own)
+	//
+	// MEASURED: with 172.18.0.10 written into the config, a machine that is not on this cluster gets
+	// dnsmasq forwarding to an address that does not answer, waiting out its timeout on every query
+	// before falling through.
+	dnsFallback = "1.1.1.1"
 )
+
+// ResolverUpstreams reads the nameservers THIS CONTAINER uses, for dnsmasq to forward to.
+//
+// THE GUEST CANNOT USE THEM DIRECTLY AND THAT IS THE WHOLE POINT: its UDP 53 is MASQUERADEd at the
+// bridge and leaves by a path that is dropped, while the container's own queries to the same server
+// are answered. Handing the container's resolvers to dnsmasq gives the guest the answers without
+// giving it the broken route.
+//
+// IT IS READ, NOT HARD-CODED, because the address differs by where this runs:
+//
+//	lab   nameserver 172.18.0.10        the cluster's DNS
+//	CI    nameserver 10.x.x.x           the runner's own
+//
+// A constant here was right for one of those and silently wrong for the other - the guest would still
+// resolve, after dnsmasq waited out a timeout on a server that does not exist on that network.
+//
+// A LOOPBACK ENTRY IS SKIPPED: a container whose resolv.conf says 127.0.0.11 (Docker's embedded
+// resolver) or 127.0.0.53 (systemd-resolved) is describing a proxy inside its own namespace, and
+// dnsmasq on the bridge cannot reach that - the guest's packets would have to arrive from outside.
+func ResolverUpstreams() []string {
+	b, err := os.ReadFile("/etc/resolv.conf")
+	if err != nil {
+		return []string{dnsFallback}
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || f[0] != "nameserver" {
+			continue
+		}
+		addr := f[1]
+		// A LOOPBACK RESOLVER IS THE CONTAINER'S OWN, not a server the bridge can forwards to.
+		if strings.HasPrefix(addr, "127.") || addr == "::1" {
+			continue
+		}
+		if seen[addr] {
+			continue
+		}
+		seen[addr] = true
+		out = append(out, addr)
+	}
+	if len(out) == 0 {
+		return []string{dnsFallback}
+	}
+	return out
+}
 
 // startDHCP runs dnsmasq for this bridge, or confirms the one already running is right.
 func startDHCP() error {
@@ -117,6 +169,13 @@ func startDHCP() error {
 // THE LEASE IS BY MAC, NOT BY NAME. A guest may present any hostname or none, and a lease matched
 // by name would be a lease that depends on what an installer typed.
 func writeDHCPConfig() error {
+	// THE UPSTREAMS COME FROM THIS CONTAINER'S OWN resolv.conf, and one `server=` line is emitted
+	// per entry because dnsmasq does not accept a comma-separated list there.
+	resolvers := ResolverUpstreams()
+	var serverLines strings.Builder
+	for _, r := range resolvers {
+		serverLines.WriteString("server=" + r + "\n")
+	}
 	conf := fmt.Sprintf(`# written by easyvm; one guest per container on %s/%d
 interface=%s
 bind-interfaces
@@ -156,8 +215,10 @@ no-resolv
 #	dnsmasq: Name or service not known at line 34
 #
 # which is how this was found: dnsmasq --test -C on the generated file.
-server=%s
-server=%s
+#
+# %s IS BUILT FROM THE CONTAINER'S OWN resolv.conf at the top of this function, not written here: the
+# address differs between the lab and a CI runner, and a constant was right for one of them.
+%s
 # THE UPLINK'S MTU, TOLD TO THE CLIENT.
 #
 # The guest's default is 1500 and a guest larger than its tap drops every full segment - measured
@@ -171,7 +232,7 @@ dhcp-option=option:router,%s
 dhcp-option=option:dns-server,%s
 log-dhcp
 `, BridgeName, Prefix, BridgeName, GuestIP, GuestIP, TapMAC, GuestIP, dhcpLeasePath,
-		dhcpPrimaryDNS, dhcpSecondaryDNS, UplinkMTU(), BridgeIP, BridgeIP)
+		resolvers, serverLines.String(), UplinkMTU(), BridgeIP, BridgeIP)
 
 	if err := os.WriteFile(dhcpConfPath, []byte(conf), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", dhcpConfPath, err)

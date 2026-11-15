@@ -349,3 +349,34 @@ func TestTheAddressAlreadyAssignedMessageCountsAsAlreadyThere(t *testing.T) {
 		}
 	}
 }
+
+// THE GUEST'S DNS UPSTREAM IS THE CONTAINER'S OWN, READ FROM resolv.conf.
+//
+// THE BUG THIS PREVENTS IS SPECIFIC AND WAS SHIPPED: the address was a constant
+// `172.18.0.10`, which is THIS lab cluster's DNS and nothing else. On a GitHub runner that address
+// does not exist, so dnsmasq would forward the guest's first query to it, wait out the timeout, and
+// only then try the next entry - and a machine whose resolver is merely slow is hard to tell from
+// one whose resolver is wrong.
+//
+// MEASURED, inside the lab pod:
+//
+//	/etc/resolv.conf   nameserver 172.18.0.10
+//	ResolverUpstreams  172.18.0.10        correct here
+//
+// and a runner's file names its own. The function has to follow the file, not a constant.
+func TestTheGuestsDNSUpstreamIsTheContainersOwnResolver(t *testing.T) {
+	got := ResolverUpstreams()
+	if len(got) == 0 {
+		t.Fatal("ResolverUpstreams returned nothing, so dnsmasq would have no upstream at all")
+	}
+	for _, server := range got {
+		// A LOOPBACK ADDRESS IS NEVER RIGHT HERE. 127.0.0.11 is Docker's embedded resolver and
+		// 127.0.0.53 is systemd-resolved: both are proxies INSIDE this container's namespace, and
+		// dnsmasq on the bridge cannot reach them on the guest's behalf.
+		if strings.HasPrefix(server, "127.") || server == "::1" {
+			t.Fatalf("ResolverUpstreams returned %q, which is this container's loopback and not a "+
+				"server the bridge can forward to", server)
+		}
+	}
+	t.Logf("upstream(s) from this container's resolv.conf: %v", got)
+}

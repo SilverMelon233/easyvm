@@ -166,51 +166,36 @@ steps:
   key: ret
   wait_after: 10
 
-- name: network, so the chroot shell can install packages
-  # ON INSTRUCTION: `Network`, because `Offline` cannot install anything this stage needs.
+- name: offline, so pkgbase does not reboot before the chroot runs
+  # THE CHOICE IS DRIVEN BY WHAT HAPPENS AFTER THE BASE SYSTEM LANDS, NOT BY WHERE IT COMES FROM.
   #
-  # THE DISC'S OFFLINE REPOSITORY IS BASE-ONLY. Checked on disc1.iso itself:
+  # MEASURED THREE TIMES: with `Network`, pkgbase unpacks the base system from pkg.FreeBSD.org and then
+  # REBOOTS INTO IT. The machine that comes back has no /boot/loader.conf - this stage cannot have
+  # written one, because its chroot steps run after the post-install menu - so its console is the VGA
+  # adapter and ttyu0 receives exactly one question, forever:
   #
-  #	xorriso -indev disc1.iso -find /usr/freebsd-packages/offline | wc -l     328
-  #	... | grep -icE '^(sudo|doas|xorg|xfce|lightdm|bash|git|curl)'            0
+  #	Welcome to FreeBSD!
+  #	Please choose the appropriate terminal type for your system.
+  #	Console type [vt100]:
   #
-  # so an Offline install yields a system whose `pkg` points at a repository with no ports packages,
-  # and the chroot's `pkg install -y sudo xorg xfce lightdm lightdm-gtk-greeter` reported, on the
-  # screen and only on the screen:
+  # The serial line is `-serial file:...`, which is WRITE-ONLY, so that question cannot be answered -
+  # and `bsdinstall auto` is gone by then, so `bsdinstall config`, `finalconfig` and the CHROOT SHELL
+  # never run at all.
   #
-  #	Updating FreeBSD-ports repository catalogue
-  #	pkg: Failed to fetch https://pkg.FreeBSD.org/.../meta.conf: Could not connect to server
-  #	Unable to update repository FreeBSD-ports
+  # `Offline` DOES NOT REBOOT. The base system comes from the 328 packages on disc1, the installer
+  # walks the post-install menu this file drives, and the chroot shell is finally available - which is
+  # the ONLY place with root and the only place xorg, xfce, lightdm and sudo can be installed.
   #
-  # The base system was fine in both cases; what Offline cannot do is add a desktop.
-  #
-  # `Network` gives the new system a /etc/pkg/FreeBSD.conf that points at pkg.FreeBSD.org - the same
-  # repository the chroot then uses - and the transparent proxy makes that host reachable at 3 MB/s.
-  key: ret
-  timeout: 1800
-  wait_after: 10
-- name: configure the network, which is what Network mode asks before it can fetch
-  # `Please select a network interface and configuration mode:`  [ Auto ]  [ Manual ]  [ Cancel ]
-  #
-  # THIS PANE EXISTS ONLY ON THE NETWORK PATH. From usr.sbin/bsdinstall/scripts/auto:
-  #
-  #	if [ $? -eq 1 ]; then
-  #	    export BSDINSTALL_PKG_REPOS_DIR=/usr/freebsd-packages/repos/   # Offline - no netconfig
-  #	else
-  #	    bsdinstall netconfig || error                                  # Network - netconfig HERE
-  #	    NETCONFIG_DONE=yes
-  #	fi
-  #
-  # MEASURED: with Network chosen, the install reached this pane and stopped, and the next step
-  # (which waits for the partitioning menu) reported:
-  #
-  #	ocr/partmenu: "Please select a network interface and configuration mode: [ Auto [Manual] [Cancel]"
-  #
-  # `Auto` IS HIGHLIGHTED and it is what runs `dhclient` - which is also what gives the chroot a
-  # working resolver later, because netconfig writes /etc/resolv.conf into the new system.
-  key: ret
-  wait_after: 20
-
+  # ITS ONE WEAKNESS - the disc's repository is base-only - is handled IN the chroot, by the
+  # `point pkg at the network repository` step. That step needed a working DNS and a working proxy to
+  # succeed, and both were broken until now: the proxy was TCP-only (so the guest's UDP 53 was
+  # dropped) and dnsmasq served no DNS at all. Both are fixed in internal/net, and verified on an
+  # Ubuntu guest whose desktop reports 95 updates available.
+  do:
+  - key: right
+    wait_after: 1
+  - key: ret
+    wait_after: 10
 - name: partitioning - automatic ufs
   # THE MENU, AND NOTHING ELSE: THE KEYSTROKE IS SENT BY THE STEP AFTER THIS ONE.
   #
@@ -960,7 +945,24 @@ steps:
   # THE ADDRESSES ARE THE ONES THE INSTALLER ITSELF USED - DHCP handed this guest 172.30.0.1 with
   # 1.1.1.1 and 8.8.8.8, and they are reachable from the bridge.
   do:
-  - type: printf '%s\n' 'nameserver 1.1.1.1' 'nameserver 8.8.8.8' > /etc/resolv.conf
+  # `172.30.0.1` IS THE BRIDGE, AND IT IS THE ONLY RESOLVER THE GUEST CAN REACH.
+  #
+  # THIS STEP USED TO WRITE `nameserver 1.1.1.1` AND `8.8.8.8`, AND THOSE ARE THE ADDRESSES THAT DO
+  # NOT ANSWER FROM INSIDE A GUEST HERE. MEASURED, with a hand-built A query so the answer cannot
+  # depend on /etc/resolv.conf:
+  #
+  #	container -> 1.1.1.1:53      answered, 5 records
+  #	container -> 8.8.8.8:53      answered, 5 records
+  #	guest     -> 1.1.1.1:53      never answered
+  #
+  # The transparent proxy is TCP-only (`iptables -t nat -S | grep -i udp` is empty, because mihomo's
+  # 7890 speaks HTTP CONNECT), so the guest's UDP query bypasses it, is MASQUERADEd at the bridge and
+  # leaves by a path that is dropped.
+  #
+  # dnsmasq now answers on the bridge and forwards to the container's own resolver, so the bridge
+  # address is the one DNS server this shell can use - and it is the same one the DHCP lease hands the
+  # installed system.
+  - type: printf '%s\n' 'nameserver 172.30.0.1' > /etc/resolv.conf
     wait_after: 2
   - key: ret
     wait_after: 3
