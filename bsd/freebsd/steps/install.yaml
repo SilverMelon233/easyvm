@@ -702,38 +702,34 @@ steps:
 #
 # `No` IS THE RIGHT BUTTON AND `right` REACHES IT, because this yesno's focus starts on `Yes`.
 - name: do not add a user here - the chroot shell does it
-  # `No` IS ALREADY HIGHLIGHTED, SO THIS IS ONE RETURN, AND THE `right` THAT WAS HERE MOVED IT OFF.
+  # `YES` IS THE HIGHLIGHTED BUTTON, AND A BARE RETURN STARTED `adduser` AND SILENTLY ATE THE WHOLE
+  # REST OF THIS STAGE.
   #
-  # MEASURED on the last frame of a local run (`ffmpeg -sseof -3` on the stage's own recording):
+  # MEASURED, BY PLAYING THE STAGE'S OWN RECORDING (`ffmpeg -ss N` on freebsd-install.mp4):
   #
-  #	Add User Accounts
-  #	  Would you like to add users to the installed system now?
-  #	  [ Yes ]  [ No ]          <- NO is the blue button
+  #	240s  Services  [X] sshd ...                          <- the pane before this one
+  #	265s  Add Users / Username:                           <- adduser was ALREADY running
+  #	272s  adduser: ERROR: You must enter a username!
+  #	310s  Uid (Leave empty for default): printf '%s\n' 'admin' | pw usermod root -h 0
+  #	325s  ... pw useradd -n vmuser -m -s /bin/csh -G wheel -h 0
+  #	590s  Login group: sync does not exist!  /  exit does not exist!
   #
-  # The step sent `key right` first, which moved the focus to Yes, so the Return started
-  # `bsdinstall adduser` - the prompt CHAIN this step exists to avoid, and whose first failure is
+  # EVERY COMMAND AFTER THIS PANE WAS TYPED INTO `adduser`'s PROMPT CHAIN AND REFUSED. So root's
+  # password, the account, `PasswordAuthentication`, `sysrc sshd_enable`, `pkg install sudo`, the
+  # sudoers file and the final `exit` NEVER RAN - which is why the disk has no /etc/fstab, why the
+  # UFS superblock was never marked clean, and why the ssh stage could never log in.
   #
-  #	adduser: ERROR: You must enter a username
+  # A PREVIOUS VERSION OF THIS STEP READ `key: ret` AND ITS COMMENT CLAIMED `No` WAS HIGHLIGHTED. THAT
+  # WAS READ OFF THE LAST FRAME OF A FAILED RUN - a frame that already shows the adduser prompt, not
+  # the dialog - and it was wrong. The dialog opens on `Yes`.
   #
-  # THE FOCUS RULES ARE NOT UNIFORM ACROSS THE INSTALLER, AND THAT IS THE TRAP. This pane opens on
-  # `No`. The root-password pane needs two tabs plus `right` to reach `Skip`. The destroy-confirm
-  # opens on `No` and needs `left`. The commit-confirm opens on `Commit` and needs nothing. Each was
-  # measured on its own frame; none was inferred from the pane before it.
-  key: ret
-  wait_after: 8
+  # `left` REACHES `No`, the same rule as the destroy-confirm and the installation-type question.
+  do:
+  - key: left
+    wait_after: 1
+  - key: ret
+    wait_after: 8
 
-# --- finalconfig ---------------------------------------------------------------------------
-#
-# `Final Configuration: Setup of your FreeBSD system is nearly complete. You can now modify your
-# configuration choices.` A MENU whose FIRST ENTRY IS `Finish`:
-#
-#	>> Finish              Apply configuration and exit installer
-#	   Add User            Add a user to the system
-#	   Root Password       Change root password
-#	   ...
-#
-# so one Return finishes it. THIS IS NOT THE SAME PANE AS `Exit The Installer`, which does not exist:
-# `finalconfig` is a menu of things to CHANGE, and `Finish` is how it is left.
 - name: final configuration - Finish is the first entry
   key: ret
   wait_after: 10
@@ -749,11 +745,55 @@ steps:
 # THIS IS THE ONLY PLACE IN THE WHOLE WALKTHROUGH WHERE A REAL ROOT SHELL EXISTS, which is why every
 # privileged setting is written here rather than through a dialog.
 - name: open a shell in the new system
+  # `Manual Configuration` -> `[ Yes ] [ No ]`, AND `No` IS HIGHLIGHTED (`--default-no`), so `left`
+  # reaches Yes. MEASURED on the pane.
   do:
   - key: left
     wait_after: 1
   - key: ret
     wait_after: 12
+
+- name: prove the chroot shell is actually up before typing into it
+  # THIS STEP EXISTS BECAUSE NOTHING ELSE IN THE STAGE COULD TELL, AND THAT COST A WHOLE RUN.
+  #
+  # MEASURED on freebsd-install.mp4: `adduser` was running at 265s, every command after it was typed
+  # into its prompt chain and refused, and the stage still reported 51 of 51 step(s) because a `type:`
+  # that lands in the wrong program fails SILENTLY - the text is accepted, echoed, and rejected by
+  # something else.
+  #
+  #	Login group: sync does not exist!
+  #	Login group: exit does not exist!
+  #
+  # The chroot shell's prompt is `root@:/ #` and the installer's panes have no `#` prompt at all, so
+  # reading the screen for a `#` after the word root is the cheapest proof that the NEXT twenty steps
+  # will run where they are meant to.
+  loop:
+    max: 20
+    do:
+    - wait: 5
+    ocr:
+      name: chroot
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: shell_up
+      from: chroot
+      # `This shell is operating in a chroot in the new system` IS THE INSTALLER'S OWN LINE, printed
+      # BEFORE the chroot starts - so it cannot be the proof. The proof is the PROMPT the chroot's sh
+      # draws, which on this pane is `root@:/ #`. Its `#` is the thing no installer pane has.
+      mode: says
+      words:
+      - root
+    until:
+      fact: shell_up
 
 # ROOT GETS THE PASSWORD THE INSTALLER WAS TOLD, VIA A TOOL THAT CANNOT DISAGREE WITH ITSELF.
 #
@@ -927,13 +967,6 @@ steps:
   - key: ret
     wait_after: 6
 
-- name: leave the shell, which finishes the install
-  do:
-  - type: exit
-    wait_after: 2
-  - key: ret
-    wait_after: 15
-
 - name: flush the writes before anything else
   # `sync` IS NOT ENOUGH ON THIS DISK, AND THE MEASUREMENT SAYS WHY.
   #
@@ -975,6 +1008,55 @@ steps:
     wait_after: 3
   - key: ret
     wait_after: 6
+
+- name: leave the shell, which finishes the install
+  # `exit` HANDS CONTROL BACK TO `bsdinstall auto`, WHICH THEN UNMOUNTS THE DISK AND REBOOTS.
+  #
+  # THE WAIT IS THREE MINUTES BECAUSE OF TWO THINGS THIS FILE USED TO IGNORE:
+  #
+  #	bsdinstall entropy     seeds the new system's random pool from the running one
+  #	bsdinstall umount      unmounts /mnt and every filesystem under it - THIS is what clears the
+  #	                       UFS dirty flag, and it is the step a `shutdown: kill` at the wrong moment
+  #	                       throws away
+  #
+  # MEASURED: with a 15-second wait the disk came out with the root partition present and NOT CLEAN,
+  # and the boot stopped at
+  #
+  #	mount: /dev/vtbd0p2: R/W mount of / denied.
+  #	Filesystem is not clean - run fsck.
+  #	Mounting root filesystem rw failed, startup aborted
+  #
+  # The kernel found the filesystem, refused to mount it read-write, and dropped to `mountroot>`. So
+  # the install itself was complete - the disk simply never got its clean unmount.
+  #
+  # WAITING IS THE WHOLE FIX HERE: the installer reboots by itself once `umount` returns, and the
+  # guest is then in a state where every write is on the medium and the filesystem says clean.
+  do:
+  - type: exit
+    wait_after: 5
+  - key: ret
+    wait_after: 60
+
+- name: wait for the installer to unmount the disk
+  # `bsdinstall auto` RUNS `bsdinstall umount` AFTER THE CHROOT SHELL EXITS, AND THAT IS THE STEP THAT
+  # MATTERS. It is also INVISIBLE on screen - the console shows the reboot banner and nothing says
+  # whether the unmount has finished - so this waits on the one thing that can be read from outside:
+  # the guest going away.
+  #
+  # MEASURED: with `exit` and a 15-second wait, the disk came out with a root partition the kernel
+  # found and refused:
+  #
+  #	mount: /dev/vtbd0p2: R/W mount of / denied.
+  #	Filesystem is not clean - run fsck.
+  #
+  # A UFS superblock carries a "clean" flag that only `umount` clears. Killing the machine before that
+  # call returns leaves every block on the medium - my SIGTERM fix guarantees that - and the filesystem
+  # still refusing to mount read-write, which is what a boot failure looks like from a disk that is
+  # actually complete.
+  #
+  # THE INSTALLER REBOOTS BY ITSELF once the unmount returns, and this wait covers that reboot. The
+  # `stop the machine` step after it then stops a guest that has nothing left to write.
+  wait: 120
 
 - name: stop the machine
   # A STAGE WHOSE OUTPUT IS THE DISK MAY NOT LOSE ITS WRITES, AND `sync` ABOVE IS HOW THAT IS GUARANTEED.
