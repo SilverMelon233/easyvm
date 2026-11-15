@@ -169,35 +169,38 @@ steps:
 - name: offline - the packages are on this disc
   # `Network or Offline Installation`  [ Network ]  [ Offline (Limited Packages) ]
   #
-  # THIS PANE ONLY EXISTS ON THE PKGBASE PATH, which is why the Distribution Sets route never saw it.
-  # `OFFLINE` IS ALREADY HIGHLIGHTED - MEASURED on the pane - because the medium's own repository is
-  # the reason the installer offered the choice. A bare Return takes it, and the install then reads
-  # /usr/freebsd-packages/offline with no network at all.
+  # `NETWORK` IS THE HIGHLIGHTED BUTTON, NOT OFFLINE, AND THE RETURN THAT TOOK IT COST A RUN.
   #
-  # THAT IS ALSO WHY IT IS FAST: the earlier runs that chose Distribution Sets spent their install
-  # budget downloading base.txz from download.freebsd.org at 38-68 KB/s.
-  key: ret
-  wait_after: 10
-
-- name: partitioning - automatic zfs
-  # `How would you like to partition your disk?`
-  #   >> Auto (UFS)  Guided UFS Disk Setup
-  #      Auto (ZFS)  Guided ZFS Disk Setup
-  #      Manual / Shell
+  # MEASURED: with a bare Return here the install died with
   #
-  # AUTO (ZFS) IS WHAT WRITES A UEFI-BOOTABLE DISK. Its `Partition Scheme` defaults to
-  # `GPT (BIOS+UEFI)`, which is the one that creates an EFI system partition AND installs the loader
-  # into it - measured on the pane itself, and the reason the GhostBSD path was abandoned:
+  #	Updating repositories failed, try again?
+  #	Installation of base system packages failed
   #
-  #	P Partition Scheme:  GPT (BIOS+UEFI)
+  # because `Network` means "fetch the base system from pkg.FreeBSD.org", and this lab reaches that
+  # host at 38-68 KB/s. The medium carries the 328 packages under /usr/freebsd-packages/offline and
+  # the installer only uses them when this answer is `Offline`.
   #
-  # (GhostBSD's GBI creates the same partition and then writes a ZERO-BYTE EFI/BOOT/BOOTX64.EFI into
-  # it, which is a defect in that installer and cannot be answered from a walkthrough.)
+  # So this is NOT a pane where the default is right: `right` reaches Offline, then Return.
   do:
-  - key: down
+  - key: right
     wait_after: 1
   - key: ret
     wait_after: 10
+
+- name: partitioning - automatic ufs
+  # THE MENU, AND NOTHING ELSE: THE KEYSTROKE IS SENT BY THE STEP AFTER THIS ONE.
+  #
+  # THE FIRST VERSION OF THIS PAIR SENT `down` IMMEDIATELY, AND THAT KEY WENT TO THE PANE BEFORE THE
+  # MENU. MEASURED on a local replay, whose next step then read
+  #
+  #	Would you like to use this entire disk (vtbd0) for FreeBSD or partition it to share it ...
+  #
+  # - the `Entire Disk` dialog, which belongs to the ZFS path and is NOT what
+  #   `Auto (UFS)` leads to. So the Return had been eaten by the pane above, the menu opened and
+  #   closed unseen, and the walk was already somewhere else.
+  #
+  # WHAT THIS STAGE ASKS FOR, ON THE USER'S INSTRUCTION: `Auto (UFS)`.
+  wait: 12
 
 - name: wait for the partitioning menu before choosing on it
   # THE FIRST KEY OF THIS SECTION WAS SENT BLIND, AND THE OCR READ IT BACK.
@@ -222,10 +225,10 @@ steps:
     ocr:
       name: partmenu
       region:
-      - 600
-      - 250
-      - 1350
-      - 800
+      - 740
+      - 420
+      - 1200
+      - 660
       region_at:
       - 1920
       - 1080
@@ -234,181 +237,182 @@ steps:
     check:
       name: part_showing
       from: partmenu
+      # THE CHECK MUST LOOK FOR WHAT THE OCR ACTUALLY READS, NOT WHAT TESSERACT READS BY HAND.
+      #
+      # MEASURED, on the same frame, twice:
+      #
+      #	my hand:  tesseract on a Pillow crop    "How would you like to partition your disk? ..."
+      #	the run:  the step's own read            "puto C2FS)siGuided Root-on-2F5 uto CUFS) anual hell OK"
+      #
+      # The headline is read by one and dropped by the other - `scale: 2` plus `--psm 6` on a wide,
+      # mostly-empty dialog does that, and the dialog's first line is the casualty.
+      #
+      # SO THE WORDS ARE TAKEN FROM THE BODY, WHICH THE RUN DID READ: `Guided` and `Manual` and
+      # `Shell` are the three rows of this menu and they survive the scaling. A check that names the
+      # question fails on a screen where the question was merely hard to read, and that is a bug in
+      # the check rather than a pane that never arrived.
       mode: says
       words:
-      - partitioning
+      - guided
+      - manual
     until:
       fact: part_showing
 
-- name: choose auto zfs
+- name: choose auto ufs
+  # `UFS`, ON THE USER'S INSTRUCTION, AND IT IS ALSO THE SIMPLER PATH ON THIS MEDIUM.
+  #
+  # THE LIST ON amd64, from usr.sbin/bsdinstall/scripts/auto: it PREPENDS ZFS for architectures that
+  # can boot it, so the order is
+  #
+  #	>> Auto (ZFS)   Guided Root-on-ZFS       FIRST, and preselected
+  #	   Auto (UFS)   Guided UFS Disk Setup    <- one `down`
+  #	   Manual       Manual Disk Setup (experts)
+  #	   Shell        Open a shell and partition by hand
+  #
+  # MEASURED BOTH WAYS on this guest, by reading the partition editor afterwards:
+  #
+  #	down + ret   ->  vtbd0p2  124 GB  freebsd-ufs     UFS, and no ZFS panes follow
+  #	ret alone    ->  ZFS Configuration -> Virtual Device type -> disk list -> 'Updating repositories'
+  #
+  # THE ZFS PATH ALSO ASKS TWO QUESTIONS THIS FILE HAS NO BUSINESS ANSWERING - `Entire Disk or
+  # Partition` and `Select a partition scheme` - and then tries to update a pkg repository before it
+  # installs anything, which on a medium with an offline repository is a network call that can fail:
+  #
+  #	Updating repositories failed, try again?
+  #	Installation of base system packages failed
+  #
+  # UFS asks neither of those. It partitions, unpacks, and moves on.
   do:
   - key: down
     wait_after: 1
   - key: ret
     wait_after: 10
 
-- name: wait for the zfs configuration menu
-  # A KEY SENT BEFORE A PANE EXISTS GOES TO THE PREVIOUS ONE, AND A FIXED WAIT CANNOT KNOW.
+- name: entire disk, not a shared partition
+  # `Auto (UFS)` ASKS THIS BEFORE IT PARTITIONS, AND THE FILE DID NOT KNOW - SO EVERY KEY AFTER THIS
+  # POINT WENT TO THE WRONG PANE.
   #
-  # MEASURED TWICE. Locally, the screen was still `Select Virtual Device type` when the step after the
-  # two Returns pressed `space`. On CI it failed the same way with a 25-second wait in place, because
-  # that runner's disk probe is slower than this one's.
+  # MEASURED on a local replay, immediately after choosing `Auto (UFS)`:
   #
-  # `zfsboot` PROBES every disk before it draws its menu, so the delay is proportional to the disk and
-  # the machine - a number this file cannot know. WHAT IT CAN DO IS LOOK: this loop reads the pane and
-  # leaves as soon as `ZFS Configuration` is on screen, and gives up after two minutes rather than
-  # hanging.
+  #	Would you like to use this entire disk (vtbd0) for FreeBSD or partition it to
+  #	share it with other operating systems?  Using the entire disk will erase any
+  #	data currently stored there.
+  #
+  #	[ Entire Disk ]  [ Partition ]
+  #
+  # `Entire Disk` IS ALREADY HIGHLIGHTED and is the right answer for a single empty disk: sharing it
+  # would create a slice and leave the rest unusable, which is not what a golden disk wants.
+  #
+  # THIS IS NOT A ZFS PANE. The earlier note in this file blamed it on the ZFS path; `autopart` asks
+  # the same question, and the scripted `Auto` mode does not.
+  key: ret
+  wait_after: 10
+
+- name: partition scheme - GPT, which is what makes this disk UEFI bootable
+  # THE SECOND QUESTION `Auto (UFS)` ASKS, AND THE ONE THAT DECIDES WHETHER THE DISK BOOTS.
+  #
+  # MEASURED on a local replay, immediately after `Entire Disk`:
+  #
+  #	Partition Scheme
+  #	  Select a partition scheme for this volume:
+  #	    APM  Apple Partition Map
+  #	    BSD  BSD Labels
+  #	 >> GPT  GUID Partition Table          <- ALREADY HIGHLIGHTED
+  #	    MBR  DOS Partitions
+  #	  [ OK ]  [ Cancel ]
+  #	Bootable on most x86 systems and EFI aware ARM64
+  #
+  # `GPT` IS PRESELECTED and the footer names why: it is the only scheme here that is bootable on
+  # EFI, and this guest has UEFI firmware. `MBR` would produce a disk the firmware cannot start.
+  #
+  # THIS PANE BELONGS TO `autopart` AS MUCH AS TO `zfsboot` - the earlier note in this file called it
+  # ZFS-only, and that is why it was missing from the UFS path.
+  key: ret
+  wait_after: 10
+
+- name: wait for the partition editor
+  # UFS GOES STRAIGHT FROM THE MENU TO `Partition Editor`, with the layout already made:
+  #
+  #	Partition Editor
+  #	  vtbd0p1  260 MB  efi           /boot/efi
+  #	  vtbd0p2  124 GB  freebsd-ufs   /
+  #	  vtbd0p3  4.4 GB  freebsd-swap  none
+  #	  [Create] [Delete] [Modify] [Revert] [Auto] [Finish]
+  #
+  # `Finish` IS THE BUTTON THAT ACCEPTS IT, and it is the last one in the row, so the key is `tab`
+  # until it is highlighted rather than a fixed number of rights - the row has six buttons and the
+  # focus starts on `Create`.
   loop:
-    max: 20
+    max: 25
     do:
     - wait: 6
     ocr:
-      name: zfsmenu
+      name: parted
       region:
-      - 600
-      - 300
-      - 1350
-      - 800
+      - 740
+      - 350
+      - 1260
+      - 720
       region_at:
       - 1920
       - 1080
       scale: 2
       wait: 0
     check:
-      name: zfs_showing
-      from: zfsmenu
-      mode: says_any
-      words:
-      - - pool
-      - - partition scheme
-    until:
-      fact: zfs_showing
-
-- name: zfs configuration opens with the pool editor
-  # `T Pool Type/Disks:  stripe: 0 disks` is the first row and already highlighted, so Return opens
-  # the device-type list. No `t` keystroke: the letters on this pane are shortcuts and one of them,
-  # `p`, cycles the partition scheme - MEASURED as a way to lose the layout this file documents.
-  key: ret
-  wait_after: 6
-
-- name: wait for the device-type list
-  # THE SAME RULE ONE PANE DOWN: the list is drawn after the menu closes, and a Return sent early is
-  # a Return the menu eats.
-  loop:
-    max: 12
-    do:
-    - wait: 4
-    ocr:
-      name: vdev
-      region:
-      - 600
-      - 300
-      - 1350
-      - 800
-      region_at:
-      - 1920
-      - 1080
-      scale: 2
-      wait: 0
-    check:
-      name: vdev_showing
-      from: vdev
-      mode: says_any
-      words:
-      - - virtual device
-      - - stripe
-    until:
-      fact: vdev_showing
-
-- name: pool type - stripe, for one disk
-  # `Select Virtual Device type:` -> [ stripe ] mirror raid10 raidz1 raidz2 raidz3
-  # `stripe` IS THE FIRST ROW AND ALREADY SELECTED; it is the only correct answer for one disk.
-  key: ret
-  wait_after: 6
-
-- name: wait for the disk list
-  # AND AGAIN: the disk checklist is a DIFFERENT pane from the device-type list, and the space that
-  # ticks a disk is meaningless on the one before it. MEASURED: pressing space on the device-type
-  # list does nothing, and the disk list then arrives with `[ ]` still unticked.
-  loop:
-    max: 12
-    do:
-    - wait: 4
-    ocr:
-      name: disks
-      region:
-      - 600
-      - 300
-      - 1350
-      - 800
-      region_at:
-      - 1920
-      - 1080
-      scale: 2
-      wait: 0
-    check:
-      name: disks_showing
-      from: disks
+      name: parted_showing
+      from: parted
       mode: says
       words:
-      - disks
+      - freebsd
     until:
-      fact: disks_showing
+      fact: parted_showing
 
-- name: select the disk - SPACE marks it
-  # `Please select one or more disks to create a pool:`  `[ ] vtbd0  VirtIO Block Device`
+- name: accept the partitioning
+  # SIX `tab` PRESSES, COUNTED ON THE SCREEN RATHER THAN GUESSED.
   #
-  # SPACE, NOT RETURN. The pane's own footer says `Use arrows, SPACE, TAB or ENTER`, and Return on an
-  # unmarked disk takes `[Change Selection]` straight back to the ZFS menu - MEASURED, and it leaves
-  # `stripe: 0 disks`, which the installer then refuses.
+  # The button row is
   #
-  # `space`, NOT `spc`. Both parse: `spc` is a QEMU qcode name and `space` is not, so `space` goes
-  # through ForText and is typed as the CHARACTER 0x20. MEASURED on the pane:
+  #	[Create] [Delete] [Modify] [Revert] [ Auto ] [Finish]
   #
-  #	key spc     [ ] vtbd0
-  #	key space   [X] vtbd0
+  # with `Create` holding the focus when the editor opens. MEASURED, by pressing tab and cropping the
+  # row after each press:
   #
-  # THE DEVICE IS `vtbd0` AND NOT `ada0`: this guest's disk is on virtio, and a walk that looked for
-  # `ada` would select nothing.
-  key: space
-  wait_after: 3
-
-- name: accept the disk selection
-  key: ret
-  wait_after: 6
-- name: confirm the disk will be destroyed
-  # `Are you sure you want to destroy the current contents of the following disks:  vtbd0`
-  #   [ YES ]  [ NO ]
+  #	0  [Create] highlighted
+  #	3  [Modify] highlighted
+  #	6  [Finish] highlighted      <- and a Return now accepts the layout
   #
-  # `NO` IS THE HIGHLIGHTED BUTTON, AND THIS COMMENT SAID `YES is preselected` - MEASURED ON THE PANE,
-  # after the disk was ticked with `space`:
-  #
-  #	[ YES ]  [ NO ]          <- NO dark on blue, YES light
-  #
-  # A bare Return here answers NO, which cancels the partition step and returns to the menu - so the
-  # installer keeps whatever layout it had. That is the third way this walkthrough could produce a
-  # disk that was not the one it described.
-  #
-  # `left` REACHES `YES`, the same rule as the root-password pane and the installation-type question.
-  do:
-  - key: left
-    wait_after: 1
-  - key: ret
-    wait_after: 8
-
-- name: install
-  # BACK ON `ZFS Configuration` with `T Pool Type/Disks: stripe: 1 disk`, and `[Select]` highlighted.
-  #
-  # TAB MOVES THE FOCUS FROM THE LIST TO THE BUTTON ROW, and the buttons are `[Select]` and `[Cancel]` -
-  # NOT `[OK]`, which is what the earlier draft of this file assumed. Return fires the focused one.
-  #
-  # NOTHING ELSE IS PRESSED HERE. A stray letter is a shortcut inside that list, and an esc aborts an
-  # install that is already running.
+  # THE FIRST VERSION OF THIS STEP SAID FIVE, from counting the buttons rather than the presses: six
+  # buttons means five MOVES only if the focus starts OUTSIDE the row, and it starts on the first.
   do:
   - key: tab
     wait_after: 1
+  - key: tab
+    wait_after: 1
+  - key: tab
+    wait_after: 1
+  - key: tab
+    wait_after: 1
+  - key: tab
+    wait_after: 1
+  - key: tab
+    wait_after: 1
   - key: ret
-    wait_after: 20
+    wait_after: 10
+
+- name: commit the layout
+  # `Finish` ASKS ONE MORE QUESTION, AND ITS DEFAULT IS ALREADY THE RIGHT ANSWER.
+  #
+  # MEASURED, immediately after the Return on `Finish`:
+  #
+  #	Your changes will now be written to disk. If you have chosen to overwrite existing
+  #	data, it will be PERMANENTLY ERASED. Are you sure you want to commit your changes?
+  #
+  #	[ Commit ]  [ Revert & Exit ]  [ Back ]
+  #
+  # `Commit` IS HIGHLIGHTED, so this is a bare Return. `Revert & Exit` would throw away the layout the
+  # previous steps just agreed to.
+  key: ret
+  wait_after: 15
 
 - name: wait for the install to finish
   # The partitioner runs, the base system is extracted, and the installer finally reports
