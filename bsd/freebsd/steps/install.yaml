@@ -702,11 +702,25 @@ steps:
 #
 # `No` IS THE RIGHT BUTTON AND `right` REACHES IT, because this yesno's focus starts on `Yes`.
 - name: do not add a user here - the chroot shell does it
-  do:
-  - key: right
-    wait_after: 1
-  - key: ret
-    wait_after: 8
+  # `No` IS ALREADY HIGHLIGHTED, SO THIS IS ONE RETURN, AND THE `right` THAT WAS HERE MOVED IT OFF.
+  #
+  # MEASURED on the last frame of a local run (`ffmpeg -sseof -3` on the stage's own recording):
+  #
+  #	Add User Accounts
+  #	  Would you like to add users to the installed system now?
+  #	  [ Yes ]  [ No ]          <- NO is the blue button
+  #
+  # The step sent `key right` first, which moved the focus to Yes, so the Return started
+  # `bsdinstall adduser` - the prompt CHAIN this step exists to avoid, and whose first failure is
+  #
+  #	adduser: ERROR: You must enter a username
+  #
+  # THE FOCUS RULES ARE NOT UNIFORM ACROSS THE INSTALLER, AND THAT IS THE TRAP. This pane opens on
+  # `No`. The root-password pane needs two tabs plus `right` to reach `Skip`. The destroy-confirm
+  # opens on `No` and needs `left`. The commit-confirm opens on `Commit` and needs nothing. Each was
+  # measured on its own frame; none was inferred from the pane before it.
+  key: ret
+  wait_after: 8
 
 # --- finalconfig ---------------------------------------------------------------------------
 #
