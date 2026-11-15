@@ -199,6 +199,23 @@ steps:
   - key: ret
     wait_after: 10
 
+- name: wait for the zfs configuration menu
+  # A KEY SENT BEFORE A PANE EXISTS IS A KEY SENT TO THE PREVIOUS ONE.
+  #
+  # MEASURED on run i4 (local replay of this file): the two Returns below the partition menu were
+  # issued and the screen was still showing `Select Virtual Device type` when the step after them
+  # pressed `space` - so one of the two had gone nowhere, and every later key was one pane behind.
+  #
+  # `zfsboot` PROBES EVERY DISK BEFORE IT DRAWS THE MENU, and on a 128 GiB virtio disk that is not
+  # instant. The partitioning step's `wait_after: 10` covers the menu closing, not the probe.
+  #
+  # THE MAPPING, MEASURED BY PRESSING THE KEYS BY HAND AND READING THE SCREEN AFTER EACH:
+  #
+  #	ZFS Configuration  --ret-->  Select Virtual Device type
+  #	Select Virtual Device type  --ret-->  Please select one or more disks   [ ] vtbd0
+  #	disk list  --space-->  [X] vtbd0        (ret without the space cancels back to the menu)
+  wait: 25
+
 - name: zfs configuration opens with the pool editor
   # The `Auto (ZFS)` row goes STRAIGHT to `ZFS Configuration`, which lists:
   #
@@ -216,6 +233,10 @@ steps:
   key: ret
   wait_after: 6
 - name: select the disk - SPACE marks it
+  # THE DISK LIST HAS TO EXIST BEFORE THE SPACE ARRIVES, and the wait above this pair of Returns was
+  # not enough on its own: MEASURED, the pane was still `Select Virtual Device type` when the space
+  # was sent.
+  wait: 6
   # `Please select one or more disks to create a pool:`
   #	[ ] vtbd0  VirtIO Block Device
   #
