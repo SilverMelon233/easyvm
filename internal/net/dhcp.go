@@ -27,7 +27,12 @@ const (
 	dhcpLeasePath = "/tmp/easyvm-dnsmasq.leases"
 	dhcpMacPath   = "/tmp/easyvm-dnsmasq.mac"
 	dhcpPIDPath   = "/tmp/easyvm-dnsmasq.pid"
-	dhcpUpstreams = "1.1.1.1,8.8.8.8"
+	// dhcpUpstreams is what dnsmasq forwards to on the guest's behalf.
+	//
+	// IT IS THE CONTAINER'S OWN RESOLVER when there is one: that is the only server whose reachability
+	// has been established from inside this pod's network namespace, and the guest's queries leave
+	// through the same namespace once dnsmasq has them.
+	dhcpUpstreams = "172.18.0.10,1.1.1.1"
 )
 
 // startDHCP runs dnsmasq for this bridge, or confirms the one already running is right.
@@ -119,9 +124,33 @@ except-interface=lo
 dhcp-range=%s,%s,255.255.255.0,1h
 dhcp-host=%s,%s
 dhcp-leasefile=%s
-# NO DNS SERVICE. The guest uses the upstream directly, and dnsmasq's resolver on this bridge
-# would answer for a domain nobody asked it about.
-port=0
+# DNS FOR THE GUEST, WHICH IT CANNOT DO FOR ITSELF ON THIS CLUSTER.
+#
+# THE GUEST'S OWN QUERIES DO NOT WORK, AND THE MEASUREMENT IS WORTH STATING because "DNS is fine"
+# was true of the container and false of everything behind it:
+#
+#	pod -> 1.1.1.1:53 UDP      answered, 5 records
+#	pod -> 8.8.8.8:53 UDP      answered, 5 records
+#	guest -> 1.1.1.1:53 UDP    never answered
+#
+# The difference is the path. The container's own resolver traffic goes out through the cluster's
+# networking; a guest's UDP 53 is MASQUERADEd at the bridge and leaves from a different source, and
+# that path is dropped - which showed up as a pkg error, Could not connect to server, for every repository
+# URL while the pod could fetch the same host at 3 MB/s.
+#
+# AND THE TRANSPARENT PROXY DOES NOT COVER IT: that chain matches -p tcp only, because mihomo's
+# 7890 port speaks HTTP CONNECT, which is a TCP protocol. An iptables -t nat -S listing filtered for
+# udp is empty on purpose, so a UDP query cannot be tunnelled the way the guest's TCP is.
+#
+# SO dnsmasq ANSWERS FOR THE GUEST and forwards to an upstream that DOES work. This is the same
+# resolver the container itself uses, so it inherits whatever the cluster does for the container.
+#
+# server= IS THE UPLINK AND no-resolv STOPS dnsmasq ALSO READING /etc/resolv.conf, which would put
+# the same servers first and make the explicit line meaningless.
+port=53
+bind-dynamic
+no-resolv
+server=%s
 # THE UPLINK'S MTU, TOLD TO THE CLIENT.
 #
 # The guest's default is 1500 and a guest larger than its tap drops every full segment - measured
@@ -129,10 +158,13 @@ port=0
 # host_mtu= is the primary fix; this is the second telling, for a client that honours it.
 dhcp-option=option:mtu,%d
 dhcp-option=option:router,%s
+# THE GUEST IS TOLD TO ASK THE BRIDGE, because that is the only DNS address it can reach. The
+# cluster's resolver (the server= line above) is on a network the guest has no route to - telling it
+# 172.18.0.10 would be a lease that names an address outside its own /24.
 dhcp-option=option:dns-server,%s
 log-dhcp
-`, BridgeName, Prefix, BridgeName, GuestIP, GuestIP, TapMAC, GuestIP, dhcpLeasePath, UplinkMTU(),
-		BridgeIP, dhcpUpstreams)
+`, BridgeName, Prefix, BridgeName, GuestIP, GuestIP, TapMAC, GuestIP, dhcpLeasePath, dhcpUpstreams,
+		UplinkMTU(), BridgeIP, BridgeIP)
 
 	if err := os.WriteFile(dhcpConfPath, []byte(conf), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", dhcpConfPath, err)

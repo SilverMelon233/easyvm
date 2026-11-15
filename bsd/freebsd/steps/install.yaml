@@ -166,59 +166,48 @@ steps:
   key: ret
   wait_after: 10
 
-- name: network, so pkg ends up configured against a real repository
-  # `NETWORK`, ON INSTRUCTION, AND THE REASON IS WHAT COMES AFTER THE INSTALL.
+- name: network, so the chroot shell can install packages
+  # ON INSTRUCTION: `Network`, because `Offline` cannot install anything this stage needs.
   #
-  # [ Network ]  [ Offline (Limited Packages) ]      Network is already highlighted
-  #
-  # MEASURED, on freebsd-install.mp4, cropped to the dialog and read once per second:
-  #
-  #	  55s  [ Network ]  [ Offline (Limited Packages) ]   Network highlighted
-  #	  63s  the same                                        still Network
-  #	  64s  [ Network ]  [ Offline (Limited Packages) ]   OFFLINE highlighted - a `right` did land
-  #	  65s  Partitioning                                    confirmed
-  #
-  # so the previous run DID choose Offline, and that is the choice that broke the stage after it.
-  #
-  # THE DISC'S OFFLINE REPOSITORY HOLDS NO PORTS PACKAGES. Checked on the ISO itself:
+  # THE DISC'S OFFLINE REPOSITORY IS BASE-ONLY. Checked on disc1.iso itself:
   #
   #	xorriso -indev disc1.iso -find /usr/freebsd-packages/offline | wc -l     328
   #	... | grep -icE '^(sudo|doas|xorg|xfce|lightdm|bash|git|curl)'            0
   #
-  # All 328 are FreeBSD-* base sets. An Offline install therefore leaves `pkg` pointed at
-  # /usr/freebsd-packages/repos - a repository that cannot supply sudo, xorg or xfce - and the
-  # chroot's later `pkg install -y sudo` could only fail.
+  # so an Offline install yields a system whose `pkg` points at a repository with no ports packages,
+  # and the chroot's `pkg install -y sudo xorg xfce lightdm lightdm-gtk-greeter` reported, on the
+  # screen and only on the screen:
   #
-  # `Network` makes pkgbase fetch the base system from pkg.FreeBSD.org, so the NEW SYSTEM's
-  # /etc/pkg/FreeBSD.conf points at a repository that HAS those packages. That is what the ssh stage
-  # needs, and it is the difference between a disk with a working package manager and one without.
+  #	Updating FreeBSD-ports repository catalogue
+  #	pkg: Failed to fetch https://pkg.FreeBSD.org/.../meta.conf: Could not connect to server
+  #	Unable to update repository FreeBSD-ports
   #
-  # IT IS SLOWER HERE - this lab measures 38-68 KB/s to that host - and that is the price of a disk
-  # whose package manager works.
+  # The base system was fine in both cases; what Offline cannot do is add a desktop.
+  #
+  # `Network` gives the new system a /etc/pkg/FreeBSD.conf that points at pkg.FreeBSD.org - the same
+  # repository the chroot then uses - and the transparent proxy makes that host reachable at 3 MB/s.
   key: ret
   timeout: 1800
   wait_after: 10
-- name: configure the network, which the Network path needs before it can fetch anything
+- name: configure the network, which is what Network mode asks before it can fetch
   # `Please select a network interface and configuration mode:`  [ Auto ]  [ Manual ]  [ Cancel ]
   #
-  # THIS PANE ONLY EXISTS ON THE NETWORK PATH. From usr.sbin/bsdinstall/scripts/auto:
+  # THIS PANE EXISTS ONLY ON THE NETWORK PATH. From usr.sbin/bsdinstall/scripts/auto:
   #
   #	if [ $? -eq 1 ]; then
-  #	    export BSDINSTALL_PKG_REPOS_DIR=/usr/freebsd-packages/repos/    # Offline - no netconfig
+  #	    export BSDINSTALL_PKG_REPOS_DIR=/usr/freebsd-packages/repos/   # Offline - no netconfig
   #	else
-  #	    bsdinstall netconfig || error                                   # Network - netconfig HERE
+  #	    bsdinstall netconfig || error                                  # Network - netconfig HERE
   #	    NETCONFIG_DONE=yes
   #	fi
   #
-  # MEASURED: with `Network` chosen, the install reached this pane and stopped - the file's next step
-  # was waiting for the partitioning menu, which is two panes further on:
+  # MEASURED: with Network chosen, the install reached this pane and stopped, and the next step
+  # (which waits for the partitioning menu) reported:
   #
-  #	easyvm status  ->  failed step 13/55 "wait for the partitioning menu before choosing on it"
-  #	ocr/partmenu   ->  "Please select a network interface and configuration mode:
-  #	                    [ Auto [Manual] [Cancel]"
+  #	ocr/partmenu: "Please select a network interface and configuration mode: [ Auto [Manual] [Cancel]"
   #
-  # `Auto` IS THE HIGHLIGHTED BUTTON and it is what runs `dhclient` on the virtio NIC and writes the
-  # result into the new system - which is also what gives the chroot a working resolver later.
+  # `Auto` IS HIGHLIGHTED and it is what runs `dhclient` - which is also what gives the chroot a
+  # working resolver later, because netconfig writes /etc/resolv.conf into the new system.
   key: ret
   wait_after: 20
 
@@ -537,6 +526,10 @@ steps:
       # prompt first, then the menu with `Add User` and `Exit`.
       mode: says_any
       words:
+      # `console type` IS THE PKGBASE PATH'S "THE BASE SYSTEM IS ON THE DISK" - pkgbase unpacks
+      # and REBOOTS, so the post-install menu this loop was written for never appears. The
+      # installed system has no /boot/loader.conf yet, so ttyu0 shows only this question.
+      - - console type
       - - installation
         - completed
       - - account
@@ -976,6 +969,42 @@ steps:
   - key: ret
     wait_after: 5
 
+- name: point pkg at the network repository, because the disc has no ports packages
+  # THE OFFLINE INSTALL LEAVES pkg LOOKING AT THE DISC, AND THE DISC HAS NOTHING THIS STAGE NEEDS.
+  #
+  # MEASURED on disc1.iso itself:
+  #
+  #	xorriso -indev disc1.iso -find /usr/freebsd-packages/offline | wc -l     328
+  #	... | grep -icE '^(sudo|doas|xorg|xfce|lightdm|bash|git|curl)'            0
+  #
+  # so `pkg install -y sudo` against that repository cannot succeed - it has no index entry for sudo
+  # at all. FreeBSD's own repository does, and the transparent proxy makes it reachable at 3 MB/s.
+  #
+  # THE OVERRIDE FILE IS THE DOCUMENTED MECHANISM: a file in /usr/local/etc/pkg/repos/ shadows the
+  # one the base system ships, and `enabled: yes` with a real url is all it needs.
+  #
+  # `${ABI}` IS EXPANDED BY pkg ITSELF from uname, so this one line is right for every architecture.
+  do:
+  - type: mkdir -p /usr/local/etc/pkg/repos
+    wait_after: 1
+  - key: ret
+    wait_after: 2
+  - type: |
+      printf '%s\n' \
+        'FreeBSD: {' \
+        '  url: "pkg+https://pkg.FreeBSD.org/${ABI}/quarterly",' \
+        '  mirror_type: "srv",' \
+        '  enabled: yes' \
+        '}' \
+        > /usr/local/pkg.conf.tmp && mv /usr/local/pkg.conf.tmp /usr/local/etc/pkg/repos/FreeBSD.conf
+    wait_after: 2
+  - key: ret
+    wait_after: 3
+  - type: cat /usr/local/etc/pkg/repos/FreeBSD.conf
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+
 - name: bootstrap pkg, which is a stub until it downloads itself once
   # ON A FRESH FREEBSD `/usr/sbin/pkg` IS A PLACEHOLDER that fetches the real pkg on first use. Inside
   # a chroot that fetch needs the resolver written above, and it is a separate step so a failure here
@@ -990,48 +1019,58 @@ steps:
   - key: ret
     wait_after: 6
 
-- name: install sudo
-  # NOW IT CAN WORK. The two steps above give `pkg` a resolver and a real database; this one installs.
+- name: install the desktop, sudo and their packages while this shell is root
+  # THIS IS THE ONE PLACE WITH ROOT AND A WORKING NETWORK AT THE SAME TIME, SO EVERYTHING GOES HERE.
   #
-  # A FIXED WAIT WAS THE OLD BUG AND ITS SYMPTOM WAS THREE STEPS AWAY: this step typed the command,
-  # waited 90 seconds, pressed Return, and the stage reported success - so the keystroke landed while
-  # pkg was still unpacking and the ssh stage later said
+  # THE ALTERNATIVE WAS TO INSTALL xorg/xfce FROM THE ssh STAGE, AND IT CANNOT WORK: that stage logs in
+  # as the unprivileged account, `pkg` needs root, and the only two ways to become root over ssh are
+  # both closed -
   #
-  #	/usr/local/bin/sudo: Exec format error. Binary file not executable.
+  #	`PermitRootLogin yes`   refused by the project: root over ssh is not a door to open
+  #	`su` on an ssh channel  MEASURED, it cannot work: FreeBSD's su reads the password from
+  #	                        /dev/tty, an ssh: command has no terminal, and `script -q /dev/null`
+  #	                        does not help - `printf pw | script -q /dev/null su -c ...` answers
+  #	                        `su: Sorry` because pam_group sees the request before the pty has a
+  #	                        controlling terminal
   #
-  # SO THE STEP ASKS `pkg` WHETHER IT FINISHED. `pkg info sudo` is the installer's own registration
-  # record, which only exists once unpacking is complete - a half-written binary is never registered.
+  # So `sudo` has to be installed from a shell that is ALREADY root, and this chroot is the only one.
+  # Once sudo exists the ssh stage can use it - but it no longer NEEDS to, because the packages a
+  # desktop needs are installed here.
+  #
+  # `xorg` IS NOT PULLED IN BY `xfce`: the meta-port is the session and the panel, not the server they
+  # draw on. MEASURED on a disk whose /etc/rc.conf was correct and whose lightdm existed:
+  #
+  #	/usr/local/bin/Xorg          No such file or directory
+  #	/var/log/Xorg.0.log          No such file or directory
+  #	pgrep -x lightdm             never up
+  #
+  # AND `lightdm-gtk-greeter` IS SEPARATE FROM `lightdm`: without it lightdm starts to a black screen.
   do:
-  - type: env ASSUME_ALWAYS_YES=yes pkg install -y sudo
+  - type: env ASSUME_ALWAYS_YES=yes pkg install -y sudo xorg xfce lightdm lightdm-gtk-greeter
     wait_after: 4
   - key: ret
-    wait_after: 30
-  # THE POLL LOOPS IN THE GUEST, because a `loop:` here would spend a step per attempt and this is one
-  # question with one answer. Thirty tries at five seconds is two and a half minutes.
-  - type: sh -c 'i=0; while [ $i -lt 30 ]; do pkg info sudo >/dev/null 2>&1 && break; sleep 5; i=$((i+1)); done; pkg info sudo 2>&1 | head -2'
+    wait_after: 60
+  # THE POLL IS THE PROOF, NOT THE WAIT. `pkg info` is the package manager's own registration record,
+  # which only exists once unpacking finished - a fixed wait is what produced a TRUNCATED sudo earlier
+  # in this chain (`Exec format error` three stages later).
+  - type: sh -c 'i=0; while [ $i -lt 60 ]; do pkg info xfce >/dev/null 2>&1 && pkg info sudo >/dev/null 2>&1 && break; sleep 10; i=$((i+1)); done; pkg info sudo xfce xorg lightdm 2>&1 | grep -E "^(Name|Version)" | head -8'
     wait_after: 3
   - key: ret
-    wait_after: 25
+    wait_after: 40
 
-- name: prove sudo arrived
-  # THE OUTPUT IS THE EVIDENCE, AND IT HAS TO NAME THE FILE, NOT ONLY ITS PRESENCE.
+- name: prove the desktop actually landed
+  # THE ARTIFACT, READ BACK FROM THE DISK THAT WILL BE PUBLISHED. A step count is not a verdict; these
+  # three files are what the next stages and a human look for.
   #
-  # MEASURED ON CI, run 43629665299's ssh leg:
-  #
-  #	/usr/local/bin/sudo: Exec format error. Binary file not executable.
-  #
-  # `pkg install` reported success and the file is there - so `which sudo` would have passed and told
-  # us nothing. `file` says WHAT arrived, which is the question `Exec format error` is asking: an ELF
-  # for another architecture, a truncated download, or a text stub all produce it.
-  #
-  # `ls -l` IS HERE FOR THE OTHER HALF: `Exec format error` is also what a file with no execute bit
-  # produces on some kernels, and the mode is one line away from the name.
+  #	/usr/local/share/xsessions/xfce.desktop      the session lightdm offers
+  #	/usr/local/bin/Xorg                          the server that session draws on
+  #	/usr/local/sbin/lightdm                      the display manager
   do:
-  - type: ls -l /usr/local/bin/sudo
-    wait_after: 2
-  - key: ret
+  - type: ls -l /usr/local/share/xsessions/xfce.desktop /usr/local/bin/Xorg /usr/local/sbin/lightdm
     wait_after: 3
-  - type: file /usr/local/bin/sudo
+  - key: ret
+    wait_after: 5
+  - type: ls -l /usr/local/bin/sudo
     wait_after: 2
   - key: ret
     wait_after: 4
@@ -1061,6 +1100,65 @@ steps:
     wait_after: 3
   - key: ret
     wait_after: 6
+
+- name: enable the desktop at boot
+  # THE THREE SWITCHES THAT DECIDE WHETHER A SESSION APPEARS, AND ONE OF THEM IS EASY TO MISS.
+  #
+  #	dbus_enable=YES              lightdm is a session bus client: it asks dbus to start the greeter
+  #	                             and to give the user's session a bus. With no bus there is no
+  #	                             greeter, the rc script exits, and NOTHING SAYS WHY.
+  #	lightdm_enable=YES           the display manager itself
+  #	devfs_system_ruleset=desktop modern FreeBSD has no hald; this ruleset grants /dev/input/* and
+  #	                             the other nodes a session opens. Without it the desktop starts and
+  #	                             the keyboard does not work.
+  #
+  # MEASURED on a disk whose rc.conf had only `lightdm_enable=YES`: `pgrep -x lightdm` never returned,
+  # twice, on two separate runs, and the log said nothing because the script had exited cleanly.
+  do:
+  - type: sysrc dbus_enable=YES
+    wait_after: 2
+  - key: ret
+    wait_after: 3
+  - type: sysrc lightdm_enable=YES
+    wait_after: 2
+  - key: ret
+    wait_after: 3
+  - type: sysrc devfs_system_ruleset=desktop
+    wait_after: 2
+  - key: ret
+    wait_after: 3
+  - type: sysrc -a
+    wait_after: 3
+  - key: ret
+    wait_after: 5
+
+- name: log in to the desktop automatically
+  # A GREETER THAT ASKS FOR A PASSWORD CANNOT BE DRIVEN BY ANYTHING UNATTENDED, and this disk has one
+  # account whose password the walkthrough already knows.
+  #
+  # `autologin-user-timeout=0` IS NOT "wait zero seconds" - it means DO NOT DRAW THE GREETER AT ALL.
+  # Without it lightdm still shows the prompt for its default ten seconds.
+  #
+  # `user-session=xfce` NAMES THE SESSION FILE written by the package above; lightdm reads
+  # /usr/local/share/xsessions/xfce.desktop for it.
+  do:
+  - type: sh -c 'printf "%s\n" "[Seat:*]" "greeter-session=lightdm-gtk-greeter" "autologin-user={{ user }}" "autologin-user-timeout=0" "user-session=xfce" > /usr/local/etc/lightdm/lightdm.conf'
+    wait_after: 3
+  - key: ret
+    wait_after: 4
+  - type: cat /usr/local/etc/lightdm/lightdm.conf
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+
+- name: let the account reach the display and the video devices
+  # X NEEDS BOTH. `video` opens /dev/dri and the framebuffer; without it lightdm starts and the session
+  # cannot allocate a display. The account is in `wheel` already, from the useradd above.
+  do:
+  - type: pw groupmod video -m {{ user }}
+    wait_after: 2
+  - key: ret
+    wait_after: 4
 
 - name: flush the writes before anything else
   # `sync` IS NOT ENOUGH ON THIS DISK, AND THE MEASUREMENT SAYS WHY.
@@ -1103,6 +1201,45 @@ steps:
     wait_after: 3
   - key: ret
     wait_after: 6
+
+- name: make the installed system talk on the serial console
+  # WITHOUT THIS THE FIRST BOOT OF THE NEW SYSTEM IS SILENT ON ttyu0, AND THE STAGE HANGS.
+  #
+  # MEASURED, on /work/console.log after a Network install:
+  #
+  #	Welcome to FreeBSD!
+  #	Please choose the appropriate terminal type for your system.
+  #	Common console types are: ansi vt100 xterm
+  #	Console type [vt100]:
+  #
+  # The installer itself runs its console on the serial port, but the system it WRITES does not
+  # inherit that: /boot/loader.conf starts empty, so the kernel sends everything to the VGA adapter
+  # and ttyu0 sees only the termcap question. `wait for the install to finish` reads the screen for
+  # `Installation Completed` and instead watches a prompt nobody answers.
+  #
+  # The reference implementation carries the same block for the same reason:
+  #
+  #	THE INSTALLED SYSTEM HAS TO TALK ON comconsole, OR NOTHING CAN READ IT.
+  #
+  # `boot_multicons` KEEPS THE VGA OUTPUT TOO, so the disk is readable either way.
+  do:
+  - type: printf '%s\n' 'console="comconsole,vidconsole"' 'boot_multicons="YES"' 'boot_serial="YES"' 'comconsole_speed="115200"' > /boot/loader.conf
+    wait_after: 3
+  - key: ret
+    wait_after: 4
+  - type: cat /boot/loader.conf
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+
+- name: give ttyu0 a login prompt, or the console is readable but not usable
+  # `boot_serial` PUTS OUTPUT ON ttyu0; /etc/ttys IS WHAT PUTS A `login:` PROMPT THERE. Without the
+  # second, the next stage can read the boot and still cannot log in.
+  do:
+  - type: awk 'BEGIN{OFS="\t"} /^ttyu0/{print "ttyu0","\"/usr/libexec/getty std.115200\"","vt100","on","secure"; next} {print}' /etc/ttys > /tmp/ttys.new && cp /tmp/ttys.new /etc/ttys
+    wait_after: 3
+  - key: ret
+    wait_after: 4
 
 - name: leave the shell, which finishes the install
   # `exit` HANDS CONTROL BACK TO `bsdinstall auto`, WHICH THEN UNMOUNTS THE DISK AND REBOOTS.

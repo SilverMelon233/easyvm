@@ -149,8 +149,14 @@ func TestDHCPConfigCarriesTheLoadBearingLines(t *testing.T) {
 	for _, want := range []struct{ line, why string }{
 		{"dhcp-host=" + TapMAC + "," + GuestIP,
 			"the lease is by MAC; a guest that presents any hostname still gets the same address"},
-		{"port=0", "no DNS service: dnsmasq's resolver on this bridge would answer for a domain " +
-			"nobody asked it about"},
+		// DNS IS SERVED HERE, AND IT HAS TO BE. MEASURED: the container resolves pkg.freebsd.org
+		// over UDP in under a second, and a guest behind the bridge gets NO ANSWER from the same
+		// server - its query is MASQUERADEd and leaves by a path that is dropped. dnsmasq answering
+		// on the bridge is what turns that into an answer, and it forwards to the container's own
+		// resolver, which is the only one whose reachability has been established.
+		{"port=53", "the guest's DNS must be answered on the bridge; its own queries are dropped"},
+		{"no-resolv", "dnsmasq must use the explicit server= line, not /etc/resolv.conf"},
+		{"server=", "there must be an upstream to forward the guest's queries to"},
 		{"option:mtu", "the guest must learn the tap's MTU, or every full segment is dropped"},
 		{"interface=" + BridgeName, "bind to this bridge only, not every interface in the container"},
 	} {
