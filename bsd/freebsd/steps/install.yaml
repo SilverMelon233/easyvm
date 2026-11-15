@@ -151,7 +151,7 @@ steps:
 #
 # THE PARTITIONING MENU IS INDEPENDENT OF THIS CHOICE - ZFS is chosen on its own pane either way - so
 # what this actually decides is whether the install touches the network at all.
-- name: installation type - packages, which is offline
+- name: installation type - packages, which is pkgbase
   # `Would you like to install the base system using legacy distribution sets or packages?`
   #   [ Distribution Sets ]  [ Packages ]
   #
@@ -166,26 +166,61 @@ steps:
   key: ret
   wait_after: 10
 
-- name: offline - the packages are on this disc
-  # `Network or Offline Installation`  [ Network ]  [ Offline (Limited Packages) ]
+- name: network, so pkg ends up configured against a real repository
+  # `NETWORK`, ON INSTRUCTION, AND THE REASON IS WHAT COMES AFTER THE INSTALL.
   #
-  # `NETWORK` IS THE HIGHLIGHTED BUTTON, NOT OFFLINE, AND THE RETURN THAT TOOK IT COST A RUN.
+  # [ Network ]  [ Offline (Limited Packages) ]      Network is already highlighted
   #
-  # MEASURED: with a bare Return here the install died with
+  # MEASURED, on freebsd-install.mp4, cropped to the dialog and read once per second:
   #
-  #	Updating repositories failed, try again?
-  #	Installation of base system packages failed
+  #	  55s  [ Network ]  [ Offline (Limited Packages) ]   Network highlighted
+  #	  63s  the same                                        still Network
+  #	  64s  [ Network ]  [ Offline (Limited Packages) ]   OFFLINE highlighted - a `right` did land
+  #	  65s  Partitioning                                    confirmed
   #
-  # because `Network` means "fetch the base system from pkg.FreeBSD.org", and this lab reaches that
-  # host at 38-68 KB/s. The medium carries the 328 packages under /usr/freebsd-packages/offline and
-  # the installer only uses them when this answer is `Offline`.
+  # so the previous run DID choose Offline, and that is the choice that broke the stage after it.
   #
-  # So this is NOT a pane where the default is right: `right` reaches Offline, then Return.
-  do:
-  - key: right
-    wait_after: 1
-  - key: ret
-    wait_after: 10
+  # THE DISC'S OFFLINE REPOSITORY HOLDS NO PORTS PACKAGES. Checked on the ISO itself:
+  #
+  #	xorriso -indev disc1.iso -find /usr/freebsd-packages/offline | wc -l     328
+  #	... | grep -icE '^(sudo|doas|xorg|xfce|lightdm|bash|git|curl)'            0
+  #
+  # All 328 are FreeBSD-* base sets. An Offline install therefore leaves `pkg` pointed at
+  # /usr/freebsd-packages/repos - a repository that cannot supply sudo, xorg or xfce - and the
+  # chroot's later `pkg install -y sudo` could only fail.
+  #
+  # `Network` makes pkgbase fetch the base system from pkg.FreeBSD.org, so the NEW SYSTEM's
+  # /etc/pkg/FreeBSD.conf points at a repository that HAS those packages. That is what the ssh stage
+  # needs, and it is the difference between a disk with a working package manager and one without.
+  #
+  # IT IS SLOWER HERE - this lab measures 38-68 KB/s to that host - and that is the price of a disk
+  # whose package manager works.
+  key: ret
+  timeout: 1800
+  wait_after: 10
+- name: configure the network, which the Network path needs before it can fetch anything
+  # `Please select a network interface and configuration mode:`  [ Auto ]  [ Manual ]  [ Cancel ]
+  #
+  # THIS PANE ONLY EXISTS ON THE NETWORK PATH. From usr.sbin/bsdinstall/scripts/auto:
+  #
+  #	if [ $? -eq 1 ]; then
+  #	    export BSDINSTALL_PKG_REPOS_DIR=/usr/freebsd-packages/repos/    # Offline - no netconfig
+  #	else
+  #	    bsdinstall netconfig || error                                   # Network - netconfig HERE
+  #	    NETCONFIG_DONE=yes
+  #	fi
+  #
+  # MEASURED: with `Network` chosen, the install reached this pane and stopped - the file's next step
+  # was waiting for the partitioning menu, which is two panes further on:
+  #
+  #	easyvm status  ->  failed step 13/55 "wait for the partitioning menu before choosing on it"
+  #	ocr/partmenu   ->  "Please select a network interface and configuration mode:
+  #	                    [ Auto [Manual] [Cancel]"
+  #
+  # `Auto` IS THE HIGHLIGHTED BUTTON and it is what runs `dhclient` on the virtio NIC and writes the
+  # result into the new system - which is also what gives the chroot a working resolver later.
+  key: ret
+  wait_after: 20
 
 - name: partitioning - automatic ufs
   # THE MENU, AND NOTHING ELSE: THE KEYSTROKE IS SENT BY THE STEP AFTER THIS ONE.
@@ -786,12 +821,29 @@ steps:
     check:
       name: shell_up
       from: chroot
-      # `This shell is operating in a chroot in the new system` IS THE INSTALLER'S OWN LINE, printed
-      # BEFORE the chroot starts - so it cannot be the proof. The proof is the PROMPT the chroot's sh
-      # draws, which on this pane is `root@:/ #`. Its `#` is the thing no installer pane has.
+      # THE PROMPT ON THIS PANE IS NOT `root@:/ #`, AND THAT IS MEASURED RATHER THAN ASSUMED.
+      #
+      # The screen after `Yes` on Manual Configuration reads, in full:
+      #
+      #	This shell is operating in a chroot in the new system. When finished making
+      #	configuration changes, type "exit"
+      #	in|
+      #
+      # - the installer's `echo`, then `sh -l`'s PROMPT, and the prompt is `in` because the chroot's
+      # /etc/motd has not been written by `bsdinstall config` yet (that runs AFTER this shell exits).
+      #
+      # SO `root` IS NEVER ON THIS SCREEN and a check for it waits out its twenty tries on a pane that
+      # is exactly right - which is what happened on the first run of this step:
+      #
+      #	prove the chroot shell is actually up [check]: shell_up = false
+      #	  (mode says: missing from "This shell is operating in a chroot in the new ...")
+      #
+      # `chroot` IS THE WORD THAT CANNOT BE A FALSE POSITIVE HERE. It is printed by the branch of
+      # `bsdinstall auto` that has already run `chroot $BSDINSTALL_CHROOT /bin/sh -l`, so seeing it
+      # means the shell exists - and no other pane in this installer prints it.
       mode: says
       words:
-      - root
+      - chroot
     until:
       fact: shell_up
 
@@ -891,28 +943,71 @@ steps:
 #
 # THE PARTITIONER IS ALREADY SEEDED, because `pkg` on a fresh install has no database. That is also
 # what makes the later `pkg install xfce` a download of its own rather than a re-bootstrap.
-- name: install sudo
-  # A FIXED WAIT WAS THE BUG, AND THE SYMPTOM WAS THREE STEPS AWAY.
+- name: give the chroot a resolver, without which pkg cannot reach a mirror
+  # `bsdinstall auto` NEVER WRITES /etc/resolv.conf INTO THE NEW SYSTEM BEFORE THE POST-INSTALL SHELL.
   #
-  # MEASURED ON CI, run 43629665299: this step typed the command, waited 90 seconds, and pressed
-  # Return. The install stage then REPORTED SUCCESS - 48 of 48 - and the ssh stage failed with
+  # The order in usr.sbin/bsdinstall/scripts/auto is:
+  #
+  #	chroot "$BSDINSTALL_CHROOT" /bin/sh -l        <- this shell, and the guest has no resolver yet
+  #	...
+  #	bsdinstall config                             <- runs AFTER the shell exits
+  #
+  # `script` mode copies it explicitly (`cp /etc/resolv.conf $BSDINSTALL_CHROOT/etc/resolv.conf`);
+  # `auto` mode does not, because in auto mode netconfig has usually run on the INSTALLER and the copy
+  # is somebody else's job.
+  #
+  # THE EFFECT, MEASURED: `pkg install -y sudo` in this shell printed nothing useful and the disk came
+  # out with NO SUDO AT ALL - the ssh stage then reported
+  #
+  #	sudo: Command not found.
+  #
+  # while `wait for sshd` had already passed, which proves the OTHER chroot steps ran. A resolver the
+  # guest can use is the difference between a chroot that can install a package and one that cannot.
+  #
+  # THE ADDRESSES ARE THE ONES THE INSTALLER ITSELF USED - DHCP handed this guest 172.30.0.1 with
+  # 1.1.1.1 and 8.8.8.8, and they are reachable from the bridge.
+  do:
+  - type: printf '%s\n' 'nameserver 1.1.1.1' 'nameserver 8.8.8.8' > /etc/resolv.conf
+    wait_after: 2
+  - key: ret
+    wait_after: 3
+  - type: cat /etc/resolv.conf
+    wait_after: 3
+  - key: ret
+    wait_after: 5
+
+- name: bootstrap pkg, which is a stub until it downloads itself once
+  # ON A FRESH FREEBSD `/usr/sbin/pkg` IS A PLACEHOLDER that fetches the real pkg on first use. Inside
+  # a chroot that fetch needs the resolver written above, and it is a separate step so a failure here
+  # says "no network" rather than "sudo did not install".
+  do:
+  - type: env ASSUME_ALWAYS_YES=yes pkg bootstrap -f
+    wait_after: 4
+  - key: ret
+    wait_after: 60
+  - type: pkg -vv
+    wait_after: 3
+  - key: ret
+    wait_after: 6
+
+- name: install sudo
+  # NOW IT CAN WORK. The two steps above give `pkg` a resolver and a real database; this one installs.
+  #
+  # A FIXED WAIT WAS THE OLD BUG AND ITS SYMPTOM WAS THREE STEPS AWAY: this step typed the command,
+  # waited 90 seconds, pressed Return, and the stage reported success - so the keystroke landed while
+  # pkg was still unpacking and the ssh stage later said
   #
   #	/usr/local/bin/sudo: Exec format error. Binary file not executable.
   #
-  # which is what a TRUNCATED binary looks like. `pkg` was still unpacking when the Return arrived,
-  # and the keystroke went to the console of a running install rather than after it.
-  #
-  # SO THE STEP DOES NOT GUESS: it asks `pkg` to finish, then polls for the file to stop changing.
-  # `pkg info sudo` is the installer's own record that the package is registered, which only happens
-  # once unpacking is complete - a half-written binary is never registered.
+  # SO THE STEP ASKS `pkg` WHETHER IT FINISHED. `pkg info sudo` is the installer's own registration
+  # record, which only exists once unpacking is complete - a half-written binary is never registered.
   do:
   - type: env ASSUME_ALWAYS_YES=yes pkg install -y sudo
     wait_after: 4
   - key: ret
-    wait_after: 20
-  # THE POLL LOOPS IN THE GUEST, because a `loop:` here would spend a step per attempt and this is
-  # one question with one answer. Thirty tries at five seconds is two and a half minutes, which is
-  # generous for a one-megabyte package and still bounded.
+    wait_after: 30
+  # THE POLL LOOPS IN THE GUEST, because a `loop:` here would spend a step per attempt and this is one
+  # question with one answer. Thirty tries at five seconds is two and a half minutes.
   - type: sh -c 'i=0; while [ $i -lt 30 ]; do pkg info sudo >/dev/null 2>&1 && break; sleep 5; i=$((i+1)); done; pkg info sudo 2>&1 | head -2'
     wait_after: 3
   - key: ret

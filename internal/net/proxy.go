@@ -346,6 +346,11 @@ func applyTransparentProxy(spec string) error {
 		}
 	}
 
+	upstreamHost, _, err := net.SplitHostPort(upstream)
+	if err != nil {
+		return fmt.Errorf("the upstream %q has no host: %w", upstream, err)
+	}
+
 	port := strconv.Itoa(p.Port)
 	for _, rule := range [][]string{
 		// THIS CONTAINER'S OWN TRAFFIC IS NOT REDIRECTED, and it is the same rule shape the forwards
@@ -356,6 +361,24 @@ func applyTransparentProxy(spec string) error {
 		// THE GUEST'S LOOPBACK AND ITS OWN LINK ARE ITS OWN. A redirect that caught them would
 		// break anything the guest does locally.
 		{"-d", "127.0.0.0/8", "-j", "RETURN"},
+		// THE PROXY'S OWN UPSTREAM MUST NOT BE REDIRECTED, OR THE TUNNEL LOOPS.
+		//
+		// THIS RULE IS THE FIX FOR A MEASURED DEADLOCK. The chain is entered from OUTPUT for
+		// everything this container sends - that is what lets a `fetch:` run go through the proxy
+		// too - and the listener's connection to mihomo is one of those sends. Without this line
+		// that connection is REDIRECTed straight back to the listener, which dials mihomo again,
+		// and the two ends wait for each other:
+		//
+		//	ss -ltn                127.0.0.1:34943 LISTEN     (the listener was alive)
+		//	curl --max-time 20    0 B/s, exit 56              (and every download failed at once)
+		//
+		// A guest trying to install anything then sees `Updating repositories failed` from
+		// bsdinstall, which reads as a network problem rather than as a two-rule mistake.
+		//
+		// THE ADDRESS IS THE UPSTREAM'S HOST, NOT A RANGE: `p.Upstream` is `host:port` already
+		// resolved by StartTransparentProxy, so a proxy given by name becomes an address here and the
+		// rule matches what the packet carries.
+		{"-d", upstreamHost + "/32", "-j", "RETURN"},
 		// DNS OVER TCP IS NOT PROXIED: mihomo's proxy port speaks HTTP CONNECT, and a raw DNS query
 		// sent through it would be answered with a 400 that the resolver reads as a broken server.
 		// The DHCP lease already hands the guest a resolver that works.
