@@ -134,6 +134,37 @@ steps:
     sysrc -a
   timeout: 180
 
+- name: set the account's password so PAM will authenticate it
+  # THE ONE THING THE INSTALL STAGE CANNOT RELIABLY DO, DONE HERE WHERE IT CAN BE REPEATED.
+  #
+  # MEASURED, on three disks: `pw useradd ... -h 0` and `pw usermod ... -h 0` fed by a pipe leave the
+  # field as `*`, because -h reads stdin and the pipe is closed before pw reads it. `*` means "no
+  # password", PAM refuses the account, lightdm's autologin silently falls through to the greeter, and
+  # the disk boots to a LOGIN BOX instead of a session:
+  #
+  #	sshd-session[1570]: error: PAM: Authentication error for vmuser from 172.30.0.1
+  #
+  # Fixing that inside the installer's chroot costs a whole 25-minute reinstall to test. Fixing it
+  # here costs one run of THIS stage - and this stage can reach the disk over ssh, where a mistake is
+  # a failed command rather than a dead disk.
+  #
+  # `-H` WITH A HASH COMPUTED ON THE GUEST avoids stdin entirely: `openssl passwd -6` is crypt(3)'s
+  # SHA-512, the same `$6$` form `pw` writes itself. `sudo -n` works because the install stage wrote a
+  # NOPASSWD sudoers file, so this needs no password to start with.
+  #
+  # AND THE RESULT IS READ BACK: `pw usershow` prints a hidden field as `*` either way, so the check
+  # is `grep` on /etc/master.passwd for a `$6$` - the only way to tell a real hash from a locked field.
+  ssh: |
+    sudo sh -c 'cp=$(openssl passwd -6 -salt "$(date +%s%N | tail -c 17)" "{{ password }}") && pw usermod {{ user }} -H "$cp"'
+    sudo grep "^{{ user }}:" /etc/master.passwd | cut -d: -f2 | cut -c1-3
+  timeout: 180
+
+- name: prove the password is a hash and not a locked field
+  # `$6$` IS THE ONLY ACCEPTABLE ANSWER. A `*` here means PAM will refuse the account and the desktop
+  # will never start, and it is worth failing THIS step rather than discovering it from a screenshot
+  # of a login box after the next stage boots.
+  ssh: sh -c 'grep "^{{ user }}:" /etc/master.passwd | case "$(cat)" in *:*\$6\$*) echo HASH_SET ;; *) echo LOCKED ;; esac'
+
 - name: point lightdm at the greeter and autologin
   # THE GREETER IS NAMED EXPLICITLY, because lightdm's default is `lightdm-gtk-greeter` on some builds
   # and a missing one on others - and a missing greeter is a black screen.
