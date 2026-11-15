@@ -361,9 +361,22 @@ steps:
     check:
       name: parted_showing
       from: parted
+      # THE CHECK MUST SURVIVE THE OCR'S OWN SPELLING, AND `freebsd-ufs` DOES NOT.
+      #
+      # MEASURED: the run read
+      #
+      #	Please review the disk setup. ... 264 MB efi /boot/efi 124 GB freebsd-ufs / ...
+      #
+      # and `says` normalises each word by dropping everything that is not a letter or a digit - so
+      # `freebsd-ufs` becomes `freebsdufs` and does NOT equal `freebsd`. The pane was on screen and
+      # the check said it was not, which is the third time in this file that a correct screen failed
+      # a check written for it.
+      #
+      # `finish` AND `delete` are whole words on the button row, so no normalisation can split them.
       mode: says
       words:
-      - freebsd
+      - finish
+      - delete
     until:
       fact: parted_showing
 
@@ -411,6 +424,25 @@ steps:
   #
   # `Commit` IS HIGHLIGHTED, so this is a bare Return. `Revert & Exit` would throw away the layout the
   # previous steps just agreed to.
+  key: ret
+  wait_after: 15
+
+- name: distribution select - accept the default set
+  # THE COMPONENT CHECKLIST, WHICH ONLY THE PKGBASE PATH SHOWS, AND ITS CURSOR IS ALREADY ON `OK`.
+  #
+  # MEASURED, on the screen the partition steps hand over to:
+  #
+  #	Distribution Select
+  #	  A minimal set of packages suitable for a multi-user system is always installed.
+  #	  Select additional packages you wish to install:
+  #	    [ ] base   [ ] debug   [ ] devel   [X] lib32   [ ] optional   [ ] src   [ ] tests
+  #	    [ OK ]
+  #
+  # `lib32 32-bit compatibility libraries` comes ticked on this medium and nothing here needs it; the
+  # rest are optional and this disk is a desktop, so the default set is taken as it stands.
+  #
+  # WITHOUT THIS RETURN the install never starts: `wait for the install to finish` reads this pane's
+  # text for up to forty-five minutes and reports a phrase nobody wrote.
   key: ret
   wait_after: 15
 
