@@ -199,6 +199,54 @@ steps:
   - key: ret
     wait_after: 10
 
+- name: wait for the partitioning menu before choosing on it
+  # THE FIRST KEY OF THIS SECTION WAS SENT BLIND, AND THE OCR READ IT BACK.
+  #
+  # MEASURED on CI, run 43657195812, whose `wait for the zfs configuration menu` loop reported:
+  #
+  #	wait for the zfs configuration menu [check]: zfs_showing = false
+  #	  (none of "pool" or "partition scheme" in
+  #	   "puto C2FS)sGuided Root-on-2F5 uto CUFS) anual hell OK")
+  #
+  # that string is `Auto (ZFS) / Auto (UFS) / Manual / Shell / OK` - THE PARTITIONING MENU ITSELF,
+  # still on screen after the `down` and the `ret`. So the pane had not been drawn when those keys
+  # were sent, they went to the pane before it, and the menu then sat waiting with `Auto (UFS)`
+  # highlighted. That is the same UFS outcome by a different route.
+  #
+  # `down` THEN `ret` IS STILL THE RIGHT PAIR - `Auto (UFS)` is the first row and `Auto (ZFS)` is the
+  # second - but only once the list exists.
+  loop:
+    max: 25
+    do:
+    - wait: 6
+    ocr:
+      name: partmenu
+      region:
+      - 600
+      - 250
+      - 1350
+      - 800
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: part_showing
+      from: partmenu
+      mode: says
+      words:
+      - partitioning
+    until:
+      fact: part_showing
+
+- name: choose auto zfs
+  do:
+  - key: down
+    wait_after: 1
+  - key: ret
+    wait_after: 10
+
 - name: wait for the zfs configuration menu
   # A KEY SENT BEFORE A PANE EXISTS GOES TO THE PREVIOUS ONE, AND A FIXED WAIT CANNOT KNOW.
   #
