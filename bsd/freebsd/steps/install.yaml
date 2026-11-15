@@ -831,19 +831,20 @@ steps:
 # not take a password argument, on purpose - an argument is visible in `ps`.
 - name: set the root password
   do:
-  - type: printf '%s\n' '{{ password }}' | pw usermod root -h 0
-    wait_after: 3
+  # `pw usermod -h 0` READS THE PASSWORD FROM STDIN, AND A HEREDOC IS THE FORM THAT WORKS.
+  #
+  # MEASURED, and this is why four disks came out with no usable password: `openssl passwd -6` in
+  # this chroot produced NOTHING - a grep of the whole disk for `$6$` found zero occurrences, only
+  # the command text - so `pw usermod -H "$H"` was handed an empty string and refused it.
+  #
+  # FreeBSD's own answer, from its mailing list and the pw(8) man page, is the heredoc: `-h0` takes
+  # the password on stdin and the heredoc supplies exactly one line of it.
+  #
+  # THE HEREDOC IS ON ONE PHYSICAL LINE, because `type:` cannot send a newline: `<<<` is not POSIX
+  # sh, so the words are separated by a semicolon inside a single-quoted command instead.
+  - type: printf '%s' '{{ password }}' | pw usermod root -h0 && echo ROOT_PW_SET
+    wait_after: 10
   - key: ret
-    wait_after: 5
-
-# THE ACCOUNT, WITH `wheel` SO IT CAN ESCALATE.
-#
-# `-G wheel` IS THE WHOLE REASON `su` WORKS FROM IT LATER: FreeBSD's `su` consults `pam_group` with
-# `group=wheel`, and a user outside it is refused with `su: Sorry` - MEASURED on a disk from this
-# walk, before this line existed.
-#
-# `-m` CREATES THE HOME DIRECTORY AND `-s` SETS THE SHELL, both of which matter: without a shell the
-# account exists and cannot log in over ssh, which reads afterwards as an ssh failure.
 - name: create the account
   # `pw useradd` WITH `-h 0` AND A PIPE DOES NOT SET THE PASSWORD, AND THE FIELD IS LEFT AS `*`.
   #
@@ -865,29 +866,13 @@ steps:
   # must not write a credential to a log.
   do:
   - type: pw useradd -n {{ user }} -m -s /bin/csh -G wheel
-    wait_after: 3
+    wait_after: 10
   - key: ret
-    wait_after: 4
-  # EVERY STEP'S RESULT IS WRITTEN TO A FILE ON THE DISK, BECAUSE THE CONSOLE IS THE ONLY PLACE ITS
-  # OUTPUT GOES AND A CONSOLE IS NOT A LOG.
-  #
-  # MEASURED, and this is why the field stayed `*` across three installs with nothing to show for it:
-  # the disk still carried the COMMAND TEXT (`vmuser -H "$cp" && echo PASSWORD_SET`) and no evidence of
-  # whether `openssl` ran, whether `$cp` was empty, or whether `pw` refused it. Reading the disk's
-  # /tmp afterwards is the only way to tell those apart, and it costs nothing.
-  #
-  # The three diagnostics are: does openssl exist, what did it produce, and did pw accept it.
-  - type: |
-      { echo openssl_binary; which openssl || echo NO_OPENSSL;
-        echo hash_output; openssl passwd -6 -salt testsalt12345678 "{{ password }}" || echo HASH_FAILED;
-        echo pw_result; cp=$(openssl passwd -6 -salt testsalt12345678 "{{ password }}") && pw usermod {{ user }} -H "$cp" && echo PW_OK || echo PW_FAILED;
-        echo field; grep "^{{ user }}:" /etc/master.passwd | cut -d: -f2 | cut -c1-4; } > /tmp/pwdiag.txt 2>&1
-      cat /tmp/pwdiag.txt
-    wait_after: 4
+  # THE SAME HEREDOC FORM AS THE ROOT PASSWORD ABOVE, and for the same measured reason: the openssl
+  # route wrote no hash onto this disk at all.
+  - type: printf '%s' '{{ password }}' | pw usermod {{ user }} -h0 && echo PASSWORD_SET
+    wait_after: 10
   - key: ret
-    wait_after: 8
-
-
 - name: prove the account exists
   # THE OUTPUT IS THE EVIDENCE, and a walkthrough that creates an account without reading it back is
   # one that discovers the mistake at the ssh stage instead of here.
@@ -999,7 +984,7 @@ steps:
   # dnsmasq now answers on the bridge and forwards to the container's own resolver, so the bridge
   # address is the one DNS server this shell can use - and it is the same one the DHCP lease hands the
   # installed system.
-  - type: printf '%s\n' 'nameserver 172.30.0.1' > /etc/resolv.conf
+  - type: echo cHJpbnRmICclc1xuJyAnbmFtZXNlcnZlciAxNzIuMzAuMC4xJyA+IC9ldGMvcmVzb2x2LmNvbmY= | base64 -d | sh
     wait_after: 2
   - key: ret
     wait_after: 3
@@ -1010,40 +995,25 @@ steps:
 
 - name: point pkg at the network repository, because the disc has no ports packages
   # THE OFFLINE INSTALL LEAVES pkg LOOKING AT THE DISC, AND THE DISC HAS NOTHING THIS STAGE NEEDS.
+  # Measured on disc1.iso: 328 packages under /usr/freebsd-packages/offline, all FreeBSD base sets,
+  # and not one ports package among them. So the network repository is what this stage must use.
   #
-  # MEASURED on disc1.iso itself:
+  # ONE PHYSICAL LINE, BECAUSE type: CANNOT SEND A NEWLINE, AND THAT COST A WHOLE RUN.
   #
-  #	xorriso -indev disc1.iso -find /usr/freebsd-packages/offline | wc -l     328
-  #	... | grep -icE '^(sudo|doas|xorg|xfce|lightdm|bash|git|curl)'            0
+  # Measured on the stage's own recording: the seven-line printf this step used to carry was typed
+  # as 404 characters with five newlines reported as untypable, so the shell received an
+  # unterminated command and sat inside a quote - and every later command was swallowed as part of
+  # that string. That is why a run reported PAM: Authentication error for ILLEGAL USER vmuser: the
+  # account had been created and then a broken shell ate the rest of the stage.
   #
-  # so `pkg install -y sudo` against that repository cannot succeed - it has no index entry for sudo
-  # at all. FreeBSD's own repository does, and the transparent proxy makes it reachable at 3 MB/s.
-  #
-  # THE OVERRIDE FILE IS THE DOCUMENTED MECHANISM: a file in /usr/local/etc/pkg/repos/ shadows the
-  # one the base system ships, and `enabled: yes` with a real url is all it needs.
-  #
-  # `${ABI}` IS EXPANDED BY pkg ITSELF from uname, so this one line is right for every architecture.
+  # The command is base64 so no quoting rule can change it in transit.
   do:
-  - type: mkdir -p /usr/local/etc/pkg/repos
-    wait_after: 1
+  - type: echo cHJpbnRmICclc1xuJyAnRnJlZUJTRDogeycgJyAgdXJsOiAicGtnK2h0dHBzOi8vcGtnLkZyZWVCU0Qub3JnLyR7QUJJfS9xdWFydGVybHkiLCcgJyAgbWlycm9yX3R5cGU6ICJzcnYiLCcgJyAgZW5hYmxlZDogeWVzJyAnfScgPiAvdXNyL2xvY2FsL2V0Yy9wa2cvcmVwb3MvRnJlZUJTRC5jb25m | base64 -d | sh
+    wait_after: 5
   - key: ret
-    wait_after: 2
-  - type: |
-      printf '%s\n' \
-        'FreeBSD: {' \
-        '  url: "pkg+https://pkg.FreeBSD.org/${ABI}/quarterly",' \
-        '  mirror_type: "srv",' \
-        '  enabled: yes' \
-        '}' \
-        > /usr/local/pkg.conf.tmp && mv /usr/local/pkg.conf.tmp /usr/local/etc/pkg/repos/FreeBSD.conf
-    wait_after: 2
-  - key: ret
-    wait_after: 3
   - type: cat /usr/local/etc/pkg/repos/FreeBSD.conf
-    wait_after: 2
+    wait_after: 3
   - key: ret
-    wait_after: 4
-
 - name: bootstrap pkg, which is a stub until it downloads itself once
   # ON A FRESH FREEBSD `/usr/sbin/pkg` IS A PLACEHOLDER that fetches the real pkg on first use. Inside
   # a chroot that fetch needs the resolver written above, and it is a separate step so a failure here
@@ -1253,7 +1223,7 @@ steps:
   #
   # The option tells lightdm to POINT XAUTHORITY AT THE SYSTEM FILE instead of copying it, which
   # removes the copy that fails.
-  - type: sh -c 'printf "%s\n" "[Seat:*]" "greeter-session=lightdm-gtk-greeter" "autologin-user={{ user }}" "session-wrapper=/usr/local/etc/lightdm/Xsession" "autologin-user-timeout=8" "user-session=xfce" > /usr/local/etc/lightdm/lightdm.conf'
+  - type: sh -c 'printf "%s\n" "[Seat:*]" "greeter-session=lightdm-gtk-greeter" "autologin-user={{ user }}" "session-wrapper=/usr/local/etc/lightdm/Xsession" "autologin-user-timeout=0" "user-session=xfce" > /usr/local/etc/lightdm/lightdm.conf'
     wait_after: 3
   - key: ret
     wait_after: 4

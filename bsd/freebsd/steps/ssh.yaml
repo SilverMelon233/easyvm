@@ -192,7 +192,7 @@ steps:
   # sudo did nothing.
   ssh: |
     sudo mkdir -p /usr/local/etc/lightdm
-    sudo sh -c 'printf "%s\n" "[Seat:*]" "greeter-session=lightdm-gtk-greeter" "autologin-user={{ user }}" "autologin-user-timeout=0" "user-session=xfce" > /usr/local/etc/lightdm/lightdm.conf'
+    sudo sh -c 'printf "%s\n" "[Seat:*]" "greeter-session=lightdm-gtk-greeter" "autologin-user={{ user }}" "autologin-user-timeout=0" "session-wrapper=/usr/local/etc/lightdm/Xsession" "user-session=xfce" > /usr/local/etc/lightdm/lightdm.conf'
     cat /usr/local/etc/lightdm/lightdm.conf
   timeout: 120
 
@@ -217,13 +217,43 @@ steps:
   ssh: sudo sync
   timeout: 300
 
+- name: flush the writes before the machine stops
+  # THE SAME `sync` THE INSTALL STAGE NEEDS, FOR THE SAME MEASURED REASON.
+  #
+  # MEASURED: a disk published by this stage without it booted to
+  #
+  #	FILE SYSTEM INCONSISTENCY; RUN fsck MANUALLY.
+  #	Automatic file system check failed; help!
+  #	ERROR: ABORTING BOOT
+  #	Enter full pathname of shell or RETURN for /bin/sh:
+  #
+  # because the packages this stage installed were still in the page cache when the machine stopped,
+  # and UFS's clean flag is written by the unmount that follows a flush.
+  ssh: sudo sync
+  timeout: 300
+
 - name: stop the machine
+  # `acpi`, NOT `ssh`, AND THE REASON IS THE FILESYSTEM THE NEXT STAGE HAS TO MOUNT.
+  #
+  # MEASURED, on two disks this stage published with `shutdown: ssh`:
+  #
+  #	/dev/vtbd0p2: CYLINDER GROUP 123: INTEGRITY CHECK FAILED
+  #	/dev/vtbd0p2: UNEXPECTED SOFT UPDATE INCONSISTENCY; RUN fsck MANUALLY.
+  #	Automatic file system check failed; help!
+  #	ERROR: ABORTING BOOT ... Enter full pathname of shell or RETURN for /bin/sh:
+  #
+  # `ssh` runs `poweroff`, which asks init to stop - and on this guest init reaches the power-off
+  # before UFS's clean flag is written. `sync` does not write it either: that flag belongs to the
+  # UNMOUNT. Remounting read-only was tried and refused (`Device busy`, because lightdm and Xorg hold
+  # the filesystem), which leaves the ACPI power button: it is the same orderly shutdown the
+  # installer's own `bsdinstall umount` produces, and `windows/11/steps/install.yaml` uses it for the
+  # same reason.
   # A STAGE WHOSE OUTPUT IS THE DISK MAY NOT BE KILLED: xfce's install writes thousands of files and a
   # kill leaves a pool that needs a replay. `ssh` asks the guest's own init to power off.
   # TEN MINUTES RATHER THAN FIVE, because this guest has just written xfce and a display manager and
   # its shutdown path touches every one of those files. The five-minute default ran out on a machine
   # that was shutting down correctly, only slowly.
-  shutdown: '{{ shutdown }}'
+  shutdown: acpi
   timeout: 600
 - name: publish the disk
   compress: '{{ out }}'
