@@ -233,7 +233,21 @@ jobs:
           #
           # `${pair%%:*}` AND `${pair#*:}` RATHER THAN `IFS=':' read`, because a filename may contain a
           # colon and a tag may not: the FIRST colon is the separator on both sides.
-          printf '%s\n' '${{ toJSON(matrix.assets) }}' \
+          # WHITESPACE IS STRIPPED FIRST, AND ITS ABSENCE COST A ROUND OF FIVE FAILED RUNS.
+          #
+          # MEASURED on run 43877785751: the tag arrived as "  iso-ubuntu-desktop" - two leading
+          # spaces - and `pull-artifact.sh` asked the registry for a tag spelled that way:
+          #
+          #	=== manifest ghcr.io/easydev-org/easyvm:  iso-ubuntu-desktop
+          #	##[error]  iso-ubuntu-desktop is not in the package
+          #
+          # The tag IS in the package; the spaces were. GitHub renders `${{ toJSON(...) }}` inside a
+          # `run:` block with the indentation of the surrounding YAML, so the JSON arrives padded.
+          # `printf '%s\n'` AND NOT `%s`: without the trailing newline the LAST pair never reaches
+          # `read`, so a single asset would be skipped entirely and two would deliver one.
+          # `tr -d ' \t'` AND NOT `[:space:]`: newlines must survive, because the sed below is
+          # what creates them.
+          printf '%s\n' '${{ toJSON(matrix.assets) }}' | tr -d ' \t' \
             | sed -e 's/^\[//' -e 's/\]$//' -e 's/","/\n/g' -e 's/"//g' \
             | while IFS= read -r pair; do
             [ -n "$pair" ] || continue
