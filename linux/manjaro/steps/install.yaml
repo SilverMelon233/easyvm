@@ -64,11 +64,61 @@ steps:
   - 1325
   - 801
   wait_after: 18
+# `Erase disk` IS PRESELECTED ON THIS MEDIUM - unlike CachyOS and EndeavourOS, where both radio
+# buttons start empty. Measured: the page opens with `Erase disk` already chosen and the panel under
+# it showing `300.00 MiB FAT32  127.71 GiB btrfs`.
 - name: partitions - erase the disk
   click:
   - 653
   - 340
   wait_after: 6
+
+# AND THE FILESYSTEM COMBO DEFAULTS TO btrfs, WHICH THIS WALK DOES NOT WANT.
+#
+# MEASURED, with `Erase disk` selected:
+#
+#	[No swap ▾]  [btrfs ▾]
+#	300.00 MiB FAT32    127.71 GiB Btrfs
+#
+# so accepting the default puts a COW filesystem on a COW disk image. The combo is at (955, 396) and
+# its list is btrfs / ext4 / f2fs / xfs, with ext4 the second entry at (933, 459).
+#
+# THE THREE MEDIA DISAGREE AND EACH FILE SAYS WHICH: kubuntu and endeavouros default to ext4, cachyos
+# and manjaro to btrfs.
+- name: open the filesystem list
+  click:
+  - 955
+  - 396
+  wait_after: 5
+
+- name: choose ext4
+  click:
+  - 933
+  - 459
+  wait_after: 6
+
+- name: the partitions page after choosing ext4
+  ocr:
+    name: fs
+    region:
+    - 0
+    - 0
+    - 1920
+    - 1080
+    region_at:
+    - 1920
+    - 1080
+    scale: 1
+    wait: 3
+
+- name: the root partition is ext4
+  check:
+    name: ext4
+    from: fs
+    mode: says
+    words:
+    - ext4
+
 - name: partitions
   click:
   - 1325
