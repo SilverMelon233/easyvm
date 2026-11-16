@@ -21,6 +21,13 @@ vars:
     from: args.out
     default: out/kubuntu.qcow2
 steps:
+- name: the media this stage boots from is already on disk
+  # FIRST STEP, BECAUSE A MISSING INPUT MUST FAIL IN THE FIRST SECOND INSTEAD OF
+  # forty minutes into a run. Every one of these files is declared by this leg's
+  # `assets:` in its workflow and placed here by `pull-artifact.sh` before
+  # `easyvm run` is called; nothing in this file downloads.
+  require:
+  - kubuntu.iso:500
 - name: start recording
   record: kubuntu-install.mp4
 - name: create the empty disk

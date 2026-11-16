@@ -13,6 +13,13 @@ vars:
     from: args.out
     default: out/cachyos.qcow2
 steps:
+- name: the media this stage boots from is already on disk
+  # FIRST STEP, BECAUSE A MISSING INPUT MUST FAIL IN THE FIRST SECOND INSTEAD OF
+  # forty minutes into a run. Every one of these files is declared by this leg's
+  # `assets:` in its workflow and placed here by `pull-artifact.sh` before
+  # `easyvm run` is called; nothing in this file downloads.
+  require:
+  - cachyos.iso:500
 - name: start recording
   record: cachyos-install.mp4
 - name: create the empty disk
@@ -176,8 +183,23 @@ steps:
 
 # Location IS LEFT AS IT IS: Asia/Hong Kong and English (Hong Kong SAR China) are the defaults and
 # nothing below depends on them. Location -> Keyboard
+# `Next` IS NOT AT ONE HEIGHT ON EVERY PAGE, AND LOCATION IS THE ONE THAT MOVED.
+#
+# MEASURED on Location, row by row across the button's own x range:
+#
+#	y=770  35   background above
+#	y=776  86   the button's top edge
+#	y=791 110   the word `Next`
+#	y=806  56   its bottom edge
+#	y=809  35   background below
+#
+# SO THIS PAGE'S BUTTON IS CENTRED AT 791 WHILE WELCOME'S IS AT 753. The reason is the map: this page
+# carries a 340-row world map between the title and the footer, and Calamares pushes the buttons down
+# with it. A click at 753 lands on `The numbers and dates locale will be set to ...` - which selects a
+# TIMEZONE on the map rather than advancing, and that is how a run reached Kerguelen.
+
 - name: next from location
-  click: [1356, 753]
+  click: [1356, 791]
   wait_after: 8
 
 # Keyboard -> Bootloader. The Generic 105-key PC and Default layout are the defaults.
