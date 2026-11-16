@@ -49,6 +49,15 @@ boot_disk: from_caller
 # SEVERAL YEARS: `easydiskbake/macos/15/steps/sequoia.yaml`. Its own notes are quoted where a number
 # looks arbitrary, because every one of them cost a run.
 steps:
+- name: the media this stage boots from is already on disk
+  # FIRST STEP, BECAUSE A MISSING INPUT MUST FAIL IN THE FIRST SECOND INSTEAD OF
+  # forty minutes into a run. Every one of these files is declared by this leg's
+  # `assets:` in its workflow and placed here by `pull-artifact.sh` before
+  # `easyvm run` is called; nothing in this file downloads.
+  require:
+  - boot.img:200
+  - macos.rom
+  - macos.vars
 - name: start recording
   record: macos15-ssh.mp4
 - name: boot the disk

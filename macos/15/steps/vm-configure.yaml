@@ -28,6 +28,16 @@ ssh_user: vmuser
 ssh_port: 2222
 boot_disk: from_caller
 steps:
+- name: the media this stage boots from is already on disk
+  # FIRST STEP, BECAUSE A MISSING INPUT MUST FAIL IN THE FIRST SECOND INSTEAD OF
+  # forty minutes into a run. Every one of these files is declared by this leg's
+  # `assets:` in its workflow and placed here by `pull-artifact.sh` before
+  # `easyvm run` is called; nothing in this file downloads.
+  require:
+  - boot.img:200
+  - macos.rom
+  - macos.vars
+  - mac-guest-agent
 - name: start recording
   record: macos15-vm-configure.mp4
 - name: boot the disk

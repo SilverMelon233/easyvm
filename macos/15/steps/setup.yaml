@@ -18,6 +18,16 @@ vars:
     from: args.shutdown
     default: kill
 steps:
+- name: the media this stage boots from is already on disk
+  # FIRST STEP, BECAUSE A MISSING INPUT MUST FAIL IN THE FIRST SECOND INSTEAD OF
+  # forty minutes into a run. Every one of these files is declared by this leg's
+  # `assets:` in its workflow and placed here by `pull-artifact.sh` before
+  # `easyvm run` is called; nothing in this file downloads.
+  require:
+  - recovery.dmg:200
+  - boot.img:200
+  - macos.rom
+  - macos.vars
 - name: start recording
   record: macos15-setup.mp4
 - name: create the empty disk

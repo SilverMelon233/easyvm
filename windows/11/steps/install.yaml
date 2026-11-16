@@ -24,6 +24,14 @@ vars:
     from: args.boot_timeout
     default: '1800'
 steps:
+- name: the media this stage boots from is already on disk
+  # FIRST STEP, BECAUSE A MISSING INPUT MUST FAIL IN THE FIRST SECOND INSTEAD OF
+  # forty minutes into a run. Every one of these files is declared by this leg's
+  # `assets:` in its workflow and placed here by `pull-artifact.sh` before
+  # `easyvm run` is called; nothing in this file downloads.
+  require:
+  - windows.iso:500
+  - virtio-win.iso:100
 - name: start recording
   record: windows11-install.mp4
 - name: create the empty disk

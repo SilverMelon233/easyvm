@@ -37,6 +37,22 @@ vars:
     default: out/mac26.qcow2
 
 steps:
+  # THE RECOVERY IMAGE IS AN INPUT EVEN HERE, AND `fetch:` IS WHAT NAMES IT.
+  #
+  # `recovery:` on a boot step takes an ASSET ROLE, not a path - `recovery_macos` is a name a
+  # `fetch:` step registers. A resume file without the fetch therefore fails with
+  #
+  #	boot: no the recovery image at recovery_macos: stat recovery_macos: no such file or directory
+  #
+  # which names the role rather than the missing step.
+  #
+  # AND THE FETCH DOES NOT DOWNLOAD ANYTHING WHEN THE FILE IS THERE. `fetchRecoveryMacOS` looks for
+  # `<work>/recovery.dmg` first and returns it if it is over 200 MiB, so a resume on a machine that
+  # has already fetched once costs a stat.
+  - name: name the recovery image, which the boot step needs for its APFS driver
+    asset: recovery_macos
+    release: '26'
+
   - name: boot the disk that is already there
     boot: true
     os: macos

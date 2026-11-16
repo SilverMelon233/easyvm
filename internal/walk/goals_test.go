@@ -2295,3 +2295,109 @@ func workflowAssets(t *testing.T) map[string]bool {
 	}
 	return out
 }
+
+// EVERY STAGE THAT BOOTS FROM A FILE BEGINS BY CHECKING THAT FILE IS THERE.
+//
+// THE MEDIA ARE PULLED BEFORE `easyvm run` IS CALLED NOW - that move took an 18-minute download out of
+// the middle of a stage (measured on run 43847000071, where it consumed the whole `wait for sshd`
+// budget and reported a machine that never answered). It ALSO MOVED THE DIAGNOSIS: without this step a
+// missing file fails at the first `boot:`, and that message names the boot rather than the pull:
+//
+//	boot: no the installer medium at /work/ubuntu.iso: stat: no such file or directory
+//
+// A `require:` step at the top names what is actually wrong, and it fails in the first second instead
+// of after a live desktop and a screen recording.
+//
+// THE LIST IS DERIVED FROM THE WORKFLOWS, not written twice. A stage whose leg declares `assets:`
+// must name those same files in its first step, so adding an asset to a workflow without adding it
+// here is caught - and so is the reverse, which is the failure that would otherwise be silent until a
+// guest could not boot.
+func TestEveryStageRequiresTheAssetsItsLegPulls(t *testing.T) {
+	root := filepath.Join("..", "..")
+	assets := workflowAssetsByStage(t)
+	if len(assets) == 0 {
+		t.Fatal("no workflow declares `assets:`, so this test would pass by checking nothing")
+	}
+
+	// WHICH FILE A STAGE NAME RESOLVES TO. The workflow's stage name is `linux-ubuntu-install`, and
+	// its file is `linux/ubuntu/steps/install.yaml`; both are in the same JSON object, so the pair is
+	// read rather than guessed from the name.
+	checked := 0
+	for stage, files := range assets {
+		if len(files) == 0 {
+			continue
+		}
+		path := filepath.Join(root, stage)
+		doc, err := Load(path, nil)
+		if err != nil {
+			t.Errorf("%s: %v", stage, err)
+			continue
+		}
+		if len(doc.Steps) == 0 {
+			t.Errorf("%s: no steps", stage)
+			continue
+		}
+		first := doc.Steps[0]
+		raw, ok := first.Spec["require"]
+		if !ok {
+			t.Errorf("%s: the first step is %q and it is not a `require:`. The leg pulls %v, so a "+
+				"missing one of those must fail here rather than at a `boot:` that names the medium "+
+				"instead of the pull", stage, first.Name, files)
+			continue
+		}
+		list, _ := raw.([]any)
+		named := map[string]bool{}
+		for _, item := range list {
+			s, _ := item.(string)
+			if i := strings.IndexByte(s, ':'); i >= 0 {
+				s = s[:i]
+			}
+			named[s] = true
+		}
+		for _, f := range files {
+			if !named[f] {
+				t.Errorf("%s: the leg pulls %q and the first step's `require:` does not name it. A "+
+					"file the workflow places and the stage never checks is one a truncated pull can "+
+					"leave behind", stage, f)
+			}
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no stage with assets was checked")
+	}
+	t.Logf("checked %d stage(s)", checked)
+}
+
+// workflowAssetsByStage maps each stage's FILE PATH to the filenames its leg pulls.
+func workflowAssetsByStage(t *testing.T) map[string][]string {
+	t.Helper()
+	out := map[string][]string{}
+	files, err := filepath.Glob(filepath.Join("..", "..", ".github", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatalf("cannot list workflows: %v", err)
+	}
+	// `"file": "<path>"` and `"assets": [ ... ]` live in the same JSON object, so they are matched as
+	// one span: everything from a `"file":` to the closing bracket of its `"assets":`.
+	// THE SPAN MUST NOT CROSS A `}`: without that a stage with no `assets:` inherits the NEXT
+	// stage's, which is how this test first reported nine Linux ssh legs as pulling an installer ISO
+	// they never boot from.
+	block := regexp.MustCompile(`"file":\s*"([^"]+)"[^}]*?"assets":\s*\[([^\]]*)\]`)
+	pair := regexp.MustCompile(`"[A-Za-z0-9._-]+:([A-Za-z0-9._/-]+)"`)
+	for _, name := range files {
+		body, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("cannot read %s: %v", name, err)
+		}
+		for _, m := range block.FindAllStringSubmatch(string(body), -1) {
+			var names []string
+			for _, e := range pair.FindAllStringSubmatch(m[2], -1) {
+				names = append(names, e[1])
+			}
+			if len(names) > 0 {
+				out[m[1]] = names
+			}
+		}
+	}
+	return out
+}
