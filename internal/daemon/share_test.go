@@ -766,3 +766,105 @@ func TestTheWindowsShareIsMountableAtThePathTheProofReads(t *testing.T) {
 			"path the proof reads")
 	}
 }
+
+// FREEBSD CANNOT REACH THIS SERVER WITH ITS OWN CLIENT, SO THE BRANCH MUST NOT USE IT.
+//
+// MEASURED, with a capture on the guest's own vtnet0 during a `mount_smbfs` attempt:
+//
+//	172.30.0.2.27350 > 172.30.0.1.139: Flags [S]   mount_smbfs dials NetBIOS 139
+//	172.30.0.1.139 > 172.30.0.2.27350: Flags [R.]   nothing listens there
+//	mount_smbfs: unable to open connection: syserr = Connection refused
+//
+// netsmb implements SMB1 and cannot speak the SMB3 this smbd serves on 445, and smbd is shared with
+// three other guests that need `server min protocol` and `smb ports = 445` exactly as they are. 15.1's
+// manual page says the limit outright: "mount_smbfs offers support for SMB/CIFS/SMB1. It does not
+// support newer versions of the protocol like SMB2 and SMB3."
+//
+// THIS TEST IS A GUARD RATHER THAN A PREFERENCE. `mount_smbfs` looks like the obvious choice, it is
+// what the macOS branch runs, and the failure it produces is a bare "Connection refused" that reads
+// like a network problem - nine wrong hypotheses came out of exactly that before a capture settled it.
+func TestFreeBSDUsesAModernClientAndBindsIt(t *testing.T) {
+	body, err := os.ReadFile("share.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := stripGoComments(string(body))
+	i := strings.Index(src, "func (d *Driver) mountOnce(")
+	if i < 0 {
+		t.Fatal("no mountOnce")
+	}
+	rest := src[i:]
+	if end := strings.Index(rest[1:], "\nfunc "); end > 0 {
+		rest = rest[:end+1]
+	}
+	bsd := rest[strings.Index(rest, `case "bsd":`):]
+	if end := strings.Index(bsd, "default:"); end > 0 {
+		bsd = bsd[:end]
+	}
+
+	if strings.Contains(bsd, "mount_smbfs") {
+		t.Fatal("the bsd branch still runs `mount_smbfs`, which speaks only SMB1 on port 139 and " +
+			"cannot reach this smbd - measured as a TCP RST on 139 and `syserr = Connection refused`")
+	}
+	if !strings.Contains(bsd, "smbnetfs") {
+		t.Fatal("the bsd branch does not run `smbnetfs`, the ports client that negotiates SMB3 on 445")
+	}
+	// THE BIND IS WHAT MAKES ~/shared MEAN THE SAME THING HERE AS ON THE OTHER THREE.
+	if !strings.Contains(bsd, "nullfs") {
+		t.Fatal("the bsd branch does not bind the smbnetfs mount with nullfs, so ~/shared is not the " +
+			"share itself - smbnetfs mounts a browser view at <mount>/<ip>/<share>")
+	}
+	if !strings.Contains(bsd, "-o allow_other") {
+		t.Fatal("smbnetfs is started without `-o allow_other`, so the unprivileged account cannot " +
+			"read its own share - measured as `mount_fusefs: Operation not permitted (FUSE daemon " +
+			"requires privileges due to 'allow_other' option)` when it is missing")
+	}
+	// THE CONFIG IS UNDER /root BECAUSE ROOT IS WHO MOUNTS IT, and `su -m` does not change HOME.
+	if !strings.Contains(bsd, "/root/.smb/") {
+		t.Fatal("the config is not written under /root/.smb; a `su -m vmuser` keeps HOME=/root, so " +
+			"the client reads /root/.smb while the config sits in a home nothing looks at - measured " +
+			"as `WARNING!!! Configuration directory /root/.smb is not found`")
+	}
+}
+
+// THE FREEBSD MOUNT CHECK LOOKS FOR THE BIND, NOT FOR AN SMB URL.
+//
+// MEASURED on a disk where the mount WORKED:
+//
+//	/mnt/smb/172.30.0.1/shared on /home/vmuser/shared (nullfs)
+//
+// There is no `//172.30.0.1/shared` in that line at all - the kernel reports the BIND, because
+// ~/shared is a nullfs mount whose source is the smbnetfs path. A check for the URL would report a
+// working mount as missing, which is the one failure this switch exists to prevent.
+func TestTheFreeBSDMountCheckMatchesTheBind(t *testing.T) {
+	body, err := os.ReadFile("share.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := stripGoComments(string(body))
+	i := strings.Index(src, "func mountsShare(")
+	if i < 0 {
+		t.Fatal("no mountsShare")
+	}
+	rest := src[i:]
+	if end := strings.Index(rest[1:], "\nfunc "); end > 0 {
+		rest = rest[:end+1]
+	}
+	bsd := rest[strings.Index(rest, `case "bsd":`):]
+	if end := strings.Index(bsd, "default:"); end > 0 {
+		bsd = bsd[:end]
+	}
+
+	if !strings.Contains(bsd, "/mnt/smb/172.30.0.1/shared") {
+		t.Fatal("the bsd mount check does not look for the smbnetfs source path " +
+			"`/mnt/smb/172.30.0.1/shared`, which is what the nullfs line names")
+	}
+	if !strings.Contains(bsd, "nullfs") {
+		t.Fatal("the bsd mount check does not require `nullfs` in the line, so a bare smbnetfs mount " +
+			"that never reached the share would pass")
+	}
+	if strings.Contains(bsd, "//guest:@172.30.0.1/shared") {
+		t.Fatal("the bsd mount check still looks for the mount_smbfs spelling, which this branch no " +
+			"longer produces")
+	}
+}

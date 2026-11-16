@@ -313,31 +313,64 @@ func (d *Driver) mountOnce(client *guest.Client, family, dir string) error {
 			`printf '%s\n' ` + shellQuote(d.pass) +
 			` | sudo -S -p '' mount_smbfs -f 0666 -d 0777 '//guest:@172.30.0.1/shared' ~/shared`
 	case "bsd":
-		// `mount_smbfs`, NOT `mount -t cifs`: FREEBSD HAS NO CIFS FILESYSTEM TYPE.
+		// `fusefs-smbnetfs` AND `nullfs`, BECAUSE FREEBSD'S BASE CLIENT CANNOT REACH THIS SERVER AT
+		// ALL AND NOTHING IN THE PORTS COLLECTION MOUNTS A SINGLE SHARE DIRECTLY.
 		//
-		// MEASURED BY READING THE KERNEL's own list on 15.1-RELEASE: `sysctl vfs.generic.fstypes`
-		// prints ufs, zfs, devfs, fdescfs, procfs, cd9660, msdosfs, nfs, ntfs, nullfs, tmpfs, udf,
-		// autofs - and `cifs` is not among them, so the branch below would have run
+		// MEASURED, with a capture on the guest's own vtnet0 during a `mount_smbfs` attempt:
 		//
-		//	mount -t cifs //172.30.0.1/shared ~/shared -o username=guest,password=...
+		//	172.30.0.2.27350 > 172.30.0.1.139: Flags [S]     the kernel dials 139
+		//	172.30.0.1.139 > 172.30.0.2.27350: Flags [R.]     and nothing listens there
+		//	mount_smbfs: unable to open connection: syserr = Connection refused
 		//
-		// and FreeBSD's mount(8) answers "unknown file system type" before it touches the network.
+		// That RST IS the whole error. It took nine wrong hypotheses to reach, because the message
+		// says "Connection refused" and the library then stats four message catalogues on the way
+		// out - those `libc.cat` misses are printing an error, not causing one. FreeBSD's own
+		// mailing list carries the same trace from 2017, where the telling line comes BEFORE the
+		// catalogue lookups: `ioctl(3,SMBIOC_LOOKUP,...)` with a real errno.
 		//
-		// THE SYNTAX IS macOS'S, WITH ONE ADDITION: `-I ADDRESS` PICKS THE INTERFACE, because
-		// FreeBSD's mount_smbfs resolves the server name through NetBIOS or DNS and `172.30.0.1` is
-		// neither - without `-I` it asks the resolver about a name that is really an address. The
-		// same `//guest:@host/shared` spelling carries the user with a trailing colon and an empty
-		// password, which is what `null passwords = yes` on the host side accepts.
+		// THE CODEC IS THE REASON: netsmb implements SMB1 over the NetBIOS session service, and 139
+		// is the only port it can reach. 15.1's man page says so in as many words - "mount_smbfs
+		// offers support for SMB/CIFS/SMB1. It does not support newer versions of the protocol like
+		// SMB2 and SMB3" - and points at ports for a modern client.
 		//
-		// `-f 0666 -d 0777` because an SMB mount is owned by root by default and these files belong
-		// to the unprivileged account; `mkdir -p` and a tolerated `umount` because a retry over a
-		// half-finished mount otherwise fails with a message about the DIRECTORY, which reads like a
-		// different fault.
-		cmd = `mkdir -p ~/shared; ` +
-			`printf '%s\n' ` + shellQuote(d.pass) + ` | sudo -S -p '' umount ~/shared 2>/dev/null; ` +
-			`printf '%s\n' ` + shellQuote(d.pass) +
-			` | sudo -S -p '' mount_smbfs -I 172.30.0.1 -f 0666 -d 0777` +
-			` '//guest:@172.30.0.1/shared' ~/shared`
+		// THE SERVER IS NOT CHANGED. `server min protocol` stays where three other guests need it and
+		// `smb ports` stays 445; a 139 listener opened for one legacy client would be a 139 listener
+		// for all four.
+		//
+		// SO THE CLIENT IS CHANGED, IN TWO HALVES:
+		//
+		//	fusefs-smbnetfs   links libsmbclient, negotiates SMB3, dials 445 - and mounts the way a
+		//	                  file manager browses, so the share appears as `<mount>/<ip>/<share>`
+		//	nullfs            binds that directory onto ~/shared, which is what makes this family
+		//	                  look like the other three to every step after this one
+		//
+		// `nullfs` IS BASE. `vfs.generic.fstypes` on 15.1 lists it, so the consistency layer costs
+		// nothing to install. `fusefs.ko` is base too; only the client is a package.
+		//
+		// CONFIGURATION LIVES UNDER /root BECAUSE ROOT IS WHO MOUNTS IT: `allow_other` needs
+		// privileges, and a `su -m vmuser` does not change HOME, so the client would read /root/.smb
+		// while looking for ~/.smb and start with defaults - measured as
+		// `WARNING!!! Configuration directory /root/.smb is not found`.
+		//
+		// THE THREE FILES ARE NOT OPTIONAL AND EACH WAS MISSING ONCE: smb.conf names the workgroup,
+		// smbnetfs.auth carries the guest account's empty password (without it the client prompts,
+		// and an ssh exec has no terminal), smbnetfs.host makes the bridge visible immediately
+		// instead of after a network browse.
+		//
+		// PRELOADS BINDS ARE UNMOUNTED FIRST AND TOLERATED: a retry over a live mount fails with a
+		// message about the directory, which reads like a different fault.
+		cmd = `printf '%s\n' ` + shellQuote(d.pass) + ` | sudo -S -p '' sh -c '` +
+			`kldload fusefs 2>/dev/null; ` +
+			`mkdir -p /root/.smb /mnt/smb /home/vmuser/shared; ` +
+			`printf "[global]\n   workgroup = WORKGROUP\n" > /root/.smb/smb.conf; ` +
+			`printf "auth \"guest\" \"\"\n" > /root/.smb/smbnetfs.auth; ` +
+			`printf "host 172.30.0.1 visible=true\n" > /root/.smb/smbnetfs.host; ` +
+			`printf "auth \"guest\" \"\"\n" > /root/.smb/smbnetfs.conf; ` +
+			`chmod 600 /root/.smb/smb.conf /root/.smb/smbnetfs.auth /root/.smb/smbnetfs.host /root/.smb/smbnetfs.conf; ` +
+			`umount /home/vmuser/shared 2>/dev/null; ` +
+			`umount /mnt/smb 2>/dev/null; ` +
+			`smbnetfs /mnt/smb -o allow_other; ` +
+			`mount -t nullfs /mnt/smb/172.30.0.1/shared /home/vmuser/shared'`
 	default:
 		// `mount -t cifs` WITH THE CREDENTIALS ON THE COMMAND LINE, because a credentials FILE would
 		// have to be copied into the guest first and that is a second thing that can fail. The share
@@ -444,17 +477,22 @@ func mountsShare(family, table string) bool {
 		// same `user:` the command line uses to mean "this user, no password".
 		return strings.Contains(table, "//guest:@172.30.0.1/shared")
 	case "bsd":
-		// FREEBSD PRINTS IT THE WAY macOS DOES, WITH ONE DIFFERENCE THAT MATTERS WHEN `-I` IS USED.
+		// THE TABLE NAMES THE NULLFS BIND, NOT THE SMB URL, AND THAT IS THE WHOLE POINT OF THE BIND.
 		//
-		// `mount_smbfs` writes `//guest:@172.30.0.1/shared on /home/vmuser/shared (smbfs, ...)` -
-		// the same spelling as macOS, because it is the same program. Accepting only the macOS
-		// spelling and not checking whether it also appears here is how a family gets a branch that
-		// looks right and is never exercised.
-		return strings.Contains(table, "//guest:@172.30.0.1/shared") ||
-			// AND THE BARE FORM, because a mount_smbfs that resolved the address before mounting
-			// prints no user at all in some versions, and a working mount reported as missing is the
-			// failure this whole switch exists to prevent.
-			strings.Contains(table, "//172.30.0.1/shared")
+		// MEASURED on the disk this branch was built against, after a mount that WORKED:
+		//
+		//	/mnt/smb/172.30.0.1/shared on /home/vmuser/shared (nullfs)
+		//
+		// There is no `//172.30.0.1/shared` in that line at all - the kernel is reporting the
+		// BIND, because `~/shared` is a nullfs mount whose SOURCE is the smbnetfs path. Checking
+		// for the URL here would report a working mount as missing, which is the failure this
+		// whole switch exists to prevent.
+		//
+		// THE SOURCE PATH IS WHAT PROVES IT IS THE SHARE AND NOT SOMETHING ELSE: `/mnt/smb/` alone
+		// would match a bare smbnetfs mount that never reached the share, and `/172.30.0.1/shared`
+		// is the part that names the server and the share within it.
+		return strings.Contains(table, "/mnt/smb/172.30.0.1/shared") &&
+			strings.Contains(table, "nullfs")
 	default:
 		return strings.Contains(table, "//172.30.0.1/shared")
 	}
