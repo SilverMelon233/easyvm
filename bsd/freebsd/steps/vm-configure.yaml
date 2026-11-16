@@ -174,9 +174,11 @@ steps:
   # it dials NetBIOS 139, which smbd does not listen on, and the RST comes back as the bare
   # "Connection refused" that nine hypotheses were built on. smbd serves SMB3 on 445 for the other
   # three and is not changing. `fusefs-smbnetfs` links libsmbclient, so it speaks SMB3.
-  ssh: 'printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' env ASSUME_ALWAYS_YES=yes pkg install -y fusefs-smbnetfs 2>&1 | tail -5
-
-    '
+  #
+  # `sh -c` IS REQUIRED AND ITS ABSENCE WAS MEASURED: the login shell is `csh`, which has no `2>&1` -
+  # it answers `Ambiguous output redirect.` and exits 1 before `pkg` ever runs. The same reason is
+  # recorded beside the `pgrep -x lightdm` step in this file.
+  ssh: sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" env ASSUME_ALWAYS_YES=yes pkg install -y fusefs-smbnetfs 2>&1 | tail -5'
   timeout: 600
 - name: prove the client is there, and load the fuse module it needs
   # `fusefs.ko` IS BASE AND ONLY HAS TO BE LOADED. `nullfs` also needs no module - it is a base
