@@ -443,7 +443,7 @@ func BuildBootImage(efiDir, dest string, log func(string)) error {
 	}
 	_ = f.Close()
 
-	for _, tool := range []string{"mformat", "mcopy", "mdir"} {
+	for _, tool := range []string{"mformat", "mcopy", "mdir", "mmd"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			return fmt.Errorf("%s is not installed: %w. The boot image is a FAT32 ESP built "+
 				"with mtools, and there is no second way to write one", tool, err)
@@ -460,8 +460,40 @@ func BuildBootImage(efiDir, dest string, log func(string)) error {
 	if out, err := exec.Command("mformat", geometry...).CombinedOutput(); err != nil {
 		return fmt.Errorf("mformat: %v (%s)", err, firstLine(string(out)))
 	}
-	if out, err := exec.Command("mcopy", "-s", "-i", partition, "-m", efiDir, "::/").CombinedOutput(); err != nil {
-		return fmt.Errorf("mcopy: %v (%s)", err, firstLine(string(out)))
+	// THE TREE IS MADE DIRECTORY BY DIRECTORY AND THEN FILLED, BECAUSE MCOPY FLATTENS.
+	//
+	// `mcopy -s <dir> ::/<something>` DOES NOT PUT <dir> INSIDE <something>; it copies <dir>'s
+	// CONTENTS there. MEASURED in the tester image (GNU mtools 4.0.48), with a tree of
+	// EFI/BOOT/BOOTx64.efi and EFI/OC/OpenCore.efi:
+	//
+	//	mcopy -s .../EFI ::/            root lists `BOOTX64  EFI` - the file, flattened
+	//	                                `mdir ::/EFI/BOOT` -> File not found
+	//	mcopy -s .../EFI ::/EFI         same thing: ::/ and ::/EFI list identical contents
+	//	mmd ::/EFI ::/EFI/BOOT ...      then mcopy each FILE to its path -> the tree is real
+	//
+	// SO AN IMAGE BUILT THE FIRST WAY HAD NO EFI/BOOT AT ALL. The firmware opened
+	// \EFI\BOOT\BOOTX64.EFI, found a root directory with a lone BOOTx64.efi in it, and dropped to its
+	// internal shell - which is the failure this build's own check was written to catch, and the
+	// check was reporting the same defect one level down.
+	//
+	// TWO PASSES: `mmd` for every directory, then `mcopy` for every file. It costs one more syscall
+	// per entry and it is the only form that produces a tree rather than a pile.
+	dirs, files, err := walkTree(efiDir)
+	if err != nil {
+		return err
+	}
+	for _, dir := range dirs {
+		target := "::/" + dir
+		if out, err := exec.Command("mmd", "-i", partition, target).CombinedOutput(); err != nil {
+			return fmt.Errorf("mmd %s: %v (%s)", target, err, firstLine(string(out)))
+		}
+	}
+	for _, file := range files {
+		src := filepath.Join(efiDir, filepath.FromSlash(file))
+		target := "::/" + file
+		if out, err := exec.Command("mcopy", "-i", partition, "-m", src, target).CombinedOutput(); err != nil {
+			return fmt.Errorf("mcopy %s: %v (%s)", target, err, firstLine(string(out)))
+		}
 	}
 
 	if err := writeGPT(dest, espFirst, espLast, totalSectors); err != nil {
@@ -517,6 +549,38 @@ func BuildBootImage(efiDir, dest string, log func(string)) error {
 	log(fmt.Sprintf("  boot.img: %d MiB, GPT + ESP at LBA %d, EFI tree copied",
 		imageSize>>20, espFirst))
 	return nil
+}
+
+// walkTree returns every directory and file under root, as slash-separated paths relative to it,
+// directories outermost-first and files in lexical order.
+//
+// THE ORDER MATTERS FOR THE DIRECTORIES: `mmd ::/EFI/BOOT` fails before `mmd ::/EFI` has run, so a
+// parent has to exist before a child is named. `filepath.WalkDir` visits a directory before its
+// contents, which is exactly that order.
+//
+// PATHS ARE SLASH-SEPARATED BECAUSE THEY BECOME FAT PATHS, where `::/EFI/BOOT` is the target syntax
+// regardless of what the host uses.
+func walkTree(root string) (dirs, files []string, err error) {
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			dirs = append(dirs, rel)
+			return nil
+		}
+		files = append(files, rel)
+		return nil
+	})
+	return dirs, files, err
 }
 
 // listingHasFold reports whether an `mdir` listing contains name, ignoring ASCII case.

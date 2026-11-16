@@ -89,7 +89,7 @@ ARG DEBIAN_SNAPSHOT="20260819T142328Z"
 # THE DISK TOOLS
 #   e2fsprogs         debugfs: read a file out of a finished ext4 disk without mounting it.
 #   xorriso, genisoimage  rebuild an ISO with an answer file at its root.
-#   mtools            mformat/mcopy/mdir: build a FAT image without loop-mounting, which a
+#   mtools            mformat/mcopy/mdir/mmd: build a FAT image without loop-mounting, which a
 #                     container has no privileges to do.
 #   p7zip-full        `7z`, for the macOS OpenCore template: an ISO9660 image with a Joliet tree,
 #                     and the names live in the Joliet layer.
@@ -219,7 +219,7 @@ RUN set -eux; \
     dnsmasq --version | head -1; \
     ip -V; \
     iptables --version; \
-    command -v sysctl ffmpeg tesseract debugfs xorriso genisoimage mformat 7z aria2c unzstd wimlib-imagex; \
+    command -v sysctl ffmpeg tesseract debugfs xorriso genisoimage mformat mcopy mdir mmd 7z aria2c unzstd wimlib-imagex; \
     /usr/local/bin/easyvm versions
 
 # THE CONTAINER MUST BE STARTED WITH THE TUN DEVICE AND NET_ADMIN, AND THE PROGRAM REFUSES AT

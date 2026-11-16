@@ -257,7 +257,7 @@ func TestWriteConfigRefusesATemplateItCannotAddress(t *testing.T) {
 //
 // which reads like a broken loader and is a disk the firmware cannot enumerate.
 func TestTheBootImageHasAPartitionTableTheFirmwareCanRead(t *testing.T) {
-	for _, tool := range []string{"mformat", "mcopy", "mdir"} {
+	for _, tool := range []string{"mformat", "mcopy", "mdir", "mmd"} {
 		if _, err := lookPath(tool); err != nil {
 			t.Skipf("%s is not installed, so a boot image cannot be built here", tool)
 		}
@@ -472,7 +472,7 @@ func TestUnpackARealArchive(t *testing.T) {
 // THIS TEST DOES NOT USE checkGPT, because checkGPT is what was broken. It parses the bytes the way
 // another GPT implementation would: clear the field, compute, compare.
 func TestTheGPTHeaderCRCIsComputedTheWayTheFormatSays(t *testing.T) {
-	for _, tool := range []string{"mformat", "mcopy", "mdir"} {
+	for _, tool := range []string{"mformat", "mcopy", "mdir", "mmd"} {
 		if _, err := lookPath(tool); err != nil {
 			t.Skipf("%s is not installed, so a boot image cannot be built here", tool)
 		}
