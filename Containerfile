@@ -320,6 +320,20 @@ FROM easyvm-runtime AS runtime
 # CMD IS STILL THE CALLER'S. An entrypoint and a default command are two different things, and the
 # second is left empty on purpose - `serve` is not a default this program should assume, because a
 # container that starts a daemon when the caller wanted `check` is worse than one that prints usage.
+# `serve` IS THE DEFAULT COMMAND BECAUSE THIS IMAGE EXISTS TO BE A DAEMON.
+#
+# `CMD []` WAS THE OPPOSITE DECISION, and it pushed the same four lines into every caller: background
+# the daemon, wait for its "listening on" line, then talk to it. MEASURED across this repository's own
+# workflows, three separate places had written that block and two of them had got the wait wrong - one
+# waited on a socket file that exists before the daemon can answer, the other did not wait at all and
+# got `dial tcp 127.0.0.1:8080: connect: connection refused`.
+#
+# SO THE IMAGE IS PID 1 WITH THE DAEMON RUNNING, which is what a container is for: one process, and the
+# platform stops it. A caller that wants a different verb still passes one - `docker run --rm <image>
+# versions` runs `versions` because the ENTRYPOINT takes argv - and `--entrypoint` remains available
+# for a shell.
+#
+# `--work /work` MATCHES THE WORKDIR BELOW, so the default invocation needs no arguments at all.
 ENTRYPOINT ["/usr/local/bin/easyvm"]
-CMD []
+CMD ["serve", "--work", "/work", "--http", ":8080"]
 WORKDIR /work

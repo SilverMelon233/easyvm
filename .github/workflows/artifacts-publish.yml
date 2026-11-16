@@ -309,46 +309,68 @@ jobs:
             macos-recovery-sequoia "$GITHUB_WORKSPACE/work/recovery.dmg"
           ls -l "$GITHUB_WORKSPACE/work/recovery.dmg"
 
-      - name: run the build in the image that already has the tools
-        # `easyvm run` IS A CLIENT. It posts to a daemon on :8080 and exits; the daemon is what drives
-        # the walk. MEASURED on run 43888766306, whose only step was the client:
+      - name: run the build in the image, which is a daemon on its own
+        # THE IMAGE'S `CMD` IS `serve`, SO THIS IS TWO `docker run`s AND NO READY-LINE POLLING.
         #
-        #	FAILED: POST http://127.0.0.1:8080/api/command:
-        #	        dial tcp 127.0.0.1:8080: connect: connection refused
+        # It used to be `CMD []`, and every caller had to background the daemon, poll its log and then
+        # talk to it - four lines that this repository's own workflows wrote three times and got wrong
+        # twice. A container is one process and the platform stops it; naming that process in the
+        # image is what a container is for.
         #
-        # `stage.yml` has a `start the daemon` step for exactly this reason and this job did not.
-        #
-        # ONE `docker run` FOR BOTH, because the daemon has to be in the same container as the client
-        # that talks to it over loopback - and because the walk mounts the checkout, which is how the
-        # image gets a YAML file it has never carried.
-        #
-        # `--user` SO THE OUTPUT IS OWNED BY THE RUNNER: the push steps read these files without sudo.
+        # TWO CONTAINERS, ONE VOLUME: the first is the daemon, detached and named; the second is the
+        # client, which posts the walk and polls until it is done. `easyvm run` RETURNS immediately -
+        # MEASURED on run 43893214608, where the step that followed found no boot.img because the
+        # build was still `starting` when the client exited.
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -eu
           mkdir -p "$GITHUB_WORKSPACE/work"
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e GITHUB_TOKEN \
-            -e DISKS_REPOSITORY="$(printf '%s' "${{ inputs.disks_repository }}" | tr '[:upper:]' '[:lower:]')" \
-            -v "$GITHUB_WORKSPACE/work:/work" \
-            -v "$GITHUB_WORKSPACE:/repo:ro" \
-            --entrypoint /bin/sh \
-            ghcr.io/easydev-org/easyvm:latest -c '
-              set -eu
-              easyvm serve --work /work --http :8080 > /tmp/daemon.log 2>&1 &
-              i=0
-              while [ $i -lt 30 ]; do
-                i=$((i + 1))
-                grep -q "listening on" /tmp/daemon.log 2>/dev/null && break
-                sleep 1
-              done
-              grep -q "listening on" /tmp/daemon.log || {
-                echo "=== THE DAEMON DID NOT COME UP ==="; cat /tmp/daemon.log; exit 1; }
-              easyvm run /repo/macos/15/steps/firmware.yaml --work /work || {
-                echo "=== THE BUILD FAILED ==="; cat /tmp/daemon.log; exit 1; }
-            '
+          image=ghcr.io/easydev-org/easyvm:latest
+          repo="$(printf '%s' "${{ inputs.disks_repository }}" | tr '[:upper:]' '[:lower:]')"
+          common="-v $GITHUB_WORKSPACE/work:/work -v $GITHUB_WORKSPACE:/repo:ro -e GITHUB_TOKEN -e DISKS_REPOSITORY=$repo"
+
+          # shellcheck disable=SC2086
+          docker run -d --name fw-daemon --user "$(id -u):$(id -g)" $common "$image" > /dev/null
+          trap 'docker rm -f fw-daemon > /dev/null 2>&1 || true' EXIT
+
+          # THE READY LINE IS THE CONTRACT, not the socket file: a file that exists is not a daemon
+          # that answers. This is the same check `stage.yml` settled on after both mistakes.
+          i=0
+          while [ $i -lt 30 ]; do
+            i=$((i + 1))
+            docker logs fw-daemon 2>&1 | grep -q "listening on" && break
+            sleep 1
+          done
+          docker logs fw-daemon 2>&1 | grep -q "listening on" || {
+            echo "=== THE DAEMON DID NOT COME UP ==="
+            docker logs fw-daemon 2>&1
+            exit 1
+          }
+
+          # shellcheck disable=SC2086
+          docker run --rm --user "$(id -u):$(id -g)" $common --entrypoint easyvm "$image" \
+            run /repo/macos/15/steps/firmware.yaml --work /work || {
+            echo "=== THE CLIENT REFUSED TO QUEUE THE BUILD ==="; docker logs fw-daemon 2>&1; exit 1; }
+
+          # `status` EXITS 0 WHEN FINISHED AND 2 WHEN FAILED, so the loop below is the wait and its
+          # message is the state rather than an exit code.
+          i=0
+          while [ $i -lt 120 ]; do
+            i=$((i + 1))
+            rc=0
+            # shellcheck disable=SC2086
+            docker run --rm --user "$(id -u):$(id -g)" $common --entrypoint easyvm "$image" \
+              status --work /work || rc=$?
+            case $rc in
+              0) echo "=== THE BUILD FINISHED ==="; exit 0 ;;
+              2) echo "=== THE BUILD FAILED ==="; docker logs fw-daemon 2>&1; exit 1 ;;
+            esac
+            sleep 5
+          done
+          echo "=== THE BUILD DID NOT FINISH IN TEN MINUTES ==="
+          docker logs fw-daemon 2>&1
+          exit 1
 
       - name: the three files, and their sizes
         # A BOOT IMAGE IS 256 MiB AND A TRUNCATED ONE IS NOT DETECTABLE BY qemu UNTIL OVMF REFUSES IT
