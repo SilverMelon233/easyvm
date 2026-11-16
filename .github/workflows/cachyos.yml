@@ -26,6 +26,10 @@ on:
       disks_repository:
         description: "the ghcr repository that holds the disks"
         default: "easydev-org/easyvm"
+      from_tag:
+        description: >-
+          start from a PUBLISHED disk: linux-cachyos or linux-cachyos-ssh. Empty runs the whole chain.
+        default: ""
 
 concurrency:
   group: cachyos
@@ -50,24 +54,21 @@ permissions:
   # live log is a check run, and publishing one needs `checks: write`.
   checks: write
 
+# THE LEGS ARE JOBS THAT DEPEND ON EACH OTHER, NOT A MATRIX.
+#
+# A MATRIX LEG THAT ASKS FOR THE TAG THE LEG BEFORE IT PUBLISHES GETS A 404 WHILE THAT LEG IS STILL
+# RUNNING, falls back to the INSTALL disk - which has no sshd - and spends its whole budget on a
+# machine that could never answer. `needs:` is the fix, and this file listed `ssh` FIRST.
 jobs:
-  stages:
+  install:
+    if: github.event_name != 'workflow_dispatch' || inputs.from_tag == ''
     uses: ./.github/workflows/stage.yml
     secrets: inherit
     with:
       group: cachyos
       disks_repository: ${{ inputs.disks_repository }}
-      # THE LEGS, AS JSON. `fromJSON` in the called workflow turns this back into a matrix.
       stages: |
         [
-          {
-            "name": "linux-cachyos-ssh",
-            "file": "linux/cachyos/steps/ssh.yaml",
-            "pull": "linux-cachyos",
-            "out": "linux-cachyos-ssh.qcow2",
-            "timeout": 60,
-            "publish": "linux-cachyos-ssh"
-          },
           {
             "name": "linux-cachyos-install",
             "file": "linux/cachyos/steps/install.yaml",
@@ -75,15 +76,46 @@ jobs:
             "assets": ["iso-cachyos-desktop:cachyos.iso"],
             "out": "linux-cachyos.qcow2",
             "publish": "linux-cachyos",
-            "timeout": 90
-          },
+            "timeout": 120
+          }
+        ]
+
+  ssh:
+    needs: [install]
+    if: always() && !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.from_tag == '' || inputs.from_tag == 'linux-cachyos')
+    uses: ./.github/workflows/stage.yml
+    secrets: inherit
+    with:
+      group: cachyos
+      disks_repository: ${{ inputs.disks_repository }}
+      stages: |
+        [
+          {
+            "name": "linux-cachyos-ssh",
+            "file": "linux/cachyos/steps/ssh.yaml",
+            "pull": "linux-cachyos",
+            "out": "linux-cachyos-ssh.qcow2",
+            "publish": "linux-cachyos-ssh",
+            "timeout": 60
+          }
+        ]
+
+  vm:
+    needs: [ssh]
+    if: always() && !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.from_tag == '' || inputs.from_tag == 'linux-cachyos' || inputs.from_tag == 'linux-cachyos-ssh')
+    uses: ./.github/workflows/stage.yml
+    secrets: inherit
+    with:
+      group: cachyos
+      disks_repository: ${{ inputs.disks_repository }}
+      stages: |
+        [
           {
             "name": "linux-cachyos-vm",
             "file": "linux/cachyos/steps/vm-configure.yaml",
             "pull": "linux-cachyos-ssh",
-            "fallback": "linux-cachyos",
             "out": "linux-cachyos-vm.qcow2",
-            "timeout": 60,
-            "publish": "linux-cachyos-vm"
+            "publish": "linux-cachyos-vm",
+            "timeout": 60
           }
         ]
