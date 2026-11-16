@@ -345,7 +345,15 @@ jobs:
             -w /src \
             -e GOCACHE=/tmp/go-cache \
             easyvm-tester:ci \
-            go test ./... -count=1 -timeout 600s
+            test ./... -count=1 -timeout 600s
+          # `test` AND NOT `go test`: the tester image's ENTRYPOINT is the go binary, so the command
+          # after the image name is go's own argument. Measured on run 43800447440, where this read
+          # `go test` and the container answered:
+          #
+          #	go go: unknown command
+          #	Run 'go help' for usage.
+          #
+          # A doubled word, an exit code 2, and a job that had already built both images successfully.
 
       - name: a second daemon on the same work directory is refused, by name
         # THE OUTERMOST LOCK. Everything a machine owns lives in one `--work` directory - the qmp
