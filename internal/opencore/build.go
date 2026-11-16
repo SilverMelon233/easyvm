@@ -479,17 +479,58 @@ func BuildBootImage(efiDir, dest string, log func(string)) error {
 	// AND THE PATH THE FIRMWARE ACTUALLY OPENS. "OpenCore.efi is somewhere on the ESP" is a weaker
 	// question, and it was answered YES by a boot image whose tree had been copied one level too
 	// high - a listing that contains the string and cannot boot.
-	for _, required := range []string{"::/EFI/BOOT/BOOTX64.EFI", "::/EFI/OC/OpenCore.efi"} {
-		if out, err := exec.Command("mdir", "-i", partition, "-/", required).CombinedOutput(); err != nil {
-			return fmt.Errorf("%s has no %s in its ESP (%s). The firmware looks for "+
-				"\\EFI\\BOOT\\BOOTX64.EFI; without it OVMF drops to its internal shell and "+
-				"nothing says why", dest, required, firstLine(string(out)))
+	//
+	// CASE IS NOT PART OF THE QUESTION, AND ASSUMING IT WAS BROKE THIS CHECK ON A DIFFERENT MTOOLS.
+	//
+	// MEASURED, in the tester image built by this repository's Containerfile (GNU mtools 4.0.48):
+	//
+	//	mcopy -s EFI ::/        stores the name it was given, as `BOOTx64.efi`
+	//	mdir ::/EFI/BOOT        lists it as `BOOTX64  EFI   ...  BOOTx64.efi` - 8.3 upper, long name as-is
+	//	mdir ::/EFI/BOOT/BOOTX64.EFI   finds NOTHING and exits 0
+	//	mdir ::/EFI/BOOT/BOOTx64.efi   finds it
+	//
+	// The check asked for the UPPERCASE path because that is the path OVMF names in its log, so the
+	// image was correct and the assertion was measuring mtools' case table. A build that passed on one
+	// developer's machine and failed in the image is the signature of exactly this.
+	//
+	// THE FIRMWARE IS CASE-INSENSITIVE, because FAT is: EDK II's FAT driver upper-cases both the
+	// directory entry and the path it is asked for. So the question this must ask is "is the file
+	// there, whatever case it was written in", which is a directory listing and a folded comparison.
+	for _, required := range []string{"::/EFI/BOOT", "::/EFI/OC"} {
+		name := "BOOTX64.EFI"
+		if required == "::/EFI/OC" {
+			name = "OPENCORE.EFI"
+		}
+		out, err := exec.Command("mdir", "-i", partition, "-/", required).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s has no %s directory in its ESP (%s). The firmware opens "+
+				"\\EFI\\BOOT\\BOOTX64.EFI first; without it OVMF drops to its internal shell "+
+				"and nothing says why", dest, required, firstLine(string(out)))
+		}
+		if !listingHasFold(string(out), name) {
+			return fmt.Errorf("%s: %s does not contain %s (mdir listed %q). The firmware opens "+
+				"\\EFI\\BOOT\\BOOTX64.EFI and a case fold is how FAT matches it",
+				dest, required, name, firstLine(string(out)))
 		}
 	}
 
 	log(fmt.Sprintf("  boot.img: %d MiB, GPT + ESP at LBA %d, EFI tree copied",
 		imageSize>>20, espFirst))
 	return nil
+}
+
+// listingHasFold reports whether an `mdir` listing contains name, ignoring ASCII case.
+//
+// IT IS A FOLD AND NOT AN EQUALITY BECAUSE THAT IS WHAT FAT DOES. An 8.3 entry is stored upper-case
+// and a long name is stored as written, so the same file appears as `BOOTX64  EFI` in the name column
+// and `BOOTx64.efi` in the long-name column of one listing - and EDK II's driver upper-cases both
+// sides of its own comparison, which is why the firmware boots an image whose directory entry says
+// `BOOTx64.efi` when asked for `BOOTX64.EFI`.
+//
+// A UTF-16 long name would need more than this; every name on this ESP is ASCII by construction, and
+// the check would rather be a narrow truth than a wide guess.
+func listingHasFold(listing, name string) bool {
+	return strings.Contains(strings.ToUpper(listing), strings.ToUpper(name))
 }
 
 // writeGPT writes a protective MBR, a primary GPT and its backup.
