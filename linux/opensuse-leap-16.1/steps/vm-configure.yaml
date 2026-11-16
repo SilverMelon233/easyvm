@@ -83,11 +83,6 @@ steps:
 
     '
   timeout: 120
-- name: install the cifs client
-  ssh: 'printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' zypper --non-interactive install cifs-utils 2>&1 | tail -5
-
-    '
-  timeout: 600
 - name: serve the host share
   share_serve: true
   timeout: 60

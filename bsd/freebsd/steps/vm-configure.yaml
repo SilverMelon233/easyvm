@@ -182,47 +182,116 @@ steps:
 - name: prove the time zone
   ssh: sh -c 'echo "localtime = $(readlink -f /etc/localtime)"; echo "zoneinfo = $(cat /var/db/zoneinfo 2>/dev/null)"; echo "date = $(date)"; grep -q "{{ timezone }}" /var/db/zoneinfo && echo TIMEZONE_OK'
   timeout: 60
-- name: set the locale
-  # LOCALE ON FREEBSD IS THREE rc.conf VARIABLES, not one, and `UTF-8` is spelled `C.UTF-8` or
-  # `en_US.UTF-8` depending on which locale definitions the base shipped. The `.UTF-8` suffix is the
-  # part that matters to every program the desktop runs.
-  ssh: sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" sh -c "sysrc lua_load=1 2>/dev/null; sysrc -f /etc/login.conf 2>/dev/null; printf \"%s\n\" \"LANG={{ locale }}\" \"LC_ALL={{ locale }}\" >> /etc/profile; sysrc -x lua_load 2>/dev/null; true"'
-  timeout: 120
-- name: write the locale into login.conf and rebuild the database
-  # `/etc/login.conf` IS THE OTHER HALF AND THE ONE THAT MATTERS FOR LOGIN SHELLS: a `LANG=` in
-  # `/etc/profile` reaches an interactive shell, and a `:lang=` capability reaches everything started
-  # by login - which on this guest includes the XFCE session. `cap_mkdb` is what makes it real; a
-  # login.conf without it is a file nothing reads.
+- name: set the locale in /etc/profile, which is what a login shell reads
+  # TWO PLACES DECIDE THIS ON FREEBSD AND THEY ANSWER DIFFERENT QUESTIONS, so both are written:
+  #
+  #	/etc/profile      sourced by a LOGIN shell - an interactive session, and the XFCE session that
+  #	                  lightdm starts inherits it from there
+  #	/etc/login.conf   the lang capability, applied by login(1) to everything a login starts
+  #
+  # THIS STEP DOES /etc/profile AND NOTHING ELSE. It used to call `sysrc lua_load=1` and
+  # `sysrc -f /etc/login.conf`, and BOTH WERE WRONG: lua_load is the Lua loader for rc scripts and has
+  # nothing to do with locales, and `sysrc -f` changes which FILE rc.conf is read from rather than
+  # editing login.conf. Neither touched the locale, and both made the step look like it did more.
+  #
+  # `grep -q` BEFORE THE APPEND, because a second run would otherwise add a second pair of lines and
+  # the file grows every time a stage is retried.
   ssh: >-
     sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" sh -c
-    "sed -i.bak \"s/:lang=.*:/:lang={{ locale }}:/\"
-    /etc/login.conf 2>/dev/null || true;
-    grep -q \":lang={{ locale }}:\" /etc/login.conf ||
-    sed -i.bak \"s/^:default:/:default:\\\\\n\t:lang={{ locale }}:/\"
-    /etc/login.conf;
-    cap_mkdb /etc/login.conf"'
-  timeout: 180
-- name: prove the locale in a new login shell
-  ssh: sh -c 'sh -lc "printf \"LANG=%s\nLC_ALL=%s\n\" \"\$LANG\" \"\$LC_ALL\"" 2>&1 | head -4'
-  timeout: 60
-- name: serve the host share
-  # THE SAME TWO STEPS THE OTHER THREE GUESTS USE, and until now freebsd had neither: this file
-  # mentioned `share_serve` and `share_mount` ZERO times while windows, ubuntu and macos each had both,
-  # so a freebsd guest could not see the host directory that every other guest can.
+    "grep -q \"^LANG={{ locale }}\" /etc/profile ||
+    printf \"LANG={{ locale }}\nLC_ALL={{ locale }}\n\" >> /etc/profile"'
+  timeout: 120
+- name: add the locale to login.conf and rebuild its database
+  # /etc/login.conf IS NOT A FILE OF LINES YOU CAN APPEND TO. Its `default` class is a MULTI-LINE entry
+  # joined with trailing backslashes, so there is no line to rewrite - and the first attempt here used
+  # a sed that matched the line's PREFIX and matched NOTHING, because the line begins `default:` with
+  # no leading colon. MEASURED on the disk this stage produced:
   #
-  # NOTHING HAS TO BE INSTALLED FIRST: `mount_smbfs` is part of the FreeBSD base system, unlike
-  # Linux's `cifs-utils`. That is why there is no `pkg install` beside this step.
+  #	default:\
+  #		:passwd_format=sha512:\
+  #		:copyright=/etc/COPYRIGHT:\
+  #		:welcome=/var/run/motd:\
+  #		:setenv=BLOCKSIZE=K:\
+  #		:path=/sbin /bin /usr/sbin /usr/bin ...
+  #
+  #	--- grep -n '^:default' /etc/login.conf ---
+  #	(no output)
+  #
+  # THE OUTER SHELL IS csh AND IT EATS TWO THINGS, EACH FOUND THE HARD WAY:
+  #
+  #	P=admin: Command not found.      csh has no `var=value`
+  #	d: Event not found.              csh expands `!` as history, even inside single quotes
+  #
+  # So the body is ONE `sh -c` (which fixes the assignment) and the awk program avoids `!` entirely
+  # by counting instead of negating. `pgrep -x lightdm` in this file already records the first lesson;
+  # the second was found by this step failing after that one was fixed.
+  #
+  # awk RATHER THAN sed: the capability goes in as a NEW LINE beside setenv, with its own trailing
+  # backslash so the class stays one entry, and awk matches on content rather than on a line number -
+  # the file's comment block is twenty lines of prose that would shift.
+  #
+  # cp FIRST AND mv AFTER, never `sed -i` or an awk inplace extension: FreeBSD's awk has none, and
+  # this is a file whose damage would show up as a machine nobody can log in to.
+  #
+  # cap_mkdb IS NOT OPTIONAL: login(1) reads login.conf.db, and a file edited without rebuilding the
+  # database is one nothing reads - the quietest way to have a setting that looks present.
+  ssh: >-
+    printf '%s\n' '{{ password }}' | sudo -S -p '' sh -c
+    'if grep -q "LANG={{ locale }}" /etc/login.conf; then echo ALREADY_SET; else
+    cp /etc/login.conf /etc/login.conf.easymv-bak;
+    awk "/:setenv=BLOCKSIZE=K:/ { if (seen == 0) { printf \"\t:LANG={{ locale }}:\\\\\n\"; seen = 1 } } { print }"
+    /etc/login.conf > /tmp/lc.new;
+    test -s /tmp/lc.new && cp /tmp/lc.new /etc/login.conf && echo INSERTED;
+    fi;
+    cap_mkdb /etc/login.conf'
+  timeout: 180
+- name: prove the locale in a new login shell, and in the login database
+  # THE FIRST PART IS THE ONE THAT MATTERS AND IT WAS BEING CUT OFF. On FreeBSD a login shell prints
+  # its own welcome text - three or four lines of `find` examples - so a `head -4` showed the WELCOME
+  # and never the values. The filter is on the LANG lines instead of on a line count.
+  #
+  # `cap_mkdb -l` IS NOT THE WAY TO READ THE DATABASE and this step used to try: `usage: cap_mkdb
+  # [-b | -l] [-v] [-f outfile] file ...` prints nothing useful without `-f`, so the check reported
+  # zero for a database that was correct. MEASURED, the database really does hold the capability:
+  #
+  #	strings /etc/login.conf.db | grep -i lang
+  #	... :LANG=en_US.UTF-8:  :setenv=BLOCKSIZE=K:  :mail=/var/mail/$: ...
+  #
+  # and it appears in every class that inherits from default - `root`, `daemon`, `russian`.
+  #
+  # `getcap` IS THE READER, and `-f /etc/login.conf` asks the SOURCE file while the default asks the
+  # compiled database. This checks the database because that is what login(1) consumes.
+  #
+  # ONE `sh -c` FOR THE SAME REASON AS THE STEP ABOVE: the login shell is csh.
+  ssh: >-
+    sh -c 'sh -lc "printf \"LANG=%s\nLC_ALL=%s\n\" \"\$LANG\" \"\$LC_ALL\"" 2>/dev/null
+    | grep -E "^(LANG|LC_ALL)=" ;
+    echo "source file ---" ;
+    grep -c "LANG={{ locale }}" /etc/login.conf || true ;
+    echo "compiled database ---" ;
+    strings /etc/login.conf.db | grep -c "LANG={{ locale }}" || true'
+  timeout: 120
+- name: serve the host share
+  # THE DIRECTORY IS SERVED BY THE DAEMON'S OWN HTTP LISTENER, on the port that already answers
+  # `/api/state` and `/screen.png`, at `/shared/`.
+  #
+  # NOTHING IS INSTALLED FOR THIS AND NOTHING IS MOUNTED. It was SMB until a capture on this guest's
+  # vtnet0 settled why that could not work here: freebsd's mount_smbfs dials NetBIOS 139 because
+  # netsmb implements SMB1, and the server offers SMB3 on 445 - so the kernel got a TCP RST, which the
+  # library reported as `syserr = Connection refused`, and that sentence sent nine hypotheses down the
+  # wrong path before the packet was read. The proof below is a fetch with `fetch` or `curl`, both of
+  # which this guest has without installing anything.
   share_serve: true
   timeout: 60
 
 - name: prove the guest can fetch from the host share
-  # `share_family: bsd` SELECTS `mount_smbfs -I 172.30.0.1` in `internal/daemon/share.go`. Without the
-  # branch, this family fell through to `mount -t cifs`, which FreeBSD's mount(8) rejects with
-  # "unknown file system type" before it touches the network - its kernel has no cifs filesystem.
+  # `share_family: bsd` SELECTS THE GUEST'S OWN FETCHER: `curl`, and `fetch` as the fallback because
+  # curl is not guaranteed on a base FreeBSD image while `fetch` is.
   #
-  # THE PROOF IS ON THE HOST SIDE: the daemon writes a sentinel into the served directory and has the
-  # GUEST read it, because a guest writing to ~/shared and reading it back proves the guest's own
-  # filesystem and nothing more.
+  # THE PROOF IS ON THE HOST SIDE. The daemon writes a sentinel into the served directory and has the
+  # GUEST fetch it, because a guest that writes to its own home and reads it back proves only its own
+  # filesystem - measured once on manjaro, where the mount had never happened and the round-trip check
+  # passed anyway.
   share_mount: true
   share_family: bsd
   timeout: 180
