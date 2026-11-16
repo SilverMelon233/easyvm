@@ -178,8 +178,17 @@ steps:
   #
   # IT USED TO CHECK A CIFS MOUNT AND A ROUND TRIP THROUGH ~/shared. Both are gone: there is no mount
   # any more, and a guest writing to its own home and reading it back proves the guest's filesystem.
+  #
+  # THIS STEP USED TO SAY `sh -c 'curl ...'` - THE LINUX VOCABULARY, IN THE WINDOWS FILE. Windows has
+  # neither `sh` nor `curl`, so the session answered 255 and the step failed on its own words while
+  # `prove the guest can fetch from the host share` - which asks powershell - had just succeeded on
+  # the same URL. MEASURED on run 43938650176, step 20 of 30.
+  #
+  # `Invoke-WebRequest` IS WHAT THE PROOF STEP ALREADY USES and is present on every Windows build this
+  # repository boots. It prints the body, so the readable answer is the same answer the check made.
   ssh: >-
-    sh -c 'curl -fsS --max-time 20 http://172.30.0.1:8080/shared/ 2>&1 | head -20; echo "fetch exit = $?"'
+    powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing -TimeoutSec 20
+    'http://172.30.0.1:8080/shared/').Content; Write-Output ('fetch exit = ' + $LASTEXITCODE)"
   timeout: 120
 - name: write the launcher
   write: launcher
