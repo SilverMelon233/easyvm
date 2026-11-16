@@ -29,7 +29,8 @@ steps:
   - macos.rom
   - macos.vars
   - Xcode_26.3_Universal.xip
-  - packages.tar
+  - node.pkg
+  - python.pkg
 - name: start recording
   record: macos15-dev.mp4
 - name: boot the disk
@@ -71,11 +72,24 @@ steps:
   #
   # - and the error names the right one in the same sentence.
 - name: copy the packages into the guest
-  # ALSO A PREPARED INPUT. Two tarballs built from nodejs.org and python.org releases, pulled by the
-  # workflow; nothing here reaches the network.
+  # TWO FILES, NOT A TARBALL, AND THE NAME `packages.tar` WAS NEVER A FILE THIS REPOSITORY PRODUCED.
+  #
+  # `fetchDevPackages` pulls `dev-node-pkg` and `dev-python-pkg` and writes `node.pkg` and
+  # `python.pkg` - while this step copied `packages.tar`, which nothing has ever created, and the two
+  # steps below then looked for `/tmp/node.pkg` and `/tmp/python.pkg`, which were never copied. The
+  # stage could not have worked, and its failure was masked for as long as it was: the dev leg is the
+  # fourth stage and nothing before it reads what it produces.
+  #
+  # THE NAMES ON THE RIGHT ARE THE ONES THE INSTALLERS READ, and the ones on the left are what the
+  # workflow's `assets:` places. Both ends are now spelled the same way on purpose.
   scp:
-  - packages.tar
-  - /tmp/packages.tar
+  - node.pkg
+  - /tmp/node.pkg
+- name: copy the python package into the guest
+  # `scp:` COPIES ONE FILE PER STEP, so the second package needs its own.
+  scp:
+  - python.pkg
+  - /tmp/python.pkg
 - name: install node
   script: "#!/bin/bash\n# NODE FROM nodejs.org, x64 .pkg. The official installer puts it in\n# /usr/local/bin and links node/npm/npx there, which is on the default PATH.\nset -uo pipefail\nif command -v node >/dev/null 2>&1; then\n  echo \"node is already\
     \ installed: $(node --version)\"\n  exit 0\nfi\nPKG=/tmp/node.pkg\nif [ ! -f \"$PKG\" ]; then\n  echo \"=== NO NODE PACKAGE AT $PKG ===\"\n  exit 1\nfi\nexport PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\nprintf '%s\\n' '{{ password }}' | sudo\

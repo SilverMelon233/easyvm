@@ -140,7 +140,7 @@ jobs:
             "name": "macos-dev",
             "file": "macos/15/steps/dev.yaml",
             "pull": "macos15-vm-configure",
-            "assets": ["macos-asset-boot:boot.img", "macos-asset-rom:macos.rom", "macos-asset-vars:macos.vars", "macos-asset-xcode-26.3:Xcode_26.3_Universal.xip", "dev-node-pkg:packages.tar"],
+            "assets": ["macos-asset-boot:boot.img", "macos-asset-rom:macos.rom", "macos-asset-vars:macos.vars", "macos-asset-xcode-26.3:Xcode_26.3_Universal.xip", "dev-node-pkg:node.pkg", "dev-python-pkg:python.pkg"],
             "out": "macos15-dev.qcow2",
             "publish": "macos15-dev",
             "timeout": 90
