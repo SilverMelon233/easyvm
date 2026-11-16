@@ -220,7 +220,20 @@ func (e *Executor) doShutdown(s walk.Step) error {
 	// THE STEP'S OWN `timeout:` IS THE GRACE THE GUEST GETS, and passing it is the whole point: a
 	// stage that just wrote a desktop needs longer than the five-minute default, and a kill after a
 	// fixed five minutes leaves a filesystem that needs a replay.
-	grace := time.Duration(seconds(s, "timeout", 0)) * time.Second
+	//
+	// `seconds` ALREADY RETURNS A `time.Duration`, so multiplying by `time.Second` again squared the
+	// unit. MEASURED with the arithmetic this line used to do:
+	//
+	//	timeout: 300  ->  1347804h7m  =  153.9 YEARS
+	//
+	// and `waitForExit` was given that as its deadline, so a `shutdown: ssh` step waited for a guest
+	// that had already been asked to power off and would never exhaust the grace and reach the kill.
+	// TWO SUCH STAGES SAT IN "stop the machine" FOR FORTY MINUTES AND WERE STILL RUNNING when this was
+	// found - macos-ssh run 43944852857 and windows-vm-configure run 43962063140 - and neither could
+	// ever report. A `shutdown: acpi` stage looked healthy only because qemu exits on its own.
+	//
+	// THE ZERO FALLBACK STILL MEANS "THE DRIVER'S DEFAULT": `graceOrDefault` reads `> 0`.
+	grace := seconds(s, "timeout", 0)
 	if err := m.Stop(method, grace); err != nil {
 		return fail(s.Name, "%v", err)
 	}

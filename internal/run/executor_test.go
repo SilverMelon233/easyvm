@@ -25,6 +25,7 @@ type fakeDriver struct {
 	boot     *BootSpec
 	released bool
 	stopped  []string
+	graces   []time.Duration
 	frames   int
 	guestNil bool
 }
@@ -78,8 +79,9 @@ func (m *fakeMachine) Boot(spec BootSpec) error {
 	m.d.started++
 	return nil
 }
-func (m *fakeMachine) Stop(method string, _ time.Duration) error {
+func (m *fakeMachine) Stop(method string, grace time.Duration) error {
 	m.d.stopped = append(m.d.stopped, method)
+	m.d.graces = append(m.d.graces, grace)
 	return nil
 }
 func (m *fakeMachine) Reboot() error   { return nil }
@@ -823,4 +825,46 @@ func withoutComments(src string) string {
 		out = append(out, line)
 	}
 	return strings.Join(out, "\n")
+}
+
+// A `shutdown:` STEP HANDS THE DRIVER THE STEP'S OWN TIMEOUT IN SECONDS, NOT IN SQUARED SECONDS.
+//
+// `seconds()` WAS ALREADY A `time.Duration`, AND THE CALL SITE MULTIPLIED BY `time.Second` AGAIN:
+//
+//	timeout: 300  ->  1347804h7m  =  153.9 YEARS
+//
+// so `waitForExit` was given a deadline no run would ever reach, and a guest that did not power off
+// was never killed. TWO STAGES SAT IN "stop the machine" FOR FORTY MINUTES while this was in the
+// tree - macos-ssh and windows-vm-configure - and a `shutdown: acpi` stage looked healthy only because
+// qemu exits on its own. THE UNIT IS THE WHOLE TEST: a grace of years and a grace of five minutes are
+// one multiplication apart and only one of them ends.
+func TestShutdownPassesTheStepsTimeoutAsASecondsDuration(t *testing.T) {
+	cases := []struct {
+		name string
+		spec map[string]any
+		want time.Duration
+	}{
+		{"the step names a timeout", map[string]any{"name": "x", "shutdown": "ssh", "timeout": 300}, 300 * time.Second},
+		// NO TIMEOUT MEANS "THE DRIVER'S DEFAULT", which `graceOrDefault` reads as `<= 0`.
+		{"no timeout is the driver's default", map[string]any{"name": "x", "shutdown": "acpi"}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			driver := &fakeDriver{}
+			e, steps := newExec(driver, tc.spec)
+			if _, err := e.Run(steps); err != nil {
+				t.Fatalf("the step failed: %v", err)
+			}
+			if len(driver.graces) != 1 {
+				t.Fatalf("the machine was stopped %d time(s), want 1", len(driver.graces))
+			}
+			if got := driver.graces[0]; got != tc.want {
+				t.Fatalf("grace is %v, want %v. A duration multiplied by a second twice is a deadline "+
+					"of years, and a guest that never powers off is then never killed", got, tc.want)
+			}
+			if driver.graces[0] > time.Hour {
+				t.Fatalf("grace is %v, which no shutdown step in this repository means", driver.graces[0])
+			}
+		})
+	}
 }
