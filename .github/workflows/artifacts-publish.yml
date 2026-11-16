@@ -347,8 +347,10 @@ jobs:
                 grep -q "listening on" /tmp/daemon.log 2>/dev/null && break
                 sleep 1
               done
-              grep -q "listening on" /tmp/daemon.log || {
-                echo "=== THE DAEMON DID NOT COME UP ==="; cat /tmp/daemon.log; exit 1; }
+              case "$(cat /tmp/daemon.log 2>/dev/null)" in
+                *"listening on"*) ;;
+                *) echo "=== THE DAEMON DID NOT COME UP ==="; cat /tmp/daemon.log; exit 1 ;;
+              esac
 
               easyvm run /repo/macos/15/steps/firmware.yaml --work /work || {
                 echo "=== THE CLIENT REFUSED TO QUEUE THE BUILD ==="; cat /tmp/daemon.log; exit 1; }
