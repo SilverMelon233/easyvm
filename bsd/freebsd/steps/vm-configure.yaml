@@ -14,9 +14,24 @@ vars:
   out:
     from: args.out
     default: out/freebsd-vm-configure.qcow2
+  # `acpi` AND NOT `ssh`, FOR THE REASON THE SSH STAGE ALREADY LEARNED THE HARD WAY.
+  #
+  # MEASURED on run 43775237750, this stage:
+  #
+  #	stopping with method "ssh"
+  #	asking the guest to shut down over ssh
+  #	the guest did not power off within 5m0s; killing it - the disk will need a journal replay
+  #
+  # and the same on two earlier disks, where the next boot said
+  #
+  #	/dev/vtbd0p2: UNEXPECTED SOFT UPDATE INCONSISTENCY; RUN fsck MANUALLY.
+  #
+  # `poweroff` over ssh asks init to stop, and on this guest init reaches power-off before UFS's clean
+  # flag is written - that flag belongs to the unmount, not to `sync`. The ACPI power button is the
+  # orderly shutdown the installer itself produces.
   shutdown:
     from: args.shutdown
-    default: ssh
+    default: acpi
 steps:
 - name: start recording
   record: freebsd-vm-configure.mp4
