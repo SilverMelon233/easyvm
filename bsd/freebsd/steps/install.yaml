@@ -1218,6 +1218,42 @@ steps:
     wait_after: 2
   - key: ret
     wait_after: 3
+
+# THE SMB CLIENT NEEDS A KERNEL MODULE, AND WITHOUT IT THE SHARE STEP FAILS WITH A MESSAGE ABOUT A
+# MISSING FILE RATHER THAN A MISSING FEATURE.
+#
+# MEASURED, on a disk this stage produced, in the vm stage's `mount the host share`:
+#
+#	smbutil: smb_lib_init: can't find kernel module
+#	mount_smbfs: unable to open connection: syserr = Connection refused
+#
+# and the two lines point in opposite directions: the port WAS open (`nc -z 172.30.0.1 445` succeeded,
+# and the route was right - `172.30.0.2` on `vtnet0`). The refusal is local: `mount_smbfs` speaks
+# through `/dev/netsmb`, which does not exist until `smb` is loaded.
+#
+# `kld_list` RATHER THAN `kldload`: this is a chroot on an installer, so nothing here can be loaded
+# into a running kernel - and `rc.conf`'s `kld_list` is what makes init load it at every boot. The
+# order inside the string is irrelevant; the module's own dependencies pull in `netsmb`.
+#
+# `smbfs` AND `libiconv` ARE SEPARATE MODULES on 15.1 and `smb` alone is not enough: the client
+# mounts through `smbfs`, and an SMB share with a UTF-8 name needs `libiconv`'s kldtables.
+- name: load the smb client's kernel modules at every boot
+  do:
+  - type: sysrc kld_list='smb smbfs libiconv'
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+  - type: grep kld_list /etc/rc.conf
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+  - type: ls /boot/kernel/smb.ko /boot/kernel/smbfs.ko /boot/kernel/libiconv.ko
+    wait_after: 2
+  - key: ret
+    wait_after: 5
+  # AND THE WHOLE FILE, READ BACK, BECAUSE `sysrc` REPORTS SUCCESS FOR A KEY IT WROTE AND A LATER
+  # STEP CAN OVERWRITE THE FILE WITH `>` RATHER THAN `sysrc` - which is how a disk came out with
+  # `lightdm_enable` missing while the log said every `sysrc` succeeded.
   - type: sysrc -a
     wait_after: 3
   - key: ret

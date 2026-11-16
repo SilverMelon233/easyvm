@@ -127,13 +127,29 @@ steps:
 
 - name: the guest agent answers, which is what makes a graceful shutdown possible
   # THE OTHER THREE GUESTS PROVE THIS TOO, and this is the same question asked in FreeBSD's own
-  # vocabulary: the package ships `qemu-ga`, the rc script starts it when `sysrc` said so, and the
-  # device it talks on is created by the host's qemu line rather than by the package.
+  # vocabulary.
   #
-  # `pgrep` RATHER THAN A PORT: the agent speaks on a VIRTIO SERIAL PORT, not on TCP, so "is a process
-  # running and is the character device there" is the whole of the check.
-  ssh: sh -c 'pgrep -f qemu-ga >/dev/null && ls /dev/virtio-ports/org.qemu.guest_agent.0 && echo GUEST_AGENT_UP'
+  # `/dev/vtcon/org.qemu.guest_agent.0` AND NOT LINUX'S `/dev/virtio-ports/...`. MEASURED: the Linux
+  # path does not exist here, and asking for it reported a working agent as missing. qemu's own source
+  # says why, in the #ifdef every Linux guide omits:
+  #
+  #	#ifdef __FreeBSD__
+  #	#define QGA_VIRTIO_PATH_DEFAULT "/dev/vtcon/org.qemu.guest_agent.0"
+  #	#else
+  #	#define QGA_VIRTIO_PATH_DEFAULT "/dev/virtio-ports/org.qemu.guest_agent.0"
+  #
+  # and on this guest `/dev/vtcon/` holds exactly one entry per channel:
+  #
+  #	lrwxr-xr-x  org.qemu.guest_agent.0 -> ../ttyV0.1
+  #
+  # `readlink -f` BECAUSE THE ENTRY IS A SYMLINK, and a bare `-e` on a dangling link is a different
+  # failure from a link that resolves to a node that is not a character device.
+  ssh: sh -c 'pgrep -f qemu-ga >/dev/null && readlink -f /dev/vtcon/org.qemu.guest_agent.0 && echo GUEST_AGENT_UP'
   timeout: 180
+
+- name: the agent's rc.conf line, which is what starts it at every boot
+  ssh: grep qemu_guest_agent /etc/rc.conf
+  timeout: 60
 
 - name: serve the host share
   # THE SAME TWO STEPS THE OTHER THREE GUESTS USE, and until now freebsd had neither: this file
