@@ -73,51 +73,478 @@ steps:
   - 1355
   - 848
   wait_after: 12
+- name: wait for the accessibility page, because a click that assumes the page before it is a click that
+    can miss
+  # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
+  # `Next` at (1355, 848) once per page with a fixed `wait_after:` and never look. MEASURED on run
+  # 43950603441: one page was not ready when its click arrived, every click after it landed one page
+  # early, and the walk typed the account fields into the ENCRYPTION page - which has no fields - then
+  # clicked its way to a summary that was never reached. The reading stayed on
+  #
+  #	Encryption and file system
+  #
+  # for SEVENTY-TWO MINUTES, and the stage published a disk with no partition table, because the
+  # installer never left that page.
+  #
+  # THE SCREENSHOTS ARE THE PROOF OF WHERE THE BUTTONS ARE: on the disk-setup and encryption pages in
+  # that run's own recording, `Next` is the light rectangle at (1355, 848) and it is ENABLED. The
+  # coordinates were right; the assumption that each click arrives on the page the previous one opened
+  # was wrong.
+  #
+  # SO EACH PAGE IS AWAITED BY ITS OWN WORDS and the click follows the reading. A page that never
+  # appears now fails HERE, naming the heading that was expected, instead of forty screens later.
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - accessibility
+    until:
+      fact: there
 - name: accessibility
   click:
   - 1355
   - 848
   wait_after: 12
+- name: wait for the keyboard layout page, because a click that assumes the page before it is a click that
+    can miss
+  # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
+  # `Next` at (1355, 848) once per page with a fixed `wait_after:` and never look. MEASURED on run
+  # 43950603441: one page was not ready when its click arrived, every click after it landed one page
+  # early, and the walk typed the account fields into the ENCRYPTION page - which has no fields - then
+  # clicked its way to a summary that was never reached. The reading stayed on
+  #
+  #	Encryption and file system
+  #
+  # for SEVENTY-TWO MINUTES, and the stage published a disk with no partition table, because the
+  # installer never left that page.
+  #
+  # THE SCREENSHOTS ARE THE PROOF OF WHERE THE BUTTONS ARE: on the disk-setup and encryption pages in
+  # that run's own recording, `Next` is the light rectangle at (1355, 848) and it is ENABLED. The
+  # coordinates were right; the assumption that each click arrives on the page the previous one opened
+  # was wrong.
+  #
+  # SO EACH PAGE IS AWAITED BY ITS OWN WORDS and the click follows the reading. A page that never
+  # appears now fails HERE, naming the heading that was expected, instead of forty screens later.
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - keyboard
+      - - layout
+    until:
+      fact: there
 - name: keyboard layout
   click:
   - 1355
   - 848
   wait_after: 12
+- name: wait for the internet connection page, because a click that assumes the page before it is a click that
+    can miss
+  # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
+  # `Next` at (1355, 848) once per page with a fixed `wait_after:` and never look. MEASURED on run
+  # 43950603441: one page was not ready when its click arrived, every click after it landed one page
+  # early, and the walk typed the account fields into the ENCRYPTION page - which has no fields - then
+  # clicked its way to a summary that was never reached. The reading stayed on
+  #
+  #	Encryption and file system
+  #
+  # for SEVENTY-TWO MINUTES, and the stage published a disk with no partition table, because the
+  # installer never left that page.
+  #
+  # THE SCREENSHOTS ARE THE PROOF OF WHERE THE BUTTONS ARE: on the disk-setup and encryption pages in
+  # that run's own recording, `Next` is the light rectangle at (1355, 848) and it is ENABLED. The
+  # coordinates were right; the assumption that each click arrives on the page the previous one opened
+  # was wrong.
+  #
+  # SO EACH PAGE IS AWAITED BY ITS OWN WORDS and the click follows the reading. A page that never
+  # appears now fails HERE, naming the heading that was expected, instead of forty screens later.
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - internet
+      - - connection
+    until:
+      fact: there
 - name: internet connection
   click:
   - 1355
   - 848
-  wait_after: 14
-- name: the update question
+  wait_after: 12
+- name: wait for the what do you want to do with ubuntu page, because a click that assumes the page before it is a click that
+    can miss
+  # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
+  # `Next` at (1355, 848) once per page with a fixed `wait_after:` and never look. MEASURED on run
+  # 43950603441: one page was not ready when its click arrived, every click after it landed one page
+  # early, and the walk typed the account fields into the ENCRYPTION page - which has no fields - then
+  # clicked its way to a summary that was never reached. The reading stayed on
+  #
+  #	Encryption and file system
+  #
+  # for SEVENTY-TWO MINUTES, and the stage published a disk with no partition table, because the
+  # installer never left that page.
+  #
+  # THE SCREENSHOTS ARE THE PROOF OF WHERE THE BUTTONS ARE: on the disk-setup and encryption pages in
+  # that run's own recording, `Next` is the light rectangle at (1355, 848) and it is ENABLED. The
+  # coordinates were right; the assumption that each click arrives on the page the previous one opened
+  # was wrong.
+  #
+  # SO EACH PAGE IS AWAITED BY ITS OWN WORDS and the click follows the reading. A page that never
+  # appears now fails HERE, naming the heading that was expected, instead of forty screens later.
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - install
+      - - ubuntu
+    until:
+      fact: there
+- name: what do you want to do with ubuntu
   click:
   - 1355
   - 848
-  wait_after: 14
+  wait_after: 12
+- name: wait for the type of installation page, because a click that assumes the page before it is a click that
+    can miss
+  # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
+  # `Next` at (1355, 848) once per page with a fixed `wait_after:` and never look. MEASURED on run
+  # 43950603441: one page was not ready when its click arrived, every click after it landed one page
+  # early, and the walk typed the account fields into the ENCRYPTION page - which has no fields - then
+  # clicked its way to a summary that was never reached. The reading stayed on
+  #
+  #	Encryption and file system
+  #
+  # for SEVENTY-TWO MINUTES, and the stage published a disk with no partition table, because the
+  # installer never left that page.
+  #
+  # THE SCREENSHOTS ARE THE PROOF OF WHERE THE BUTTONS ARE: on the disk-setup and encryption pages in
+  # that run's own recording, `Next` is the light rectangle at (1355, 848) and it is ENABLED. The
+  # coordinates were right; the assumption that each click arrives on the page the previous one opened
+  # was wrong.
+  #
+  # SO EACH PAGE IS AWAITED BY ITS OWN WORDS and the click follows the reading. A page that never
+  # appears now fails HERE, naming the heading that was expected, instead of forty screens later.
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - interactive
+      - - installation
+    until:
+      fact: there
 - name: type of installation
   click:
   - 1355
   - 848
-  wait_after: 14
+  wait_after: 12
+- name: wait for the applications page, because a click that assumes the page before it is a click that
+    can miss
+  # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
+  # `Next` at (1355, 848) once per page with a fixed `wait_after:` and never look. MEASURED on run
+  # 43950603441: one page was not ready when its click arrived, every click after it landed one page
+  # early, and the walk typed the account fields into the ENCRYPTION page - which has no fields - then
+  # clicked its way to a summary that was never reached. The reading stayed on
+  #
+  #	Encryption and file system
+  #
+  # for SEVENTY-TWO MINUTES, and the stage published a disk with no partition table, because the
+  # installer never left that page.
+  #
+  # THE SCREENSHOTS ARE THE PROOF OF WHERE THE BUTTONS ARE: on the disk-setup and encryption pages in
+  # that run's own recording, `Next` is the light rectangle at (1355, 848) and it is ENABLED. The
+  # coordinates were right; the assumption that each click arrives on the page the previous one opened
+  # was wrong.
+  #
+  # SO EACH PAGE IS AWAITED BY ITS OWN WORDS and the click follows the reading. A page that never
+  # appears now fails HERE, naming the heading that was expected, instead of forty screens later.
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - apps
+    until:
+      fact: there
 - name: applications
   click:
   - 1355
   - 848
-  wait_after: 14
+  wait_after: 12
+- name: wait for the optimise your computer page, because a click that assumes the page before it is a click that
+    can miss
+  # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
+  # `Next` at (1355, 848) once per page with a fixed `wait_after:` and never look. MEASURED on run
+  # 43950603441: one page was not ready when its click arrived, every click after it landed one page
+  # early, and the walk typed the account fields into the ENCRYPTION page - which has no fields - then
+  # clicked its way to a summary that was never reached. The reading stayed on
+  #
+  #	Encryption and file system
+  #
+  # for SEVENTY-TWO MINUTES, and the stage published a disk with no partition table, because the
+  # installer never left that page.
+  #
+  # THE SCREENSHOTS ARE THE PROOF OF WHERE THE BUTTONS ARE: on the disk-setup and encryption pages in
+  # that run's own recording, `Next` is the light rectangle at (1355, 848) and it is ENABLED. The
+  # coordinates were right; the assumption that each click arrives on the page the previous one opened
+  # was wrong.
+  #
+  # SO EACH PAGE IS AWAITED BY ITS OWN WORDS and the click follows the reading. A page that never
+  # appears now fails HERE, naming the heading that was expected, instead of forty screens later.
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - proprietary
+    until:
+      fact: there
 - name: optimise your computer
   click:
   - 1355
   - 848
-  wait_after: 14
+  wait_after: 12
+- name: wait for the disk setup page, because a click that assumes the page before it is a click that
+    can miss
+  # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
+  # `Next` at (1355, 848) once per page with a fixed `wait_after:` and never look. MEASURED on run
+  # 43950603441: one page was not ready when its click arrived, every click after it landed one page
+  # early, and the walk typed the account fields into the ENCRYPTION page - which has no fields - then
+  # clicked its way to a summary that was never reached. The reading stayed on
+  #
+  #	Encryption and file system
+  #
+  # for SEVENTY-TWO MINUTES, and the stage published a disk with no partition table, because the
+  # installer never left that page.
+  #
+  # THE SCREENSHOTS ARE THE PROOF OF WHERE THE BUTTONS ARE: on the disk-setup and encryption pages in
+  # that run's own recording, `Next` is the light rectangle at (1355, 848) and it is ENABLED. The
+  # coordinates were right; the assumption that each click arrives on the page the previous one opened
+  # was wrong.
+  #
+  # SO EACH PAGE IS AWAITED BY ITS OWN WORDS and the click follows the reading. A page that never
+  # appears now fails HERE, naming the heading that was expected, instead of forty screens later.
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - erase
+      - - disk
+    until:
+      fact: there
 - name: disk setup
   click:
   - 1355
   - 848
-  wait_after: 20
+  wait_after: 12
+- name: wait for the encryption page, because a click that assumes the page before it is a click that
+    can miss
+  # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
+  # `Next` at (1355, 848) once per page with a fixed `wait_after:` and never look. MEASURED on run
+  # 43950603441: one page was not ready when its click arrived, every click after it landed one page
+  # early, and the walk typed the account fields into the ENCRYPTION page - which has no fields - then
+  # clicked its way to a summary that was never reached. The reading stayed on
+  #
+  #	Encryption and file system
+  #
+  # for SEVENTY-TWO MINUTES, and the stage published a disk with no partition table, because the
+  # installer never left that page.
+  #
+  # THE SCREENSHOTS ARE THE PROOF OF WHERE THE BUTTONS ARE: on the disk-setup and encryption pages in
+  # that run's own recording, `Next` is the light rectangle at (1355, 848) and it is ENABLED. The
+  # coordinates were right; the assumption that each click arrives on the page the previous one opened
+  # was wrong.
+  #
+  # SO EACH PAGE IS AWAITED BY ITS OWN WORDS and the click follows the reading. A page that never
+  # appears now fails HERE, naming the heading that was expected, instead of forty screens later.
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - encryption
+    until:
+      fact: there
 - name: encryption
   click:
   - 1355
   - 848
-  wait_after: 14
+  wait_after: 12
+- name: wait for the account page before typing into it
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - create
+        - account
+    until:
+      fact: there
 - name: create your account - full name
   click:
   - 1139
@@ -156,6 +583,31 @@ steps:
   - 1355
   - 848
   wait_after: 12
+- name: wait for the time zone page
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: page
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: page
+      mode: says_any
+      words:
+      - - timezone
+    until:
+      fact: there
 - name: time zone - new york on the map
   click:
   - 762
