@@ -334,8 +334,20 @@ func fetchRecoveryMacOS(spec Spec) (Result, error) {
 	// THE RECOVERY IMAGE IS REISSUED BY APPLE ON EVERY REQUEST, so there is no sha256 to pin -
 	// unlike every other asset here. What IS checked is that it is a plausible image, which catches
 	// a truncated transfer and an HTML error page.
+	//
+	// THE LOOKUP IS LOGGED, because "I put the file there and it still pulled from ghcr" is a
+	// question about WHICH PATH, and the answer has to be on the line rather than in a reader's
+	// head. Measured once already: a file at /work/recovery.dmg and a `spec.Work` that was not
+	// /work look identical from the outside.
 	if fi, err := os.Stat(dest); err == nil && fi.Size() > 200<<20 {
 		return Result{Main: dest}, nil
+	} else {
+		size := int64(-1)
+		if fi != nil {
+			size = fi.Size()
+		}
+		fmt.Printf("  recovery: %s is not usable (%d bytes, err %v); pulling the published image\n",
+			dest, size, err)
 	}
 	// THE DISKS LIVE IN THIS REPOSITORY'S OWN ghcr PACKAGE, NOT ANOTHER REPOSITORY'S.
 	//

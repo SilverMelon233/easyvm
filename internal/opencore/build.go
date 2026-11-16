@@ -146,13 +146,45 @@ func MergeTemplate(efiDir, templateDir string) (string, error) {
 	// THE BOOTLOADER STAYS OPENCORE'S. Copying the template's over it would work today and break
 	// the day the two releases differ - and the pin is on OpenCore's archive, so that is the one
 	// whose version this build claims.
-	if err := copyTree(tree, efiDir); err != nil {
+	//
+	// THE TARGET IS `efiDir/EFI`, NOT `efiDir`, AND THAT IS THE BUG THIS MERGE HAD.
+	//
+	// `templateEFIPath` returns a path that ALREADY ENDS IN `/EFI` - the marker file records
+	// `.../extract/EFI_RELEASE/EFI` - and `copyTree(from, to)` puts `from`'s CONTENTS into `to`.
+	// So copying the tree to `efiDir` put BOOT and OC at `efiDir/BOOT` and `efiDir/OC`, while
+	// `UnpackOpencore` had already written them at `efiDir/EFI/BOOT` and `efiDir/EFI/OC`. The
+	// result was a tree with `OC/OpenCore.efi` in it, `EFI/BOOT/BOOTx64.efi` in it, and NO
+	// `EFI/OC/config.plist` - so the firmware started OpenCore, OpenCore looked for its own
+	// `\EFI\OC\config.plist`, and answered
+	//
+	//	OC: Failed to load configuration!
+	//
+	// MEASURED on a macOS 26 guest built from this code, reading the boot image's own FAT:
+	//
+	//	::/          BOOT/  EFI/  OC/  Utilities/
+	//	::/EFI/OC/   ACPI/  DRIVERS/  KEXTS/  RESOUR~1/
+	//	             and no OpenCore.efi, no config.plist
+	//
+	// AND THE CHECK BELOW PASSED, WHICH IS WHY THIS SURVIVED: it asked for `efiDir/OC/OpenCore.efi`
+	// - the flattened path - and for `efiDir/EFI/BOOT/BOOTx64.efi` - the correct one. One of the
+	// two was always satisfied by the flattened copy, so a tree that could not boot passed.
+	//
+	// THE CHECK IS NOW THE PATH THE FIRMWARE OPENS AND NOTHING ELSE, which is what its own comment
+	// always claimed.
+	if err := copyTree(tree, filepath.Join(efiDir, "EFI")); err != nil {
 		return "", err
 	}
-	if !fileExists(filepath.Join(efiDir, "OC", "OpenCore.efi")) ||
-		!fileExists(filepath.Join(efiDir, "EFI", "BOOT", "BOOTx64.efi")) {
-		return "", fmt.Errorf("the merged tree at %s is missing the bootloader: the firmware "+
-			"opens \\EFI\\BOOT\\BOOTX64.EFI and nothing else", efiDir)
+	for _, must := range [][]string{
+		{"EFI", "OC", "OpenCore.efi"},
+		{"EFI", "OC", "config.plist"},
+		{"EFI", "BOOT", "BOOTx64.efi"},
+	} {
+		if !fileExists(filepath.Join(append([]string{efiDir}, must...)...)) {
+			return "", fmt.Errorf("the merged tree at %s has no %s: the firmware opens "+
+				"\\EFI\\BOOT\\BOOTX64.EFI, that bootloader reads \\EFI\\OC\\config.plist, and a tree "+
+				"missing either stops at `OC: Failed to load configuration!`",
+				efiDir, filepath.Join(must...))
+		}
 	}
 	return efiDir, nil
 }
