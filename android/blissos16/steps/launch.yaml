@@ -1,17 +1,17 @@
 name: android 13 (blissos 16.9.7) - start the installed disk
 resolution:
-- 1280
-- 800
+- 1920
+- 1080
 
 # THIS IS THE CLAIM THE INSTALL STAGE CANNOT MAKE.
 #
-# `install.yaml` ends by reading the ESP and asserting a loader is in it. That is a claim about
-# BYTES. This is the claim about the MACHINE: the firmware finds the ESP, GRUB runs, the INSTALLED
-# kernel boots the INSTALLED system, and Android's own launcher is drawn.
+# `install.yaml` ends by reading the ESP and finding `/EFI/BLISSOS/BOOTX64.EFI` in it. That is a claim
+# about BYTES. This is the claim about the MACHINE: the firmware finds the ESP, GRUB runs, the
+# INSTALLED kernel boots the INSTALLED system, and Android's own launcher is drawn.
 #
-# SO THERE IS NO `kernel:` AND NO `iso:` HERE. Their absence is what selects the installed-disk shape:
-# qemu gets one drive with `bootindex=0` and the firmware does the rest. A disk that needs the host to
-# supply its kernel is not an installed system, and this stage would prove nothing about one.
+# SO THERE IS NO `iso:` HERE. Its absence selects the installed-disk shape: qemu gets one drive with
+# `bootindex=0` and the firmware does the rest. A disk that needs the host to supply a medium is not
+# an installed system, and this stage would prove nothing about one.
 #
 # `bootindex=0` IS NOT DECORATION. With an empty NVRAM, OVMF's boot order is "UEFI Misc Device" then
 # the NIC, and a bootable disk is NOT in it - measured:
@@ -20,17 +20,12 @@ resolution:
 #	>>Start PXE over IPv4.   PXE-E16: No valid offer received.
 #
 # A published disk must not depend on an installer's NVRAM, so the disk is put first in the command
-# line itself.
+# line itself by `boot:` when nothing installs.
 #
-# AND THE ROOT= LINE IS THE ONE THE INSTALLER'S OWN grub.cfg USES, NOT A HAND-WRITTEN ONE. Measured,
-# three ways, because the wrong value does not fail - it sits at "Detecting Android-x86..." forever:
-#
-#	SRC=                    the initrd scans for /mnt//system.img and never finds it
-#	SRC=.                   finds nothing: system.img is in a SUBDIRECTORY named after the release
-#	SRC=android-2024-10-11  mounts /mnt/android-2024-10-11/system.img and boots
-#
-# The directory name is the ISO's own build date and it is ON THE DISK, so the step below reads it
-# rather than hard-coding it - a 16.9.8 would carry a different one.
+# THE KERNEL LINE COMES FROM THE DISK'S OWN grub.cfg, WHICH IS THE POINT. The install stage's
+# bootloader pane wrote /EFI/BLISSOS/GRUB.CFG, and GRUB reads it and loads that kernel with that
+# command line. Nothing here knows the path `android-2024-10-11` or the words `HWC=drm_minigbm`;
+# if they are wrong the screen says so, which is what makes this a test of the disk.
 
 vars:
   out:
@@ -56,10 +51,11 @@ steps:
   # THE DISK IS STARTED BY ITS OWN GRUB, AND GRUB IS ASKED FIRST
   # =======================================================================================
   #
-  # A disk whose ESP is empty lands in the firmware's own shell, and a disk whose ESP has a loader but
-  # whose config is missing lands at the `grub>` prompt - two different failures with two different
-  # sentences, and neither is visible from a screenshot of a black screen. What is checked is that
-  # the machine got as far as GRUB, because that is the fact the install stage's byte-level ESP check
+  # A disk whose ESP is empty lands in the firmware's own shell; a disk whose ESP has a loader but no
+  # config lands at the `grub>` prompt; a disk whose config names a kernel that is not there prints
+  # "error: no such device" and stops. Three different failures, three different sentences, and none
+  # of them is visible from a screenshot of a black screen - so the first thing this checks is that
+  # the machine got as far as GRUB, because that is the fact the install stage's byte-level ESP read
   # could not establish.
   - name: the firmware found the ESP and GRUB is running
     loop:
@@ -67,27 +63,27 @@ steps:
       do:
       - wait: 5
       ocr:
-        name: grub
+        name: boot
         region:
         - 0
         - 0
-        - 1280
-        - 200
+        - 1920
+        - 1080
         region_at:
-        - 1280
-        - 800
+        - 1920
+        - 1080
         scale: 1
         wait: 0
       check:
         name: reached
-        from: grub
+        from: boot
         mode: says_any
-        # EITHER THE MENU OR THE PROMPT. A menu means grub.cfg was found; a prompt means the loader
-        # ran and the config did not, which is a real failure but a LATER one - and telling them
-        # apart is why both words are here rather than only the happy one.
+        # EITHER THE MENU OR THE ANDROID SPLASH. A menu means grub.cfg was found and is being shown;
+        # the splash means it was found and the entry was taken. Both are "the disk started itself".
         words:
-        - - grub
         - - blissos
+        - - android
+        - - grub
       until:
         fact: reached
 
