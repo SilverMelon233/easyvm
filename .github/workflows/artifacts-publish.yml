@@ -320,13 +320,23 @@ jobs:
         run: |
           set -eu
           mkdir -p "$GITHUB_WORKSPACE/work"
+          # THE WALKTHROUGH IS MOUNTED, NOT READ FROM THE IMAGE. The image carries the PROGRAM and
+          # its tools; the YAML files are the repository's, and they have never been inside it -
+          # `/src` there is a build context that contains Go sources only. MEASURED on run
+          # 43887449771:
+          #
+          #	FAILED: read /src/macos/15/steps/firmware.yaml: no such file or directory
+          #
+          # which is also why every stage leg passes `$GITHUB_WORKSPACE/<file>` to `easyvm run`: the
+          # caller owns the file, the image owns the interpreter.
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -e GITHUB_TOKEN \
             -e DISKS_REPOSITORY="$(printf '%s' "${{ inputs.disks_repository }}" | tr '[:upper:]' '[:lower:]')" \
             -v "$GITHUB_WORKSPACE/work:/work" \
+            -v "$GITHUB_WORKSPACE:/repo:ro" \
             ghcr.io/easydev-org/easyvm:latest \
-            run /src/macos/15/steps/firmware.yaml --work /work
+            run /repo/macos/15/steps/firmware.yaml --work /work
 
       - name: the three files, and their sizes
         # A BOOT IMAGE IS 256 MiB AND A TRUNCATED ONE IS NOT DETECTABLE BY qemu UNTIL OVMF REFUSES IT
