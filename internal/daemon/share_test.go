@@ -827,6 +827,42 @@ func TestFreeBSDUsesAModernClientAndBindsIt(t *testing.T) {
 	}
 }
 
+// THE SHARE CLIENT IS INSTALLED IN THE VM STAGE, LIKE THE OTHER THREE GUESTS DO IT.
+//
+// MEASURED by reading the sibling files: `linux/ubuntu/steps/vm-configure.yaml` runs
+// `apt-get install -y cifs-utils` from an ssh shell with the same NOPASSWD sudo this guest has, and
+// windows and macos fetch `guest_agent` in their vm stages. NONE of them puts a share client in an
+// install stage.
+//
+// THIS WAS WRONG ONCE, and the reason it looked right was a claim nobody checked - that the install
+// stage is the only shell with both root and a network. `vmuser` is in `wheel` and the install stage
+// writes `vmuser ALL=(ALL) NOPASSWD:ALL`, so `sudo -S pkg install` works from an ssh step. Putting it
+// in install also meant a 25-minute reinstall to add a 200 KB package.
+func TestTheShareClientIsInstalledInTheVMStageNotTheInstall(t *testing.T) {
+	for _, tc := range []struct {
+		path  string
+		want  bool
+		why   string
+	}{
+		{"../../bsd/freebsd/steps/install.yaml", false,
+			"the install stage installs the share client again. The other three guests install theirs " +
+				"in vm-configure, and a 25-minute reinstall to add a 200 KB package is not a trade " +
+				"this chain should make"},
+		{"../../bsd/freebsd/steps/vm-configure.yaml", true,
+			"the vm stage does not install `fusefs-smbnetfs`, so `share_mount` runs a client that is " +
+				"not on the disk - and the base `mount_smbfs` cannot reach this server at all"},
+	} {
+		body, err := os.ReadFile(tc.path)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.path, err)
+		}
+		has := strings.Contains(string(body), "fusefs-smbnetfs")
+		if has != tc.want {
+			t.Fatalf("%s: fusefs-smbnetfs present = %v, want %v. %s", tc.path, has, tc.want, tc.why)
+		}
+	}
+}
+
 // THE FREEBSD MOUNT CHECK LOOKS FOR THE BIND, NOT FOR AN SMB URL.
 //
 // MEASURED on a disk where the mount WORKED:

@@ -151,6 +151,52 @@ steps:
   ssh: grep qemu_guest_agent /etc/rc.conf
   timeout: 60
 
+- name: install the modern smb client, which is the one that speaks this server's protocol
+  # INSTALLED HERE, IN THE VM STAGE, BECAUSE THAT IS WHERE THE OTHER THREE GUESTS INSTALL THEIRS.
+  #
+  # MEASURED by reading the sibling files: `linux/ubuntu/steps/vm-configure.yaml` runs
+  # `apt-get install -y cifs-utils` from this same kind of ssh shell, with this same NOPASSWD sudo;
+  # windows and macos fetch `guest_agent` in their vm stages too. Not one of them puts a share client
+  # in its install stage, and putting this one there was an inconsistency I introduced - it also
+  # meant a 25-minute reinstall to add a 200 KB package.
+  #
+  # THE REASON THE INSTALL STAGE LOOKED RIGHT WAS A CLAIM I HAD NOT CHECKED: that this is the only
+  # shell with both root and a network. It is not. `vmuser` is in `wheel` and the install stage writes
+  #
+  #	vmuser ALL=(ALL) NOPASSWD:ALL
+  #
+  # so `sudo -S` here is a no-op prompt and `pkg install` works from this shell exactly as it does in
+  # the Linux file.
+  #
+  # WHY A PACKAGE AT ALL: the base client is `mount_smbfs`, and it cannot reach this server. Its man
+  # page says so - "mount_smbfs offers support for SMB/CIFS/SMB1. It does not support newer versions
+  # of the protocol like SMB2 and SMB3" - and a capture on the guest's vtnet0 shows the consequence:
+  # it dials NetBIOS 139, which smbd does not listen on, and the RST comes back as the bare
+  # "Connection refused" that nine hypotheses were built on. smbd serves SMB3 on 445 for the other
+  # three and is not changing. `fusefs-smbnetfs` links libsmbclient, so it speaks SMB3.
+  ssh: 'printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' env ASSUME_ALWAYS_YES=yes pkg install -y fusefs-smbnetfs 2>&1 | tail -5
+
+    '
+  timeout: 600
+- name: prove the client is there, and load the fuse module it needs
+  # `fusefs.ko` IS BASE AND ONLY HAS TO BE LOADED. `nullfs` also needs no module - it is a base
+  # filesystem type - and it is what binds the smbnetfs view onto ~/shared.
+  #
+  # EACH LINE REPORTS, AND THE LAST ONE IS THE VERDICT. `grep -c` exits 1 on a count of zero, so the
+  # fusefs count is echoed rather than grepped on its own: a step that fails because a count was zero
+  # is indistinguishable from a step that failed because the package is missing.
+  #
+  # `>-` RATHER THAN A PLAIN SCALAR: the command contains `: ` inside the echoed sentence, and YAML
+  # reads `x: y` in a plain scalar as a mapping - measured as
+  # `yaml: line 188: mapping values are not allowed in this context`, which fails the file at load
+  # time rather than at run time.
+  ssh: >-
+    sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" sh -c "kldload fusefs 2>&1; sysrc kld_list=fusefs" >/dev/null 2>&1;
+    pkg info fusefs-smbnetfs 2>&1|grep -E "^(Name|Version)";
+    ls -l /usr/local/bin/smbnetfs;
+    echo "fusefs modules loaded = $(kldstat 2>/dev/null | grep -c fusefs)"'
+  timeout: 300
+
 - name: serve the host share
   # THE SAME TWO STEPS THE OTHER THREE GUESTS USE, and until now freebsd had neither: this file
   # mentioned `share_serve` and `share_mount` ZERO times while windows, ubuntu and macos each had both,
