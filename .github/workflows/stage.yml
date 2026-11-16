@@ -248,9 +248,23 @@ jobs:
           # `read`, so a single asset would be skipped entirely and two would deliver one.
           # `tr -d ' \t'` AND NOT `[:space:]`: newlines must survive, because the sed below is
           # what creates them.
-          printf '%s\n' '${{ toJSON(matrix.assets) }}' | tr -d ' \t' \
-            | sed -e 's/^\[//' -e 's/\]$//' -e 's/","/\n/g' -e 's/"//g' \
-            | while IFS= read -r pair; do
+          # ONE LINE, THEN ONE PAIR PER LINE. The expression renders as JSON - possibly spread over
+          # several lines with the indentation of this YAML - so newlines, tabs and spaces are all
+          # removed first, the brackets are stripped, and the result is split on COMMAS.
+          #
+          # THREE ATTEMPTS AT THIS EACH BROKE A DIFFERENT SHAPE, and the shapes are why:
+          #
+          #	sed 's/","/NEWLINE/g'   misses "a", NEWLINE "b" - a list written over two lines
+          #	IFS='|' read            misses everything - the separator is a colon
+          #	printf '%s'              drops the LAST pair - no trailing newline means no last read,
+          #	                         which is why the loop below also tests the variable
+          #
+          # `tr -d ' \t\n'` FOLLOWED BY `tr ',' '\n'` HAS NO SUCH GAP: the first makes one line out of
+          # any layout, and the second splits on the one character JSON always puts between items.
+          printf '%s' '${{ toJSON(matrix.assets) }}' | tr -d ' \t\n' \
+            | sed -e 's/^\[//' -e 's/\]$//' -e 's/"//g' \
+            | tr ',' '\n' \
+            | while IFS= read -r pair || [ -n "$pair" ]; do
             [ -n "$pair" ] || continue
             tag=${pair%%:*}
             name=${pair#*:}
