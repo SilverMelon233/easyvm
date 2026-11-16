@@ -292,9 +292,28 @@ jobs:
     needs: image
     if: github.event_name != 'workflow_dispatch' || inputs.platforms == '' || inputs.platforms == 'linux/amd64'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # TWENTY-FIVE MINUTES: two image builds (the runtime is cached from `image`, the tester is not),
+    # a full `go test ./...` in the tester, and three checks that start two daemons and two qemus.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+
+      # THE CONTAINERFILE COPIES `dist/easyvm`, so this job builds it exactly as `binary` does. The
+      # alternative - pulling `:latest` and building only the tester stage on top of it - would test
+      # a binary from a different commit than the one under test.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: build the binary the image carries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" -o dist/easyvm ./cmd/easyvm
+          chmod 0755 dist/easyvm
+          ls -l dist/easyvm
 
       - uses: docker/setup-buildx-action@v3
 
