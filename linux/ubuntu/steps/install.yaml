@@ -222,6 +222,58 @@ steps:
   - 1355
   - 848
   wait_after: 12
+- name: read whether the installer offered to update itself, which blocks every page behind it
+  # THE INSTALLER PUTS A MODAL IN FRONT OF THE WALK, AND IT ARRIVES AFTER THE NETWORK PAGE BECAUSE THAT
+  # IS WHEN IT FIRST HAS A NETWORK TO ASK WITH.
+  #
+  # MEASURED on run 43970251524, step 14 of 41, whose whole reading was:
+  #
+  #	-_- Nov 16 22:35 + a0 O Update available x ...
+  #
+  # and the frame that run recorded shows the dialog in full:
+  #
+  #	Update available
+  #	An update is available for the installer
+  #	Update to the latest version for improved reliability and more features.
+  #	[Update now]                                    X at (1418, 236)
+  #
+  # THE MODAL IS OPAQUE AND CENTRED, so every heading the walk waits for afterwards is BEHIND it. The
+  # page waits added one step earlier would have failed on each page in turn, naming a heading that was
+  # on screen but covered - a diagnosis that points at the wrong thing.
+  #
+  # IT IS CLOSED, NOT ACCEPTED. `Update now` would replace the installer mid-install with a different
+  # build the rest of this file has never been measured against; the X leaves the same installer
+  # running, which is what every coordinate below was measured on.
+  ocr:
+    name: page
+    region:
+    - 0
+    - 0
+    - 1920
+    - 1080
+    region_at:
+    - 1920
+    - 1080
+    scale: 1
+    wait: 0
+- name: is the update dialog up
+  check:
+    name: update_offered
+    from: page
+    mode: says
+    words:
+    - - update
+      - available
+- name: close the update dialog
+  if: update_offered
+  then:
+  - name: click the dialog's own close box
+    # THE X IS AT (1418, 236) IN THE FRAME THIS DIALOG WAS MEASURED IN, and it is the only control on
+    # the dialog that does not change the installer.
+    click:
+    - 1418
+    - 236
+    wait_after: 5
 - name: wait for the what do you want to do with ubuntu page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
