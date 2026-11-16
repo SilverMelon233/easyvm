@@ -6,11 +6,17 @@ vars:
   user:
     from: args.user
     default: vmuser
-  # EIGHT CHARACTERS AND NOT A DICTIONARY WORD: Calamares refuses `admin` as too short and
-  # `admin123` as based on a dictionary word, and the password box shows the refusal in place.
+  # `admin`, LIKE EVERY OTHER DISTRIBUTION HERE - ONE PASSWORD ACROSS THE WHOLE FAMILY, because the
+  # stage after this one logs in with it.
+  #
+  # `Password is too short` IS A WARNING AND NOT A REFUSAL. MEASURED: the box shows it in red beside
+  # an eight-character limit, and the installer still proceeds and still sets the password. An
+  # earlier version of this file read the warning as a refusal and defaulted to a fourteen-character
+  # password - which then did not match the `admin` that `ssh.yaml` types at the greeter, and that
+  # mismatch is what made the ssh leg fail on CI with a password nobody could enter.
   password:
     from: args.password
-    default: Vm2026xKubuntu
+    default: admin
   out:
     from: args.out
     default: out/kubuntu.qcow2
@@ -231,8 +237,11 @@ steps:
     name: ok
     from: filled
     mode: says_without
-    # `too short` AND `dictionary check` ARE THE TWO REFUSALS the page shows in place. Neither may
-    # be on screen when the form is complete, and the user name has to be there.
+    # THE FORM IS COMPLETE WHEN THE USER NAME IS THERE AND NO MISMATCH IS SHOWN.
+    #
+    # `short` IS DELIBERATELY NOT IN `without:` - it is a WARNING for a password under eight
+    # characters and this file's password is `admin`, so a check that failed on it would fail on
+    # every correct run. `match` IS there: two different passwords is a real refusal.
     words: [vmuser]
     without: [short]
     

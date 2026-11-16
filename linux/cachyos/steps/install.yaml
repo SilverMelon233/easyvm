@@ -8,7 +8,7 @@ vars:
     default: vmuser
   password:
     from: args.password
-    default: Vm2026xKubuntu
+    default: admin
   out:
     from: args.out
     default: out/cachyos.qcow2
@@ -78,23 +78,32 @@ steps:
 # THE MEDIUM OPENS IN SIMPLIFIED CHINESE, AND EVERY LATER OCR STEP READS ENGLISH.
 #
 # MEASURED: the first page's title was `欢迎使用 CachyOS 安装程序` and the sidebar read `简体中文`, so a
-# walk written against English labels cannot see this page at all. The language combo is a Qt
-# ComboBox under the title, and it accepts TYPED text: `eng` scrolls to Esperanto, and the entry
-# above Esperanto is `American English`.
+# walk written against English labels cannot see this page at all.
 #
-# SO THE LANGUAGE IS SET BY POSITION FROM A KNOWN ANCHOR rather than by clicking a row whose offset
-# depends on the scroll position: type `eng`, press `up` once, press `ret`.
+# THE LANGUAGE IS TYPED IN FULL, AND A PREFIX IS NOT ENOUGH - MEASURED, TWICE.
+#
+# The combo is a Qt ComboBox over Calamares' own locale list, and the row it shows for this locale is
+# the NATIVE name: `American English`. Qt's keyboard search matches that displayed text, so
+#
+#	typed `eng`                 highlights `Esperanto` - `eng` is not a prefix of `American English`,
+#	                            so the search falls back to something else entirely and the target is
+#	                            only reachable by pressing `up` a fixed number of times, which
+#	                            depends on where the list happens to be scrolled. THAT IS NOT
+#	                            REPRODUCIBLE, and it was the first version of this step.
+#	typed `american english`    highlights `American English` directly, on a list that has never been
+#	                            touched. Measured on endeavouros' identical Calamares, where the
+#	                            highlighted row after typing was `American English` at the bottom of
+#	                            the visible list with no scrolling at all.
+#
+# SO THE WHOLE NAME IS TYPED and `ret` accepts it. There is no positional assumption left: the list
+# may open scrolled anywhere and the search still lands on the same row.
 - name: open the language list
   click: [980, 661]
   wait_after: 4
 
-- name: type to reach the e-entries
-  type: eng
-  wait_after: 3
-
-- name: step up to American English
-  key: up
-  wait_after: 2
+- name: type the locale's own name, which is what the list shows
+  type: american english
+  wait_after: 4
 
 - name: choose it
   key: ret
@@ -286,15 +295,18 @@ steps:
     scale: 1
     wait: 3
 
-# `Password is too short` AND `Your passwords do not match!` ARE THE TWO IN-PLACE REFUSALS. Neither
-# may be on screen when the form is complete.
+# THE FORM IS COMPLETE WHEN THE USER NAME IS THERE AND NO MISMATCH IS SHOWN.
+#
+# `Password is too short` IS A WARNING, NOT A REFUSAL - measured, the installer proceeds and sets it.
+# So `short` is deliberately NOT in `without:`; `match` is, because two different passwords is a real
+# refusal.
 - name: the password was accepted
   check:
     name: ok
     from: filled
     mode: says_without
     words: [vmuser]
-    without: [short, match]
+    without: [match]
 
 # Users -> Summary
 - name: next from users
