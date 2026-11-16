@@ -31,6 +31,48 @@ steps:
 # THESE THREE STEPS ARE SAFE IN BOTH STATES. A click at the password field is a click on the wallpaper
 # when the session is already open, and `xset` is what stops the locking happening again once the
 # terminal exists.
+- name: wait for the greeter's X server to settle on the mode it was given
+  # A CLICK CANNOT BE RESCALED THE WAY A READING CAN, and Ubuntu's greeter draws at 640x480 for the
+  # first seconds after X starts - before the modesetting driver has the mode it was handed.
+  #
+  # MEASURED on run 43938632343, whose first click reported:
+  #
+  #	click (936, 628) is a coordinate measured at 1920x1080 but the framebuffer is 640x480. A click
+  #	cannot be rescaled the way a reading can - set the machine's resolution to 1920x1080 rather
+  #	than moving this coordinate
+  #
+  # THE MACHINE'S RESOLUTION IS ALREADY 1920x1080: qemu is given `-device VGA,xres=1920,yres=1080` and
+  # the desktop comes up at that size. What the click hit was the second before.
+  #
+  # SO THIS READS A REGION WHOSE `region_at` IS THE SIZE THE CLICK ASSUMES. A frame at 640x480 is
+  # logged as a scaled read - loud, and then the loop asks again - and the loop stops on the reading
+  # a settled greeter gives. THE READ IS THE POINT: it is done at 1920x1080 or it says in the log that
+  # it was not.
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: greeter
+      region:
+      - 760
+      - 500
+      - 1160
+      - 760
+      region_at:
+      - 1920
+      - 1080
+      scale: 3
+      wait: 0
+    check:
+      name: settled
+      from: greeter
+      mode: says_any
+      words:
+      - - password
+      - - log in
+    until:
+      fact: settled
 - name: greeter - the password box
   click:
   - 936
