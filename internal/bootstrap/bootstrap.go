@@ -59,6 +59,15 @@ type Options struct {
 	// one more thing to copy in before the mount can be attempted.
 	User     string
 	Password string
+	// ShareURL is the directory the script is fetched from, as a URL - `http://172.30.0.1:8080/shared/`.
+	//
+	// THE SHARE IS HTTP RATHER THAN SMB, and this field is what the launcher fetches. It used to be a
+	// MOUNT, and every guest needed a different client for it: `mount -t cifs` on Linux, Apple's
+	// mount_smbfs on macOS, `net use` on Windows - and on FreeBSD NOTHING IN THE BASE SYSTEM COULD
+	// CONNECT, because netsmb speaks SMB1 on NetBIOS 139 while smbd serves SMB3 on 445. HTTP needs no
+	// package, no kernel module, no mount and no privilege, and every guest already has curl or its
+	// own equivalent.
+	ShareURL string
 }
 
 // Launcher is the script a guest runs at login. It waits for the share, runs the script on it once,
@@ -81,18 +90,20 @@ func posixLauncher(o Options) string {
 # Run the share's %[1]s at login, once, and leave a log beside it.
 #
 # INSTALLED BY THIS REPOSITORY. It is deliberately a shell script in the guest: the disk carries no
-# Python, and an interpreter would be one more thing the mount has to wait for.
+# Python, and an interpreter would be one more thing the fetch has to wait for.
 #
-# THE SHARE IS MOUNTED BEFORE THIS RUNS. A macOS LaunchDaemon does that as root, because
-# mount_smbfs refuses a non-root client against this server; a Linux guest mounts it with cifs.
-# What is left here is the wait and the run.
+# THE SCRIPT COMES OVER HTTP, NOT FROM A MOUNT. This used to wait for ~/shared to be mounted - SMB on
+# every platform, with a different client each time - and FreeBSD's client could not connect at all:
+# netsmb speaks SMB1 on NetBIOS 139 while smbd serves SMB3 on 445, so the kernel got a TCP RST. The
+# daemon serves the same directory on its own port, at %[4]s, and every guest already has a way to
+# fetch a URL. No package, no kernel module, no mount, no privilege.
 #
 # THE LOG AND THE MARKER ARE NOT IN THE SHARE, because the share is what is being served: a file
 # written back into it would be one the next stage inherits.
 LOG="$HOME/%[2]s"
 MARKER="$HOME/%[3]s"
-SHARED="$HOME/shared"
-SCRIPT="$SHARED/%[1]s"
+URL="%[4]s%[1]s"
+FETCHED="$HOME/.bootstrap-script"
 
 say() { echo "$@" >> "$LOG"; }
 
@@ -100,30 +111,34 @@ say() { echo "$@" >> "$LOG"; }
 # second run, and nothing else does.
 [ -f "$MARKER" ] && exit 0
 
-# THE SHARE MAY NOT BE READY YET. A login trigger can fire before the mount finishes, so this
-# waits for the file rather than checking once.
+# THE SERVER MAY NOT BE READY YET. A login trigger can fire before the daemon is listening, so this
+# retries rather than checking once - and "not there YET" and "not there" must not look alike, which
+# is why the message at the end says how many attempts were made.
 i=0
-while [ ! -f "$SCRIPT" ] && [ "$i" -lt 30 ]; do
+while [ "$i" -lt 30 ]; do
     i=$((i + 1))
+    if curl -fsS --max-time 10 "$URL" -o "$FETCHED" 2>>"$LOG"; then
+        break
+    fi
     sleep 1
 done
 
 # THE FALLBACK: NO SCRIPT, NO RUN - and say so, because "the hook ran and nothing happened" is
 # otherwise indistinguishable from "the hook never ran".
-if [ ! -f "$SCRIPT" ]; then
-    say "[$(date)] no $SCRIPT on the share; nothing to run"
+if [ ! -f "$FETCHED" ]; then
+    say "[$(date)] fetched nothing from $URL after $i attempt(s); nothing to run"
     exit 0
 fi
 
-say "[$(date)] running $SCRIPT"
-if /bin/sh "$SCRIPT" >> "$LOG" 2>&1; then
+say "[$(date)] fetched $URL"
+if /bin/sh "$FETCHED" >> "$LOG" 2>&1; then
     # THE MARKER IS WRITTEN ONLY ON SUCCESS, so a failing bootstrap tries again at the next login.
     date > "$MARKER"
     say "[$(date)] ok"
 else
     say "[$(date)] FAILED; it will run again at the next login"
 fi
-`, script, LogName, MarkerName)
+`, script, LogName, MarkerName, o.ShareURL)
 }
 
 // windowsLauncher is the Windows form.
@@ -137,65 +152,54 @@ fi
 // than `net use`: the account has no password, and a positional empty argument collapses in
 // PowerShell - every argument after it shifts left and `net use` reads a switch as the password.
 func windowsLauncher(o Options) string {
-	unc := `\\` + o.Host + `\` + o.Share
 	script := ScriptName(o.Family)
 	return fmt.Sprintf(`# Run the share's %[1]s at logon, once, and leave a log beside it.
 #
 # INSTALLED BY THIS REPOSITORY, started by Task Scheduler through
 # `+"`powershell.exe -WindowStyle Hidden`"+`, so no console appears.
 #
-# NO DRIVE LETTER AND NO VAULT. A drive letter belongs to the logon session that made it, and a
-# vault entry cannot be written from an ssh session at all - see the note on the logon type.
-$SmbUser = '%[2]s'
-$Base    = '%[3]s'
-$Script  = '%[3]s\%[1]s'
+# THE SCRIPT COMES OVER HTTP, NOT FROM A MAPPED SHARE. It used to map the daemon's smbd with a
+# stored credential, which meant a logon-type workaround and a drive-less mapping rebuilt on every
+# retry. The daemon serves the same directory on its own port, and Windows already ships the client:
+# Invoke-WebRequest.
+$Base   = '%[3]s'
+$Script = '%[3]s%[1]s'
 
-# THE SCRIPT COMES FROM THE SHARE; THE LOG AND THE MARKER DO NOT.
+# THE SCRIPT COMES FROM THE URL; THE LOG AND THE MARKER DO NOT.
 $Log     = Join-Path $env:USERPROFILE '%[4]s'
 $Marker  = Join-Path $env:USERPROFILE '%[5]s'
+$Fetched = Join-Path $env:USERPROFILE '.bootstrap-script.ps1'
 
 function Say($message) {
     Add-Content -Path $Log -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $message" `+"`"+`
         -ErrorAction SilentlyContinue
 }
 
-# THE SESSION, WITH ITS ANSWER KEPT. `+"`Out-Null`"+` used to discard this, and then every way of
-# failing to reach the share produced one sentence.
-function UseShare {
-    $null = Get-SmbMapping -RemotePath $Base -ErrorAction SilentlyContinue |
-        Remove-SmbMapping -Force -ErrorAction SilentlyContinue
+# A MARKER FROM A PREVIOUS LOGON MEANS THIS HAS ALREADY RUN.
+if (Test-Path $Marker) { exit 0 }
+
+# THE SERVER MAY NOT BE READY YET, so this retries - and reports how many attempts it made, because
+# "not there YET" and "not there" must not look alike.
+$got = $false
+for ($i = 1; $i -le 30; $i++) {
     try {
-        $null = New-SmbMapping -RemotePath $Base -UserName $SmbUser -Password '' `+"`"+`
-            -Persistent $false -ErrorAction Stop
-        Say "smb mapping -> ok"
-        return 0
+        Invoke-WebRequest -Uri $Script -OutFile $Fetched -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        $got = $true
+        break
     } catch {
-        Say ("smb mapping -> FAILED: " + $_.Exception.Message)
-        return 1
+        if ($i -eq 30) { Say ("fetch -> " + $_.Exception.Message) }
+        Start-Sleep -Seconds 1
     }
 }
 
-$null = UseShare
-
-# A MARKER FROM A PREVIOUS LOGON MEANS THIS HAS ALREADY RUN, and is checked AFTER the session is
-# opened so that a mount failure is still reported.
-if (Test-Path $Marker) { exit 0 }
-
-$found = $false
-for ($i = 0; $i -lt 60; $i++) {
-    if (Test-Path $Script) { $found = $true; break }
-    if ($i %% 10 -eq 9) { $null = UseShare }
-    Start-Sleep -Seconds 1
-}
-
-if (-not $found) {
-    Say "no $Script on the share after 60s; nothing to run (see the smb mapping lines above)"
+if (-not $got) {
+    Say "fetched nothing from $Script after $i attempt(s); nothing to run"
     exit 0
 }
 
-Say "running $Script"
+Say "fetched $Script"
 try {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script *>&1 |
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Fetched *>&1 |
         ForEach-Object { Say $_ }
     if ($LASTEXITCODE -ne 0) { throw "exit $LASTEXITCODE" }
     (Get-Date).ToString('o') | Set-Content -Path $Marker
@@ -203,7 +207,7 @@ try {
 } catch {
     Say ("FAILED: " + $_.Exception.Message + "; it will run again at the next logon")
 }
-`, script, o.User, unc, LogName, MarkerName)
+`, script, o.User, o.ShareURL, LogName, MarkerName)
 }
 
 // MacOSAgentPlist is the LaunchAgent that runs the launcher at login.
@@ -245,71 +249,6 @@ func MacOSAgentPlist(launcherPath string) string {
 `, launcherPath)
 }
 
-// MacOSMountScript is the LaunchDaemon's script: mount the share at boot, as root.
-//
-// A USER CANNOT MOUNT THIS SHARE. `mount_smbfs` as a normal account against this server answers
-// "Authentication error" while the same credential from root succeeds, which is why the mount is a
-// daemon and the launcher is an agent.
-//
-// AND AN EXISTING MOUNT IS UNMOUNTED, NOT SKIPPED. `mount_smbfs` refuses a mount point that is
-// still a mount with the SAME `File exists` it gives for a bare directory, so the two states produce
-// one message and want opposite fixes.
-func MacOSMountScript(o Options) string {
-	unc := "//" + o.User + ":@" + o.Host + "/" + o.Share
-	body := []string{
-		"#!/bin/sh",
-		"# Mount the share at boot, as root. Installed by this repository.",
-		"#",
-		"# ROOT IS REQUIRED. mount_smbfs as a normal account against this server answers",
-		"# \"Authentication error\" while the same credential from root succeeds.",
-		"#",
-		"# THE PASSWORD IS NOT IN THIS FILE: the account has none, and the colon after the user is",
-		"# the man page spelling for \"this user, no password\". The form without the colon would mean",
-		"# ask for one, and with no tty that gives up before any session setup.",
-		"p=\"$HOME/shared\"",
-		"mounted=no",
-		"mount | grep -q \" on $p \" && mounted=yes",
-		"",
-		"# AN EXISTING MOUNT IS UNMOUNTED FIRST. mount_smbfs says File exists for a live mount AND",
-		"# for a bare directory, so the two want opposite handling and produce one message.",
-		"if [ \"$mounted\" = yes ]; then",
-		"    umount \"$p\" || { echo \"BUSY $p\"; mount | grep \" on $p \"; exit 1; }",
-		"fi",
-		"if [ -d \"$p\" ]; then",
-		"    rmdir \"$p\" || { echo \"NOT_EMPTY $p\"; ls -la \"$p\"; exit 1; }",
-		"fi",
-		"mkdir -p \"$p\"",
-		"mount_smbfs -f 0666 -d 0777 '" + unc + "' \"$p\"",
-	}
-	return strings.Join(body, "\n") + "\n"
-}
-
-// MacOSMountPlist is the LaunchDaemon that runs the mount script at boot.
-func MacOSMountPlist(scriptPath string) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>org.vm.smbmount</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/sh</string>
-        <string>%s</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <false/>
-    <key>StandardOutPath</key>
-    <string>/tmp/org.vm.smbmount.out</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/org.vm.smbmount.err</string>
-</dict>
-</plist>
-`, scriptPath)
-}
-
 // WindowsTaskScript registers the logon task.
 //
 // `/RL LIMITED` AND NOT `/RL HIGHEST`: the hook does not need elevation - it writes to the user's own
@@ -341,54 +280,4 @@ func WindowsTaskScript(launcherPath string) string {
 	// profile and to the share - and a task that asked for it would fail to start for a user who was
 	// not in the administrators group.
 	return strings.Join(lines, "\n") + "\n"
-}
-
-// SMBConf and SMBNetfsConf are the two files smbnetfs insists on, for a `scp:` to copy in.
-//
-// WHY THEY ARE FILES AND NOT `-o`: FUSE refuses an option it does not know and smbnetfs never sees
-// it - `fuse: unknown option 'smb_server=172.30.0.1'`, measured. And smbnetfs says what it wants:
-//
-//	This directory should contain at least two files: smb.conf and smbnetfs.conf.
-//
-// smb.conf IS DELIBERATELY MINIMAL: it is libsmbclient's own configuration and this guest is given
-// one server on one bridge. Everything that matters is in smbnetfs.conf.
-func SMBConf() string {
-	return "[global]\n" +
-		"   workgroup = WORKGROUP\n" +
-		"   client min protocol = SMB2\n" +
-		"   client max protocol = SMB3\n"
-}
-
-// SMBNetfsConf is the file whose four keywords are the whole of smbnetfs's parser.
-//
-// FIFTEEN RUNS WENT INTO `Invalid input line : auth`, AND THE REASON IS IN ITS SOURCE RATHER THAN IN
-// A GUESS: after the simple `key value` options, `reconfigure_read_config_file()` accepts exactly
-//
-//	auth [computer[/share]] [domain_or_workgroup/]user password     2-3 fields
-//	host computer_name [parent_group=...] [visible=...]
-//	group group_name
-//	link link_name [link_contents]
-//
-// and anything else is `Invalid input line : <the whole line>`. Two consequences, and they were the
-// two errors:
-//
-//	`smb_server=` IS NOT AMONG THEM AND NEVER WAS. There is no such keyword; the server is named by
-//	`host`, which is also what stops this build browsing the network.
-//
-//	`auth guest` IS ONE FIELD, AND `reconfigure_parse_auth_option` RETURNS 0 FOR `count < 2` - a
-//	bare user name is a malformed line, not a passwordless login. The password is a REQUIRED field
-//	and an empty one is written as `""`.
-//
-// QUOTES ARE STRIPPED, NOT KEPT: `reconfigure_split_line` has a QUOTED mode that ends at the matching
-// quote and stores the characters between them, which is how `""` becomes an empty field.
-//
-// AND `visible=true` IS NOT COSMETIC - IT IS WHY NOTHING APPEARED. A host entry without it is
-// mounted but not shown, so the mount point lists nothing while its link count says one subdirectory
-// exists.
-func SMBNetfsConf(host string) string {
-	if host == "" {
-		host = "172.30.0.1"
-	}
-	return "auth \"guest\" \"\"\n" +
-		"host " + host + " visible=true\n"
 }

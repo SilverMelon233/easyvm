@@ -11,7 +11,13 @@ vars:
     default: admin
   hostname:
     from: args.hostname
-    default: easyvm-vm
+    default: easyvm-ubuntu
+  timezone:
+    from: args.timezone
+    default: America/Los_Angeles
+  locale:
+    from: args.locale
+    default: en_US.UTF-8
   host:
     from: args.host
     default: 172.30.0.1
@@ -63,6 +69,36 @@ steps:
     grep -q ''{{ hostname }}'' /etc/hosts
 
     '
+  timeout: 60
+- name: set the time zone
+  # ONE ZONE FOR EVERY GUEST IN THIS REPOSITORY, so a log line and a screenshot timestamp mean the
+  # same thing whichever machine produced them. `timedatectl` is systemd's own and needs no file
+  # edited by hand.
+  ssh: >-
+    printf '%s\n' '{{ password }}' | sudo -S -p '' timedatectl set-timezone {{ timezone }} &&
+    timedatectl show -p Timezone --value
+  timeout: 120
+- name: prove the time zone
+  # READ IT BACK FROM THE SYSTEM, not from the command that set it: a `timedatectl` that answers 0 and
+  # changes nothing is the kind of success this repository has been bitten by.
+  ssh: >-
+    sh -c 'echo "systemd = $(timedatectl show -p Timezone --value)"; echo "etc = $(readlink -f /etc/localtime)";
+    test "$(timedatectl show -p Timezone --value)" = "{{ timezone }}" && echo TIMEZONE_OK'
+  timeout: 60
+- name: set the locale
+  # THE LOCALE MUST EXIST IN THE IMAGE FIRST, and `locale-gen` is Debian's way to make sure. The
+  # `|| true` is because a guest whose image already has en_US.UTF-8 treats a second generation as a
+  # no-op and some builds answer non-zero for that. `update-locale` writes the file `/etc/profile`
+  # reads, so the setting survives a new login instead of only this shell.
+  ssh: >-
+    printf '%s\n' '{{ password }}' | sudo -S -p '' sh -c
+    'locale-gen {{ locale }} 2>/dev/null || true; update-locale LANG={{ locale }} LC_ALL={{ locale }}'
+    && echo LOCALE_WRITTEN
+  timeout: 180
+- name: prove the locale in a new login shell
+  # A VARIABLE EXPORTED IN THIS SHELL PROVES NOTHING: the question is what the NEXT session gets, and
+  # `sh -lc` is that session's own startup path.
+  ssh: sh -lc 'printf "LANG=%s\nLC_ALL=%s\n" "$LANG" "$LC_ALL"'
   timeout: 60
 - name: refresh the package index
   ssh: 'printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' sh -c ''DEBIAN_FRONTEND=noninteractive apt-get update -o DPkg::Lock::Timeout=600'' 2>&1 | tail -3
@@ -139,46 +175,24 @@ steps:
 
     '
   timeout: 120
-- name: install the cifs client
-  ssh: 'printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' DEBIAN_FRONTEND=noninteractive apt-get install -y cifs-utils 2>&1 | tail -5
-
-    '
-  timeout: 600
 - name: serve the host share
   share_serve: true
   timeout: 60
-- name: mount the host share
+- name: prove the guest can fetch from the host share
   share_mount: true
   share_family: linux
   requires:
   - share
   timeout: 180
-- name: prove the share is readable and writable
-  ssh: 'sh -c ''
-
-    echo "--- what is mounted ---"
-
-    /sbin/mount | grep -i "cifs\|smb" || echo "(no cifs/smb line in mount output)"
-
-    echo "--- the mount point ---"
-
-    ls -la ~/shared || echo "(~/shared is not readable)"
-
-    echo "--- the round trip ---"
-
-    printf "written-by-the-guest\n" > ~/shared/from-guest.txt
-
-    got=$(cat ~/shared/from-guest.txt)
-
-    echo "read back: $got"
-
-    test "$got" = "written-by-the-guest"
-
-    echo "round trip ok"
-
-    ''
-
-    '
+- name: show what the guest sees at the share
+  # THE SHARE IS HTTP, SO THE GUEST'S OWN CLIENT IS THE PROOF. `share_mount:` fetches a sentinel the
+  # host wrote and compares the bytes; this step is the readable version of the same answer, printed
+  # so a person can see what happened rather than only whether it passed.
+  #
+  # IT USED TO CHECK A CIFS MOUNT AND A ROUND TRIP THROUGH ~/shared. Both are gone: there is no mount
+  # any more, and a guest writing to its own home and reading it back proves the guest's filesystem.
+  ssh: >-
+    sh -c 'curl -fsS --max-time 20 http://172.30.0.1:8080/shared/ 2>&1 | head -20; echo "fetch exit = $?"'
   timeout: 120
 - name: write the launcher
   write: launcher

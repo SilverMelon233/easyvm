@@ -1,580 +1,67 @@
 package daemon
 
-import (
-	"fmt"
-	"net"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
-
-	"github.com/easydev-org/easyvm/internal/guest"
-)
-
 // --- the host share -------------------------------------------------------------------
 //
-// `share_serve:` puts a directory on the bridge address so a guest can mount it, and `share_mount:`
-// makes the guest do it. THE TWO ARE ONE MECHANISM IN TWO STEPS because they fail differently: a
-// server that never bound is a host problem, and a guest that cannot mount is a guest problem.
+// A `share_serve:` step names a directory on the host, and the daemon serves it to the guest over
+// HTTP at `/shared/` - on the same listener as `/api/state`, `/screen.png` and the console.
 //
-// THE SERVER IS smbd, AND IT BINDS THE BRIDGE ADDRESS. A guest reaches it over the tap at
-// 172.30.0.1 - the same address the ssh forwards use - so `-netdev user,smb=` is not an option even
-// in principle: that option makes qemu fork its own Samba with a generated config, which is a second
-// server nobody configured.
-
-// shareServer is the smbd this driver started, so it can be stopped with the machine.
-type shareServer struct {
-	dir  string
-	conf string
-	proc *exec.Cmd
-	once sync.Once
-}
-
-// ServeShare creates the directory, writes a config for it, and starts smbd on the bridge.
+// IT WAS SMB, AND SMB COST EVERY GUEST A DIFFERENT CLIENT. Linux needed `cifs-utils`, macOS used
+// Apple's own mount_smbfs, Windows mapped it with `net use`, and FreeBSD COULD NOT CONNECT AT ALL:
+// netsmb speaks SMB1 on NetBIOS 139 while smbd serves SMB3 on 445, so the kernel got a TCP RST that
+// the library reported as `syserr = Connection refused`. Making that one guest work took a ports
+// package, a base filesystem, a root-only mount option and a mount table that names the bind.
 //
-// IT WAITS FOR THE PORT TO ANSWER. A server that is starting is not a server, and the `share_mount:`
-// step that follows would otherwise race it - measured in the Python implementation as an smbd
-// "DID NOT BIND 172.30.0.1:445 in 10s" against a share that started perfectly and had bound to no
-// interface.
+// See `sharehttp.go` for the transport and the measurement. What lives here is only the fact that a
+// run has ONE shared directory, and the proof that a guest can read from it.
+
+import (
+	"fmt"
+	"os"
+)
+
+// ServeShare records the directory this run serves, and starts nothing.
+//
+// IT USED TO START smbd ON THE BRIDGE AND WAIT FOR 445. That is gone with the SMB transport: the
+// directory is now served over the daemon's own HTTP listener at `/shared/`, which needs no process
+// of its own, no port of its own and no configuration file. What remains is the fact every other
+// part of this package asks for - WHICH DIRECTORY IS SHARED - because the proof that a guest can
+// read the host's file still has to look on the host side.
+//
+// A SECOND CALL FOR A DIFFERENT DIRECTORY IS STILL AN ERROR: one run has one share, and a step that
+// silently repointed it would leave a guest fetching from a directory nobody meant to publish.
 func (d *Driver) ServeShare(dir string) error {
 	d.mu.Lock()
-	if d.share != nil {
-		existing := d.share.dir
-		d.mu.Unlock()
-		// A SECOND CALL FOR THE SAME DIRECTORY IS NOT AN ERROR: a file may have a `share_serve:`
-		// per stage and the daemon outlives them.
-		if existing == dir {
-			return nil
-		}
+	defer d.mu.Unlock()
+	if d.shareDir != "" && d.shareDir != dir {
 		return fmt.Errorf("this run is already serving %s; one guest has one share, so a second "+
-			"`share_serve:` must name the same directory or in a new stage", existing)
+			"`share_serve:` must name the same directory or run in a new stage", d.shareDir)
 	}
-	d.mu.Unlock()
-
 	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return fmt.Errorf("creating the shared directory %s: %w", dir, err)
 	}
-	// WORLD-WRITABLE, BECAUSE THE GUEST IS ANOTHER MACHINE WITH ANOTHER UID. A 0755 directory is a
-	// share the guest can read and not write, and the failure reads as a permissions problem inside
-	// the guest rather than here.
 	if err := os.Chmod(dir, 0o777); err != nil {
 		return fmt.Errorf("making %s writable: %w", dir, err)
 	}
-
-	smbd, err := exec.LookPath("smbd")
-	if err != nil {
-		return fmt.Errorf("smbd is not installed: %w. The share is Samba over the bridge, and a "+
-			"guest that mounts it needs this server to be the one listening on 172.30.0.1", err)
-	}
-
-	// THE CONFIG IS WRITTEN PER RUN, beside the work directory, so two runs never share one.
-	conf := filepath.Join(d.work, "smb.conf")
-	if err := os.WriteFile(conf, []byte(shareConfig(dir)), 0o644); err != nil {
-		return err
-	}
-
-	// A PREVIOUS smbd IS LEFT ALONE IF IT IS THE SAME DIRECTORY, and this daemon owns only what it
-	// started - `pkill smbd` would kill a server another run is using.
-	cmd := exec.Command(smbd, "--foreground", "--no-process-group", "--configfile="+conf)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting smbd: %w", err)
-	}
-
-	d.mu.Lock()
-	d.share = &shareServer{dir: dir, conf: conf, proc: cmd}
-	d.mu.Unlock()
-
-	// AND THE PORT IS WAITED FOR, because "smbd started" and "a guest can connect" are different
-	// facts and the second is the one the next step needs.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", "172.30.0.1:445", time.Second)
-		if err == nil {
-			_ = conn.Close()
-			d.logf(fmt.Sprintf("  share: %s served on 172.30.0.1:445", dir))
-			return nil
-		}
-		// A SERVER THAT EXITED IS NOT GOING TO BIND, and waiting out the deadline would delay the
-		// real message by ten seconds.
-		if cmd.ProcessState != nil {
-			return fmt.Errorf("smbd exited before it bound 172.30.0.1:445 (%s); the config is %s",
-				cmd.ProcessState, conf)
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
-	return fmt.Errorf("smbd did not bind 172.30.0.1:445 within 10s, so a guest cannot mount %s. "+
-		"The config is %s; samba's own account of why is on this log", dir, conf)
+	d.shareDir = dir
+	d.logf(fmt.Sprintf("  share: %s is served at %s", dir, shareURL(0)))
+	return nil
 }
 
-// ShareDir is the directory this run serves, or "" when nothing is served.
-//
-// IT EXISTS SO A PROOF CAN LOOK ON THE HOST SIDE. A guest that writes to `~/shared` when the mount is
-// ABSENT writes into a local directory, and reading the file back from that same directory succeeds -
-// which is a proof of the guest's own filesystem and not of the share. Measured: `read back:
-// written-by-the-guest` passed while `mount` listed nothing and the mount point held only `..`.
 func (d *Driver) ShareDir() string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.share == nil {
+	return d.shareDir
+}
+
+// ShareURL is where a guest fetches the shared directory, or "" when nothing is shared.
+//
+// IT IS A METHOD RATHER THAN A CONSTANT because the port is the daemon's own, and a test that
+// listens elsewhere has to get the URL that matches.
+func (d *Driver) ShareURL() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.shareDir == "" {
 		return ""
 	}
-	return d.share.dir
-}
-
-// MountShare makes the guest mount the share on the bridge.
-//
-// IT IS ONE `mount -t cifs` WITH THE CREDENTIALS ON THE COMMAND LINE, because a credentials FILE
-// would have to be copied into the guest first and that is a second thing that can fail. The share
-// account has no password - `null passwords = yes` in the config - so there is no secret to leak
-// by putting it in argv.
-func (d *Driver) MountShare(family string) error {
-	d.mu.Lock()
-	share := d.share
-	d.mu.Unlock()
-	if share == nil {
-		return fmt.Errorf("no share is being served; a `share_serve:` step must come first")
-	}
-
-	client := d.Guest()
-	if client == nil {
-		return fmt.Errorf("no ssh connection; a `require_ssh:` step must come first")
-	}
-
-	// ONE COMMAND PER CALL, AND THE DECISIONS ARE IN GO.
-	//
-	// THIS USED TO BE A SHELL SCRIPT PER PLATFORM - `sh -c` with `&&` chains and a `while` loop for
-	// macOS, a `&`-separated cmd.exe line for Windows. Every one of those was a small program whose
-	// control flow lived in a STRING, and each had already produced a bug that took a run to find:
-	//
-	//	the POSIX one reported success after a failed mount, because the last command in its `&&`
-	//	chain was `ls` on an empty directory
-	//
-	//	a `&&` chain with a `while` loop inside it re-groups as `((a && b) || c) && d` in cmd and as
-	//	`(a || true && b); while` in sh, so the loop's failure decided nothing
-	//
-	// RETRY IS A LOOP IN GO. A failed mount is a RESULT, not a shell exit status, so `if` is Go's.
-	const attempts = 30
-	var last error
-	for i := 0; i < attempts; i++ {
-		if i > 0 {
-			time.Sleep(2 * time.Second)
-		}
-		if err := d.mountOnce(client, family, share.dir); err == nil {
-			last = nil
-			break
-		} else {
-			last = err
-		}
-	}
-	if last != nil {
-		return fmt.Errorf("mounting %s in the %s guest: %w", share.dir, family, last)
-	}
-
-	// AND THE MOUNT IS PROVEN HERE, BECAUSE THE SHELL THAT USED TO PROVE IT COULD NOT BE TRUSTED.
-	//
-	// The old script ended with `mount | grep -q ... || { echo MOUNT_NOT_PRESENT; exit 1; }`, and that
-	// check has two failure modes of its own: the grep's pattern has to match the platform's own
-	// spelling of the mount - `//172.30.0.1/shared` on Linux, `//guest@172.30.0.1/shared` on macOS,
-	// `\\172.30.0.1\shared` on Windows - and a pattern that does not match reports a mount that IS
-	// there as missing.
-	//
-	// SO THE TABLE IS READ AND MATCHED IN GO, where the three spellings are three constants and a
-	// mistake is a compile-time neighbour rather than a string inside a shell.
-	table, err := client.Run(tableCommand(family), 60*time.Second)
-	if err != nil {
-		return fmt.Errorf("reading the %s guest's mount table: %w", family, err)
-	}
-	if !mountsShare(family, table.Combined()) {
-		return fmt.Errorf("the %s guest does not list //172.30.0.1/shared in its mount table after "+
-			"a successful mount; the table is:\n%s", family, firstLines(table.Combined(), 10))
-	}
-
-	listed, err := client.Run(listCommand(family), 60*time.Second)
-	if out := strings.TrimSpace(listed.Combined()); out != "" {
-		for _, line := range strings.Split(out, "\n") {
-			d.logf("  share: " + line)
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("listing the mount in the %s guest: %w", family, err)
-	}
-	d.logf(fmt.Sprintf("  share: the %s guest mounted //172.30.0.1/shared", family))
-	return nil
-}
-
-// mountOnce makes one attempt at mounting the share, as ONE command in the guest's own vocabulary.
-//
-// NO SHELL SYNTAX BEYOND WHAT THE PROGRAM ITSELF NEEDS: no `&&`, no `||`, no loops. The single
-// exception is `sudo -S` on POSIX, because an ssh exec has no terminal and sudo requires a password on
-// stdin - and that is a PIPE, not a control structure.
-func (d *Driver) mountOnce(client *guest.Client, family, dir string) error {
-	var cmd string
-	switch family {
-	case "windows":
-		// WINDOWS 11 BLOCKS GUEST SMB BY POLICY, AND THE POLICY IS A REGISTRY KEY.
-		//
-		// MEASURED ON windows-vm-configure, STEP 13 OF 20 - TWO ERRORS IN ONE CALL:
-		//
-		//	New-SmbMapping : You can't access this shared folder because your organization's
-		//	                 security policies block...
-		//	New-SmbMapping : The network path was not found.
-		//
-		// THE FIRST IS Windows 11's default: `AllowInsecureGuestAuth` is 0, so a share with NO PASSWORD
-		// is refused before a packet is sent. THE SECOND IS THE SAME REFUSAL FROM ANOTHER ANGLE -
-		// PowerShell reports a blocked policy as "the path was not found" when the redirector declines
-		// to resolve it at all.
-		//
-		// SO THE POLICY IS SET FIRST, IN THE SAME COMMAND, because a separate step could fail and leave
-		// a mount that never had a chance. `LanmanWorkstation` has to restart for the key to take
-		// effect, and that is what `Restart-Service` is for.
-		//
-		// AND THE LAST LINE IS A PROBE RATHER THAN A HOPE: if the mapping still fails, `Test-NetConnection`
-		// says whether 445 was reachable, so the next failure names its own cause instead of arriving as
-		// "the path was not found" twice.
-		//
-		// `-Password ''` STAYS AN EMPTY STRING, which is the pair `null passwords = yes` accepts - and
-		// `New-SmbMapping` rather than `net use` because a POSITIONAL empty password shifts the whole
-		// argument list, which was the previous failure.
-		share := `\\172.30.0.1\shared`
-		cmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "` +
-			`$k='HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters'; ` +
-			`New-ItemProperty -Path $k -Name 'AllowInsecureGuestAuth' -Value 1 -PropertyType DWORD -Force | Out-Null; ` +
-			`New-ItemProperty -Path $k -Name 'RequireSecuritySignature' -Value 0 -PropertyType DWORD -Force | Out-Null; ` +
-			`Restart-Service LanmanWorkstation -Force -ErrorAction SilentlyContinue; ` +
-			`$m = Get-SmbMapping -RemotePath '` + share + `' -ErrorAction SilentlyContinue; ` +
-			`if ($m) { Remove-SmbMapping -RemotePath '` + share + `' -Force -ErrorAction SilentlyContinue | Out-Null }; ` +
-			`try { ` +
-			// A MAPPED UNC PATH HAS NO FIXED PLACE, AND THE PROOF READS A FILE PATH.
-			//
-			// MEASURED ON windows-vm-configure, STEP 13 OF 20 - THE MAPPING ITSELF SUCCEEDED:
-			//
-			//	share: SMB_MAPPED
-			//	share: Volume in drive C is Windows
-			//	share: Directory of C:\Users\vmuser
-			//	share: File Not Found
-			//	the guest cannot see a file this host wrote into /github/home/shared
-			//
-			// `New-SmbMapping` WITHOUT `-LocalPath` INVENTS A DRIVE LETTER, and nothing knows which
-			// one - so the verification's `dir` fell back to the working directory and the sentinel
-			// the host had just written was "File Not Found".
-			//
-			// THE PROOF READS `%USERPROFILE%\shared\<sentinel>`, WHICH IS A PATH, SO THE MOUNT HAS TO
-			// BE THAT PATH. `mklink /D` makes that directory a junction onto the UNC share, so the
-			// path the proof uses is the path that exists.
-			//
-			// `cmd /c mklink` IS THE ONLY WAY TO CREATE ONE: PowerShell has a junction cmdlet only in
-			// recent versions, and `New-Item -ItemType SymbolicLink` needs Developer Mode or an
-			// elevated token.
-			// THE MAPPING AND THE JUNCTION ARE BOTH NEEDED, AND FOR DIFFERENT THINGS. `New-SmbMapping`
-			// IS WHAT CARRIES THE CREDENTIAL - an empty `-Password ''` is the pair `null passwords =
-			// yes` accepts - while the junction is what puts the share at the PATH the proof reads.
-			`  New-SmbMapping -RemotePath '` + share + `' -UserName guest -Password '' -Persistent $false -ErrorAction Stop | Out-Null; ` +
-			`  $d = Join-Path $env:USERPROFILE 'shared'; ` +
-			`  if (Test-Path $d) { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue }; ` +
-			`  cmd /c mklink /d "$d" '` + share + `' | Out-Null; ` +
-			`  if (-not (Test-Path $d)) { Write-Output 'SMB_LINK_FAILED: the junction was not created'; exit 1 }; ` +
-			`  Write-Output 'SMB_MAPPED' ` +
-			`} catch { ` +
-			`  Write-Output ('SMB_FAILED: ' + $_.Exception.Message); ` +
-			`  $t = Test-NetConnection -ComputerName 172.30.0.1 -Port 445 -InformationLevel Quiet -WarningAction SilentlyContinue; ` +
-			`  if ($t) { Write-Output 'PORT_445_REACHABLE - the network is fine, so this is the POLICY or the CREDENTIAL' } ` +
-			`  else { Write-Output 'PORT_445_UNREACHABLE - the guest cannot reach 172.30.0.1 at all' }; ` +
-			`  exit 1 ` +
-			`}"`
-	case "macos":
-		// `mount_smbfs`, NOT `mount -t cifs`: macOS has no cifs filesystem type.
-		//
-		// THE EMPTY PASSWORD IS THE ONLY THING THAT WORKS, and the Python implementation's note says
-		// why in full: mount_smbfs sends one and cannot be made to send anything else from a script -
-		// not from the URL, not from nsmb.conf (no `password` keyword exists), not from a pipe (a pipe
-		// is not a tty, so the prompt reads EOF), not through `-N`. So the ACCOUNT has no password and
-		// `null passwords = yes` makes smbd accept it. `user:` with the colon and nothing after it is
-		// the man page's own spelling for "this user, no password".
-		//
-		// `-f 0666 -d 0777` makes the mount usable by the unprivileged user whose files these are: an
-		// SMB mount is owned by root by default.
-		//
-		// AND THE MOUNT POINT IS MADE AND UNMOUNTED FIRST, BECAUSE A RETRY ON A STALE MOUNT FAILS
-		// WITH A MESSAGE ABOUT THE DIRECTORY RATHER THAN ABOUT THE SHARE:
-		//
-		//	mount_smbfs: mount error: /Users/vmuser/shared: File exists
-		//
-		// MEASURED ON macos-vm-configure, step 11 of 23, on the SECOND attempt of the retry loop: the
-		// first attempt had created the directory and started a mount that did not complete, so the
-		// second saw a path that already existed and reported it as the error. THE POSIX BRANCH HAS
-		// HAD `mkdir -p` AND A TOLERATED `umount` SINCE THE REWRITE; the macOS branch never got them,
-		// because I wrote the Windows and POSIX branches and added macOS afterwards from a message.
-		cmd = `mkdir -p ~/shared; ` +
-			`printf '%s\n' ` + shellQuote(d.pass) + ` | sudo -S -p '' umount ~/shared 2>/dev/null; ` +
-			`printf '%s\n' ` + shellQuote(d.pass) +
-			` | sudo -S -p '' mount_smbfs -f 0666 -d 0777 '//guest:@172.30.0.1/shared' ~/shared`
-	case "bsd":
-		// `fusefs-smbnetfs` AND `nullfs`, BECAUSE FREEBSD'S BASE CLIENT CANNOT REACH THIS SERVER AT
-		// ALL AND NOTHING IN THE PORTS COLLECTION MOUNTS A SINGLE SHARE DIRECTLY.
-		//
-		// MEASURED, with a capture on the guest's own vtnet0 during a `mount_smbfs` attempt:
-		//
-		//	172.30.0.2.27350 > 172.30.0.1.139: Flags [S]     the kernel dials 139
-		//	172.30.0.1.139 > 172.30.0.2.27350: Flags [R.]     and nothing listens there
-		//	mount_smbfs: unable to open connection: syserr = Connection refused
-		//
-		// That RST IS the whole error. It took nine wrong hypotheses to reach, because the message
-		// says "Connection refused" and the library then stats four message catalogues on the way
-		// out - those `libc.cat` misses are printing an error, not causing one. FreeBSD's own
-		// mailing list carries the same trace from 2017, where the telling line comes BEFORE the
-		// catalogue lookups: `ioctl(3,SMBIOC_LOOKUP,...)` with a real errno.
-		//
-		// THE CODEC IS THE REASON: netsmb implements SMB1 over the NetBIOS session service, and 139
-		// is the only port it can reach. 15.1's man page says so in as many words - "mount_smbfs
-		// offers support for SMB/CIFS/SMB1. It does not support newer versions of the protocol like
-		// SMB2 and SMB3" - and points at ports for a modern client.
-		//
-		// THE SERVER IS NOT CHANGED. `server min protocol` stays where three other guests need it and
-		// `smb ports` stays 445; a 139 listener opened for one legacy client would be a 139 listener
-		// for all four.
-		//
-		// SO THE CLIENT IS CHANGED, IN TWO HALVES:
-		//
-		//	fusefs-smbnetfs   links libsmbclient, negotiates SMB3, dials 445 - and mounts the way a
-		//	                  file manager browses, so the share appears as `<mount>/<ip>/<share>`
-		//	nullfs            binds that directory onto ~/shared, which is what makes this family
-		//	                  look like the other three to every step after this one
-		//
-		// `nullfs` IS BASE. `vfs.generic.fstypes` on 15.1 lists it, so the consistency layer costs
-		// nothing to install. `fusefs.ko` is base too; only the client is a package.
-		//
-		// CONFIGURATION LIVES UNDER /root BECAUSE ROOT IS WHO MOUNTS IT: `allow_other` needs
-		// privileges, and a `su -m vmuser` does not change HOME, so the client would read /root/.smb
-		// while looking for ~/.smb and start with defaults - measured as
-		// `WARNING!!! Configuration directory /root/.smb is not found`.
-		//
-		// THE THREE FILES ARE NOT OPTIONAL AND EACH WAS MISSING ONCE: smb.conf names the workgroup,
-		// smbnetfs.auth carries the guest account's empty password (without it the client prompts,
-		// and an ssh exec has no terminal), smbnetfs.host makes the bridge visible immediately
-		// instead of after a network browse.
-		//
-		// PRELOADS BINDS ARE UNMOUNTED FIRST AND TOLERATED: a retry over a live mount fails with a
-		// message about the directory, which reads like a different fault.
-		cmd = `printf '%s\n' ` + shellQuote(d.pass) + ` | sudo -S -p '' sh -c '` +
-			`kldload fusefs 2>/dev/null; ` +
-			`mkdir -p /root/.smb /mnt/smb /home/vmuser/shared; ` +
-			`printf "[global]\n   workgroup = WORKGROUP\n" > /root/.smb/smb.conf; ` +
-			`printf "auth \"guest\" \"\"\n" > /root/.smb/smbnetfs.auth; ` +
-			`printf "host 172.30.0.1 visible=true\n" > /root/.smb/smbnetfs.host; ` +
-			`printf "auth \"guest\" \"\"\n" > /root/.smb/smbnetfs.conf; ` +
-			`chmod 600 /root/.smb/smb.conf /root/.smb/smbnetfs.auth /root/.smb/smbnetfs.host /root/.smb/smbnetfs.conf; ` +
-			`umount /home/vmuser/shared 2>/dev/null; ` +
-			`umount /mnt/smb 2>/dev/null; ` +
-			`smbnetfs /mnt/smb -o allow_other; ` +
-			`mount -t nullfs /mnt/smb/172.30.0.1/shared /home/vmuser/shared'`
-	default:
-		// `mount -t cifs` WITH THE CREDENTIALS ON THE COMMAND LINE, because a credentials FILE would
-		// have to be copied into the guest first and that is a second thing that can fail. The share
-		// account has no password, so there is no secret to leak in argv.
-		// `mkdir -p ~/shared` FIRST, AND ITS ABSENCE WAS MEASURED:
-		//
-		//	mount the host share: mounting /github/home/shared in the linux guest: exit 1:
-		//	Couldn't chdir to /home/vmuser/shared: No such file or directory
-		//
-		// A MOUNT NEEDS A MOUNT POINT. The macOS branch has had `mkdir -p ~/shared` since the rewrite
-		// and this one never did - the note beside it says the opposite of what the code does, which
-		// is how a one-line omission survived four runs.
-		//
-		// AND AN OLD MOUNT IS UNMOUNTED FIRST, tolerating "not mounted": a retry after a half-finished
-		// mount otherwise fails with "already mounted" and looks like a different fault.
-		cmd = `mkdir -p ~/shared; ` +
-			`printf '%s\n' ` + shellQuote(d.pass) + ` | sudo -S -p '' umount ~/shared 2>/dev/null; ` +
-			`printf '%s\n' ` + shellQuote(d.pass) +
-			` | sudo -S -p '' mount -t cifs //172.30.0.1/shared ~/shared -o ` +
-			`username=guest,password=,vers=3.0,uid=$(id -u),gid=$(id -g),iocharset=utf8`
-	}
-	// THE SAME SHAPE `ssh:` LOGS, so this step reads like every other command in the walkthrough
-	// rather than like a black box: the command, its exit status, and its own output. A mount that
-	// failed said nothing before this and the step a person was reading reported only its own summary.
-	res, err := client.Run(cmd, 120*time.Second)
-	d.logf(fmt.Sprintf("  share: %s -> %d", oneLine(cmd), res.Status))
-	for _, line := range headTail(res.Combined(), 12, 4) {
-		d.logf("    " + line)
-	}
-	// A NON-ZERO EXIT IS THE COMMAND SAYING IT FAILED, AND `err` DOES NOT CARRY IT.
-	//
-	// `client.Run` RETURNS `err` ONLY FOR A TRANSPORT OR SESSION FAILURE; an ordinary non-zero exit is
-	// in `res.Status` and `err` is nil. THIS FUNCTION RETURNED `err` ALONE, so a `net use` that exited
-	// 1 was retried thirty times and then reported as a successful mount:
-	//
-	//	share: net use "%USERPROFILE%\shared" \\172.30.0.1\shared /user:guest "" /persistent:no -> 1
-	//	share: ... the windows guest does not list //172.30.0.1/shared in its mount table after a
-	//	       successful mount; the table is: There are no entries in the list.
-	//
-	// "A SUCCESSFUL MOUNT" OVER A TABLE WITH NO ENTRIES - the message was the guard doing its job on a
-	// retry loop that had never once seen a failure.
-	if err != nil {
-		return err
-	}
-	if res.Status != 0 {
-		return fmt.Errorf("exit %d: %s", res.Status, firstLineOf(res.Combined()))
-	}
-	return nil
-}
-
-// oneLine flattens a command for a log line without hiding that it was shortened.
-func oneLine(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > 160 {
-		return s[:160] + "..."
-	}
-	return s
-}
-
-// headTail is the beginning AND the end of a long output, because a mount's useful line is often last.
-func headTail(s string, head, tail int) []string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) <= head+tail {
-		return lines
-	}
-	out := append([]string{}, lines[:head]...)
-	out = append(out, fmt.Sprintf("... %d line(s) omitted ...", len(lines)-head-tail))
-	return append(out, lines[len(lines)-tail:]...)
-}
-
-// tableCommand reports the system's own view of the mounts, as one command per platform.
-func tableCommand(family string) string {
-	if family == "windows" {
-		// `Get-SmbMapping` IS THE TABLE THE MOUNT ITSELF USES, so the check reads the same source the
-		// mount wrote to. `net use` lists its own mappings and would agree, but a check that asks a
-		// DIFFERENT subsystem than the one that mounted is a check that can disagree for a reason
-		// nobody can see.
-		return `powershell -NoProfile -Command "Get-SmbMapping | ForEach-Object { $_.RemotePath }"`
-	}
-	return "mount"
-}
-
-// mountsShare reports whether the platform's own mount table names the share.
-//
-// THE THREE SPELLINGS SIT TOGETHER HERE ON PURPOSE: Linux prints the DEVICE as `//172.30.0.1/shared`,
-// macOS prints it as `//guest@172.30.0.1/shared` because mount_smbfs includes the user, and Windows
-// prints an UNC path with backslashes. A check that knew only one of them reported a working mount as
-// missing on the other two.
-func mountsShare(family, table string) bool {
-	switch family {
-	case "windows":
-		return strings.Contains(strings.ToLower(table), `\\172.30.0.1\shared`) ||
-			strings.Contains(table, "172.30.0.1")
-	case "macos":
-		// THE COLON AFTER THE USER IS PART OF THE SPELLING, AND OMITTING IT IS WHY THIS CHECK
-		// REPORTED A WORKING MOUNT AS MISSING.
-		//
-		// MEASURED ON macos-vm-configure, step 11 of 25 - the mount HAD SUCCEEDED:
-		//
-		//	//guest:@172.30.0.1/shared on /Users/vmuser/shared (smbfs, noowners)
-		//
-		// and the check asked for `//guest@172.30.0.1/shared`. `mount_smbfs` writes the user with a
-		// TRAILING COLON because the colon separates user from password in its own URL syntax - the
-		// same `user:` the command line uses to mean "this user, no password".
-		return strings.Contains(table, "//guest:@172.30.0.1/shared")
-	case "bsd":
-		// THE TABLE NAMES THE NULLFS BIND, NOT THE SMB URL, AND THAT IS THE WHOLE POINT OF THE BIND.
-		//
-		// MEASURED on the disk this branch was built against, after a mount that WORKED:
-		//
-		//	/mnt/smb/172.30.0.1/shared on /home/vmuser/shared (nullfs)
-		//
-		// There is no `//172.30.0.1/shared` in that line at all - the kernel is reporting the
-		// BIND, because `~/shared` is a nullfs mount whose SOURCE is the smbnetfs path. Checking
-		// for the URL here would report a working mount as missing, which is the failure this
-		// whole switch exists to prevent.
-		//
-		// THE SOURCE PATH IS WHAT PROVES IT IS THE SHARE AND NOT SOMETHING ELSE: `/mnt/smb/` alone
-		// would match a bare smbnetfs mount that never reached the share, and `/172.30.0.1/shared`
-		// is the part that names the server and the share within it.
-		return strings.Contains(table, "/mnt/smb/172.30.0.1/shared") &&
-			strings.Contains(table, "nullfs")
-	default:
-		return strings.Contains(table, "//172.30.0.1/shared")
-	}
-}
-
-// firstLines is the head of a command's output, for an error message that must stay readable.
-func firstLines(s string, n int) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) > n {
-		lines = lines[:n]
-	}
-	return strings.Join(lines, "\n")
-}
-
-// listCommand lists the mounted directory in the guest's own vocabulary.
-func listCommand(family string) string {
-	if family == "windows" {
-		return `dir "%USERPROFILE%\shared"`
-	}
-	return "ls -la ~/shared"
-}
-
-// shareConfig is Samba's configuration for one directory on one bridge address.
-//
-// THREE LINES ARE LOAD-BEARING AND EACH HAS A FAILURE BEHIND IT:
-//
-//	interfaces / bind interfaces only   smbd must listen on 172.30.0.1 and not on every interface.
-//	                                    The Python implementation lost a macOS ssh stage to an smbd
-//	                                    that bound nothing while logging "waiting for connections".
-//	null passwords = yes                the guest account has no password, and Samba refuses an empty
-//	                                    one unless this says otherwise - with "NT_STATUS_LOGON_FAILURE",
-//	                                    which reads as a wrong password.
-//	map to guest = bad user             the guest name is not a host account, and without this Samba
-//	                                    rejects it before the share is consulted.
-func shareConfig(dir string) string {
-	return "[global]\n" +
-		"   workgroup = WORKGROUP\n" +
-		"   server string = easyvm\n" +
-		"   security = user\n" +
-		"   map to guest = bad user\n" +
-		"   null passwords = yes\n" +
-		"   interfaces = 172.30.0.1/24\n" +
-		"   bind interfaces only = yes\n" +
-		"   smb ports = 445\n" +
-		"   load printers = no\n" +
-		"   printing = bsd\n" +
-		"   disable spoolss = yes\n" +
-		"   log file = /tmp/easydiskbake-smbd.log\n" +
-		"\n[shared]\n" +
-		"   path = " + dir + "\n" +
-		"   browseable = yes\n" +
-		"   read only = no\n" +
-		"   guest ok = yes\n" +
-		"   force user = root\n" +
-		"   create mask = 0666\n" +
-		"   directory mask = 0777\n"
-}
-
-// stopShare stops the smbd this driver started, and only that one.
-func (d *Driver) stopShare() {
-	d.mu.Lock()
-	share := d.share
-	d.share = nil
-	d.mu.Unlock()
-	if share == nil || share.proc == nil || share.proc.Process == nil {
-		return
-	}
-	_ = share.proc.Process.Kill()
-	_ = share.proc.Wait()
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-func firstLineOf(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	if len(s) > 200 {
-		s = s[:200] + "..."
-	}
-	return s
+	return shareURL(0)
 }

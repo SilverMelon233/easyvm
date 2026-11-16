@@ -128,6 +128,11 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 	// browser has no use for `run`, but a CLI talking over HTTP needs all eleven commands and a route
 	// per command would be eleven lines of nothing.
 	mux.HandleFunc("/api/command", d.handleCommand)
+	// THE SHARED DIRECTORY, ON THIS SAME PORT. It used to be SMB on 445 with a per-family client -
+	// and FreeBSD's client could not connect at all, because netsmb speaks SMB1 on NetBIOS 139 while
+	// smbd serves SMB3 on 445. HTTP is the transport every guest already has, needs no package, no
+	// kernel module and no mount. See `sharehttp.go` for the measurement.
+	mux.HandleFunc(SharePath, d.handleShare)
 	// THE SOCKET noVNC CONNECTS TO. It is the same path the console's own mux uses, and it is
 	// registered here because this listener is the one a browser reaches.
 	mux.HandleFunc(wsPath, d.handleBridge)

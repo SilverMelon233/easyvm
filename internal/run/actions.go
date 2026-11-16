@@ -692,77 +692,84 @@ func (e *Executor) shareDirOrEmpty() string {
 	return ""
 }
 
+// shareURLOf asks the driver where the share is served. It is "" when nothing is shared, which the
+// caller has already refused.
+func shareURLOf(e *Executor) string {
+	if sv, ok := e.Driver.(interface{ ShareURL() string }); ok {
+		return sv.ShareURL()
+	}
+	return ""
+}
+
+// doShareMount proves the guest can read the shared directory over HTTP.
+//
+// IT USED TO MOUNT AN SMB SHARE, AND EVERY GUEST NEEDED A DIFFERENT CLIENT: `mount -t cifs` on
+// Linux, Apple's mount_smbfs on macOS, `net use` on Windows - and on FreeBSD NOTHING IN THE BASE
+// SYSTEM COULD CONNECT AT ALL, because netsmb speaks SMB1 on NetBIOS 139 while the server offers
+// SMB3 on 445.
+//
+// THE TRANSPORT IS NOW THE DAEMON'S OWN HTTP LISTENER, so this step asks the guest to FETCH a file
+// the host just wrote, with whatever that platform ships:
+//
+//	linux/bsd/macos   curl
+//	windows           Invoke-WebRequest
+//
+// THE SENTINEL IS WRITTEN ON THE HOST AND READ IN THE GUEST, because the guest's own round trip
+// proves nothing: measured on manjaro, where the mount had never happened and `~/shared` was an
+// ordinary directory - a file written there and read back came back unchanged, and the check
+// passed on a share that did not exist.
 func (e *Executor) doShareMount(s walk.Step) error {
 	family := s.Get("share_family")
 	if family == "" {
 		family = "windows"
 	}
-	e.Driver.Log(fmt.Sprintf("  share: the %s guest mounts it", family))
-	mv, ok := e.Driver.(interface {
-		MountShare(string) error
-		ShareDir() string
-	})
-	if !ok {
-		return notImplemented(s, "share_mount")
-	}
-	if err := mv.MountShare(family); err != nil {
-		return fail(s.Name, "%v", err)
-	}
 
-	// AND THE SHARE IS PROVEN FROM THE HOST SIDE, BECAUSE THE GUEST'S OWN ROUND TRIP PROVES NOTHING.
-	//
-	// Measured on manjaro: the mount never happened - `sudo: a password is required` - so `~/shared`
-	// was an ordinary empty directory in the guest. A file written there and read back from there
-	// came back unchanged:
-	//
-	//	--- what is mounted ---
-	//	--- the mount point ---
-	//	drwx------ 1 vmuser vmuser
-	//	--- the round trip ---
-	//	read back: written-by-the-guest
-	//
-	// THAT IS A PROOF OF THE GUEST'S OWN FILESYSTEM. A file the HOST writes into the served directory
-	// and the guest then reads is a proof of the share: it crosses the boundary, and it can only
-	// cross it one way.
-	dir := mv.ShareDir()
+	dir := e.shareDirOrEmpty()
 	if dir == "" {
-		// Nothing served means nothing to prove; the step above would already have failed.
-		return nil
+		return fail(s.Name, "no directory is being shared; a `share_serve:` step must come first")
 	}
-	sentinel := fmt.Sprintf(".easyvm-share-proof-%d", time.Now().UnixNano())
-	path := filepath.Join(dir, sentinel)
-	if err := os.WriteFile(path, []byte("from-the-host\n"), 0o644); err != nil {
-		return fail(s.Name, "writing the proof file on the host: %v", err)
-	}
-	defer os.Remove(path)
 
 	client := e.Driver.Guest()
 	if client == nil {
-		return fail(s.Name, "no ssh connection to read the proof with")
+		return fail(s.Name, "no ssh connection to fetch the proof with")
 	}
-	// THE READ IS THE GUEST'S OWN COMMAND, BECAUSE `cat` IS NOT A WINDOWS PROGRAM.
+
+	sentinel := fmt.Sprintf(".easyvm-share-proof-%d", time.Now().UnixNano())
+	hostPath := filepath.Join(dir, sentinel)
+	body := "from-the-host"
+	if err := os.WriteFile(hostPath, []byte(body+"\n"), 0o644); err != nil {
+		return fail(s.Name, "writing the proof file on the host: %v", err)
+	}
+	defer os.Remove(hostPath)
+
+	url := shareURLOf(e) + sentinel
+	e.Driver.Log(fmt.Sprintf("  share: the %s guest fetches %s", family, url))
+
+	// THE FETCH IS THE GUEST'S OWN COMMAND, IN THE GUEST'S OWN CLIENT.
 	//
-	// MEASURED ON windows-vm-configure, step 13 of 20:
-	//
-	//	the guest cannot see a file this host wrote into /github/home/shared: the mount is not in
-	//	place ... read "'cat' is not recognized as an internal or external command"
-	//
-	// THE MOUNT ITSELF MAY HAVE WORKED - `MountShare`'s Windows branch uses `net use` - and this check
-	// failed on its own command, which is the same mistake one layer up: a POSIX program assumed on a
-	// Windows guest. `type` is the equivalent and the path is the guest's home, spelled as cmd wants.
-	var readCmd string
+	// MEASURED ON windows-vm-configure, in the SMB era: the check ran `cat`, which Windows does not
+	// have, and reported "'cat' is not recognized as an internal or external command" - a working
+	// share failing on the checker's own vocabulary. The same mistake is not repeated here.
+	var cmd string
 	if family == "windows" {
-		readCmd = `type "%USERPROFILE%\shared\` + sentinel + `"`
+		cmd = `powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 ` +
+			"'" + url + "'" + `).Content"`
+	} else if family == "bsd" {
+		// `fetch` IS IN THE FREEBSD BASE SYSTEM and `curl` is not guaranteed; both are tried so the
+		// check does not depend on which the image happens to carry.
+		cmd = "sh -c 'curl -fsS --max-time 20 " + url + " 2>/dev/null || fetch -qo - " + url + "'"
 	} else {
-		readCmd = "cat ~/shared/" + sentinel
+		cmd = "sh -c 'curl -fsS --max-time 20 " + url + " || wget -qO- --timeout=20 " + url + "'"
 	}
-	res, err := client.Run(readCmd, 60*time.Second)
-	if err != nil || strings.TrimSpace(res.Stdout) != "from-the-host" {
-		return fail(s.Name, "the guest cannot see a file this host wrote into %s: the mount is not "+
-			"in place, and a guest writing to ~/shared would have written into its OWN directory. "+
-			"(%v, read %q)", dir, err, firstLineOf(res.Combined()))
+
+	res, err := client.Run(cmd, 90*time.Second)
+	got := strings.TrimSpace(res.Stdout)
+	if err != nil || got != body {
+		return fail(s.Name, "the guest cannot fetch a file this host wrote into %s. The daemon "+
+			"serves it at %s; a guest that wrote to ~/shared instead would have written into its "+
+			"OWN filesystem. (%v, read %q)", dir, url, err, firstLineOf(res.Combined()))
 	}
-	e.Driver.Log("  share: a file written on the host is readable in the guest - the mount is real")
+	e.Driver.Log("  share: a file written on the host is readable in the guest - the share is real")
 	return nil
 }
 
@@ -972,30 +979,12 @@ func (e *Executor) doWrite(s walk.Step) error {
 	case "macos_agent_plist":
 		body, name = bootstrap.MacOSAgentPlist("$HOME/bootstrap-launcher.sh"),
 			"org.vm.bootstrap.plist"
-	case "macos_mount_script":
-		body, name = bootstrap.MacOSMountScript(opts), "vm-smbmount.sh"
-	case "macos_mount_plist":
-		body, name = bootstrap.MacOSMountPlist("/usr/local/bin/vm-smbmount.sh"),
-			"org.vm.smbmount.plist"
-	case "smb_conf":
-		// TWO FILES, AND `scp:` TAKES THEM ONE AT A TIME - so this kind writes both and reports the
-		// second, which is the one whose name the next `scp:` uses twice.
-		body, name = bootstrap.SMBConf(), "smb.conf"
-		second := bootstrap.SMBNetfsConf(opts.Host)
-		secondPath := filepath.Join(e.Work, "smbnetfs.conf")
-		if err := os.MkdirAll(e.Work, 0o755); err != nil {
-			return fail(s.Name, "%v", err)
-		}
-		if err := os.WriteFile(secondPath, []byte(second), 0o644); err != nil {
-			return fail(s.Name, "writing smbnetfs.conf: %v", err)
-		}
-		e.Driver.Log(fmt.Sprintf("  wrote %s as well (%d bytes)", secondPath, len(second)))
 	case "windows_task":
 		body, name = bootstrap.WindowsTaskScript(
 			"C:/Users/"+e.userForPaths()+"/bootstrap-launcher.ps1"), "bootstrap-install.ps1"
 	default:
 		return fail(s.Name, "`write: %s` is not a file this build writes; the kinds are "+
-			"launcher, macos_agent_plist, macos_mount_script, macos_mount_plist, windows_task", kind)
+			"launcher, macos_agent_plist, windows_task", kind)
 	}
 
 	path := filepath.Join(e.Work, name)

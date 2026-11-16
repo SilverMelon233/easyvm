@@ -101,38 +101,21 @@ steps:
 - name: serve the host share
   share_serve: true
   timeout: 60
-- name: mount the host share
+- name: prove the guest can fetch from the host share
   share_mount: true
   share_family: linux
   requires:
   - share
   timeout: 180
-- name: prove the share is readable and writable
-  ssh: 'sh -c ''
-
-    echo "--- what is mounted ---"
-
-    /sbin/mount | grep -i "cifs\|smb" || echo "(no cifs/smb line in mount output)"
-
-    echo "--- the mount point ---"
-
-    ls -la ~/shared || echo "(~/shared is not readable)"
-
-    echo "--- the round trip ---"
-
-    printf "written-by-the-guest\n" > ~/shared/from-guest.txt
-
-    got=$(cat ~/shared/from-guest.txt)
-
-    echo "read back: $got"
-
-    test "$got" = "written-by-the-guest"
-
-    echo "round trip ok"
-
-    ''
-
-    '
+- name: show what the guest sees at the share
+  # THE SHARE IS HTTP, SO THE GUEST'S OWN CLIENT IS THE PROOF. `share_mount:` fetches a sentinel the
+  # host wrote and compares the bytes; this step is the readable version of the same answer, printed
+  # so a person can see what happened rather than only whether it passed.
+  #
+  # IT USED TO CHECK A CIFS MOUNT AND A ROUND TRIP THROUGH ~/shared. Both are gone: there is no mount
+  # any more, and a guest writing to its own home and reading it back proves the guest's filesystem.
+  ssh: >-
+    sh -c 'curl -fsS --max-time 20 http://172.30.0.1:8080/shared/ 2>&1 | head -20; echo "fetch exit = $?"'
   timeout: 120
 - name: write the launcher
   write: launcher

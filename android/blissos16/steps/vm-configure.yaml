@@ -27,6 +27,15 @@ resolution:
 # "Select a Home app" chooser into a desktop. See the steps below.
 
 vars:
+  hostname:
+    from: args.hostname
+    default: easyvm-blissos16
+  timezone:
+    from: args.timezone
+    default: America/Los_Angeles
+  locale:
+    from: args.locale
+    default: en_US.UTF-8
   out:
     from: args.out
     default: out/blissos16-vm-configure.qcow2
@@ -133,10 +142,31 @@ steps:
 
   # AND THE NAME, WHICH IS THE ONE THING THIS REPOSITORY GIVES EVERY GUEST.
   - name: name the machine
-    adb: setprop net.hostname blissos
+    # `net.hostname` IS THE ONLY NAME ANDROID HAS THAT A NETWORK SEES, and it is a runtime property:
+    # there is no `/etc/hostname` to write and no reboot needed for it to answer.
+    adb: setprop net.hostname {{ hostname }}
 
   - name: prove the name
     adb: getprop net.hostname
+
+  - name: set the time zone
+    # ANDROID TAKES AN IANA NAME HERE, UNLIKE WINDOWS: `setprop persist.sys.timezone` is what the
+    # Settings app writes, and `persist.` is the prefix that makes it survive a reboot. Without it
+    # the property lives until the next boot and the guest comes back on UTC.
+    adb: setprop persist.sys.timezone {{ timezone }}
+
+  - name: prove the time zone
+    adb: getprop persist.sys.timezone
+
+  - name: set the locale
+    # `persist.sys.locale` IS THE BCP-47 FORM, `en-US`, WHICH IS NOT THE POSIX `en_US.UTF-8` THE
+    # OTHER FOUR GUESTS USE. Android parses this one with `Locale.forLanguageTag`, and a value with
+    # an underscore is silently ignored - the setting looks written and the device stays on its
+    # previous language.
+    adb: setprop persist.sys.locale en-US
+
+  - name: prove the locale
+    adb: getprop persist.sys.locale
 
   # =======================================================================================
   # 4. THE VERDICT IS WHAT THE SYSTEM SAYS IS IN FRONT, NOT WHAT THE PIXELS LOOK LIKE

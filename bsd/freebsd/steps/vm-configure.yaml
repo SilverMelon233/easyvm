@@ -5,6 +5,15 @@ resolution:
 ssh_user: vmuser
 ssh_port: 2222
 vars:
+  hostname:
+    from: args.hostname
+    default: easyvm-freebsd
+  timezone:
+    from: args.timezone
+    default: America/Los_Angeles
+  locale:
+    from: args.locale
+    default: en_US.UTF-8
   user:
     from: args.user
     default: vmuser
@@ -151,54 +160,51 @@ steps:
   ssh: grep qemu_guest_agent /etc/rc.conf
   timeout: 60
 
-- name: install the modern smb client, which is the one that speaks this server's protocol
-  # INSTALLED HERE, IN THE VM STAGE, BECAUSE THAT IS WHERE THE OTHER THREE GUESTS INSTALL THEIRS.
-  #
-  # MEASURED by reading the sibling files: `linux/ubuntu/steps/vm-configure.yaml` runs
-  # `apt-get install -y cifs-utils` from this same kind of ssh shell, with this same NOPASSWD sudo;
-  # windows and macos fetch `guest_agent` in their vm stages too. Not one of them puts a share client
-  # in its install stage, and putting this one there was an inconsistency I introduced - it also
-  # meant a 25-minute reinstall to add a 200 KB package.
-  #
-  # THE REASON THE INSTALL STAGE LOOKED RIGHT WAS A CLAIM I HAD NOT CHECKED: that this is the only
-  # shell with both root and a network. It is not. `vmuser` is in `wheel` and the install stage writes
-  #
-  #	vmuser ALL=(ALL) NOPASSWD:ALL
-  #
-  # so `sudo -S` here is a no-op prompt and `pkg install` works from this shell exactly as it does in
-  # the Linux file.
-  #
-  # WHY A PACKAGE AT ALL: the base client is `mount_smbfs`, and it cannot reach this server. Its man
-  # page says so - "mount_smbfs offers support for SMB/CIFS/SMB1. It does not support newer versions
-  # of the protocol like SMB2 and SMB3" - and a capture on the guest's vtnet0 shows the consequence:
-  # it dials NetBIOS 139, which smbd does not listen on, and the RST comes back as the bare
-  # "Connection refused" that nine hypotheses were built on. smbd serves SMB3 on 445 for the other
-  # three and is not changing. `fusefs-smbnetfs` links libsmbclient, so it speaks SMB3.
-  #
-  # `sh -c` IS REQUIRED AND ITS ABSENCE WAS MEASURED: the login shell is `csh`, which has no `2>&1` -
-  # it answers `Ambiguous output redirect.` and exits 1 before `pkg` ever runs. The same reason is
-  # recorded beside the `pgrep -x lightdm` step in this file.
-  ssh: sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" env ASSUME_ALWAYS_YES=yes pkg install -y fusefs-smbnetfs 2>&1 | tail -5'
-  timeout: 600
-- name: prove the client is there, and load the fuse module it needs
-  # `fusefs.ko` IS BASE AND ONLY HAS TO BE LOADED. `nullfs` also needs no module - it is a base
-  # filesystem type - and it is what binds the smbnetfs view onto ~/shared.
-  #
-  # EACH LINE REPORTS, AND THE LAST ONE IS THE VERDICT. `grep -c` exits 1 on a count of zero, so the
-  # fusefs count is echoed rather than grepped on its own: a step that fails because a count was zero
-  # is indistinguishable from a step that failed because the package is missing.
-  #
-  # `>-` RATHER THAN A PLAIN SCALAR: the command contains `: ` inside the echoed sentence, and YAML
-  # reads `x: y` in a plain scalar as a mapping - measured as
-  # `yaml: line 188: mapping values are not allowed in this context`, which fails the file at load
-  # time rather than at run time.
+- name: set the machine's name
+  # `hostname=` IN rc.conf IS WHAT MAKES IT SURVIVE A REBOOT; `hostname` alone changes the running
+  # kernel and is lost at the next boot. Both are done, because a stage that only wrote the file
+  # would have a guest answering to the new name after a restart and the old one now.
+  ssh: sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" sh -c "sysrc hostname={{ hostname }} && hostname {{ hostname }}"'
+  timeout: 120
+- name: point the loopback line at that name
+  ssh: sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" sh -c "grep -q \"{{ hostname }}\" /etc/hosts || printf \"127.0.1.1\t{{ hostname }}\n\" >> /etc/hosts"'
+  timeout: 60
+- name: prove the name
+  ssh: sh -c 'echo "kernel = $(hostname)"; echo "rc.conf = $(sysrc -n hostname)"; echo "hosts = $(grep -c "{{ hostname }}" /etc/hosts) line(s)"; test "$(hostname)" = "{{ hostname }}" && echo HOSTNAME_OK'
+  timeout: 60
+- name: set the time zone
+  # `tzsetup -s ZONE` IS THE INTERACTIVE TOOL IN ITS SCRIPTED FORM, and it is what bsdinstall itself
+  # drives. A `cp /usr/share/zoneinfo/... /etc/localtime` would also work; this is the tool that
+  # keeps `/var/db/zoneinfo` consistent with the symlink, which is what makes a later `tzsetup`
+  # re-entrant.
+  ssh: sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" sh -c "tzsetup -s {{ timezone }}" 2>&1 | tail -3'
+  timeout: 120
+- name: prove the time zone
+  ssh: sh -c 'echo "localtime = $(readlink -f /etc/localtime)"; echo "zoneinfo = $(cat /var/db/zoneinfo 2>/dev/null)"; echo "date = $(date)"; grep -q "{{ timezone }}" /var/db/zoneinfo && echo TIMEZONE_OK'
+  timeout: 60
+- name: set the locale
+  # LOCALE ON FREEBSD IS THREE rc.conf VARIABLES, not one, and `UTF-8` is spelled `C.UTF-8` or
+  # `en_US.UTF-8` depending on which locale definitions the base shipped. The `.UTF-8` suffix is the
+  # part that matters to every program the desktop runs.
+  ssh: sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" sh -c "sysrc lua_load=1 2>/dev/null; sysrc -f /etc/login.conf 2>/dev/null; printf \"%s\n\" \"LANG={{ locale }}\" \"LC_ALL={{ locale }}\" >> /etc/profile; sysrc -x lua_load 2>/dev/null; true"'
+  timeout: 120
+- name: write the locale into login.conf and rebuild the database
+  # `/etc/login.conf` IS THE OTHER HALF AND THE ONE THAT MATTERS FOR LOGIN SHELLS: a `LANG=` in
+  # `/etc/profile` reaches an interactive shell, and a `:lang=` capability reaches everything started
+  # by login - which on this guest includes the XFCE session. `cap_mkdb` is what makes it real; a
+  # login.conf without it is a file nothing reads.
   ssh: >-
-    sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" sh -c "kldload fusefs 2>&1; sysrc kld_list=fusefs" >/dev/null 2>&1;
-    pkg info fusefs-smbnetfs 2>&1|grep -E "^(Name|Version)";
-    ls -l /usr/local/bin/smbnetfs;
-    echo "fusefs modules loaded = $(kldstat 2>/dev/null | grep -c fusefs)"'
-  timeout: 300
-
+    sh -c 'printf "%s\n" "{{ password }}" | sudo -S -p "" sh -c
+    "sed -i.bak \"s/:lang=.*:/:lang={{ locale }}:/\"
+    /etc/login.conf 2>/dev/null || true;
+    grep -q \":lang={{ locale }}:\" /etc/login.conf ||
+    sed -i.bak \"s/^:default:/:default:\\\\\n\t:lang={{ locale }}:/\"
+    /etc/login.conf;
+    cap_mkdb /etc/login.conf"'
+  timeout: 180
+- name: prove the locale in a new login shell
+  ssh: sh -c 'sh -lc "printf \"LANG=%s\nLC_ALL=%s\n\" \"\$LANG\" \"\$LC_ALL\"" 2>&1 | head -4'
+  timeout: 60
 - name: serve the host share
   # THE SAME TWO STEPS THE OTHER THREE GUESTS USE, and until now freebsd had neither: this file
   # mentioned `share_serve` and `share_mount` ZERO times while windows, ubuntu and macos each had both,
@@ -209,7 +215,7 @@ steps:
   share_serve: true
   timeout: 60
 
-- name: mount the host share
+- name: prove the guest can fetch from the host share
   # `share_family: bsd` SELECTS `mount_smbfs -I 172.30.0.1` in `internal/daemon/share.go`. Without the
   # branch, this family fell through to `mount -t cifs`, which FreeBSD's mount(8) rejects with
   # "unknown file system type" before it touches the network - its kernel has no cifs filesystem.

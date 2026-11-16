@@ -108,9 +108,10 @@ type Driver struct {
 	// frameMu serialises screen capture. ONE FRAME AT A TIME, because three readers of one screen do
 	// not need three screendumps and interleaved writes produce unreadable files.
 	frameMu sync.Mutex
-	// share is the smbd this driver started, if a `share_serve:` step asked for one.
-	share *shareServer
-	logf  func(string)
+	// shareDir is the directory a `share_serve:` step published, or "" when none did. The daemon
+	// serves it over HTTP at `/shared/` - there is no smbd, no port and no config file any more.
+	shareDir string
+	logf     func(string)
 }
 
 // NewDriver builds the driver and returns a closer for the caller's defer.
@@ -1490,9 +1491,9 @@ func (d *Driver) shutdown() {
 	// which is why this needs no `netUp` flag to decide.
 	easyvmnet.Down()
 
-	// THE SHARE GOES WITH THE MACHINE. It is one smbd per run, started by a step, and a daemon that
-	// exits without stopping it leaves a server bound to a bridge that is about to be removed.
-	d.stopShare()
+	// THE SHARE NEEDS NO TEARDOWN. It used to be one smbd per run that had to be stopped before the
+	// bridge went away; it is now a directory the daemon's own HTTP listener reads, so ending the
+	// machine ends it.
 
 	// AND THE DIFF IS RELEASED AND ITS BASE VERIFIED, EVEN WHEN THE WALK FAILED.
 	//

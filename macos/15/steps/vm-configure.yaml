@@ -3,6 +3,15 @@ resolution:
 - 1920
 - 1080
 vars:
+  hostname:
+    from: args.hostname
+    default: easyvm-macos15
+  timezone:
+    from: args.timezone
+    default: America/Los_Angeles
+  locale:
+    from: args.locale
+    default: en_US.UTF-8
   user:
     from: args.user
     default: vmuser
@@ -72,19 +81,77 @@ steps:
 
     '
   timeout: 120
+- name: set the machine's name
+  # macOS HAS THREE NAMES AND THEY ARE NOT THE SAME THING. A walkthrough that sets only HostName gets
+  # a guest whose prompt, Bonjour name and Finder label all still say the installer's default:
+  #
+  #	HostName        what `hostname` answers and what ssh reports
+  #	LocalHostName   the Bonjour name - no dots, 63 characters, letters/digits/hyphens only
+  #	ComputerName    the label a person sees
+  #
+  # `{{ hostname }}` has a hyphen and no dot, so the same string is legal for all three.
+  ssh: >-
+    printf '%s\n' '{{ password }}' | sudo -S -p '' sh -c
+    'scutil --set HostName {{ hostname }};
+    scutil --set LocalHostName {{ hostname }};
+    scutil --set ComputerName {{ hostname }}'
+  timeout: 180
+- name: prove the name, all three of it
+  ssh: >-
+    sh -c 'for k in HostName LocalHostName ComputerName; do
+    printf "%s = %s\n" "$k" "$(scutil --get $k)"; done;
+    test "$(scutil --get HostName)" = "{{ hostname }}" && echo HOSTNAME_OK'
+  timeout: 60
+- name: set the time zone
+  # `systemsetup -settimezone` NEEDS SUDO AND IS THE DOCUMENTED SWITCH; `ln -sf /var/db/timezone/...`
+  # is what it does underneath and is two files rather than one. The list of legal names is
+  # `/usr/share/zoneinfo/zone.tab`, the same database every other guest here uses.
+  ssh: >-
+    printf '%s\n' '{{ password }}' | sudo -S -p ''
+    systemsetup -settimezone {{ timezone }}
+  timeout: 180
+- name: prove the time zone
+  ssh: >-
+    sh -c 'echo "systemsetup = $(systemsetup -gettimezone 2>&1)";
+    echo "localtime = $(readlink -f /etc/localtime)";
+    echo "date = $(date)";
+    systemsetup -gettimezone 2>&1 | grep -q "{{ timezone }}" && echo TIMEZONE_OK'
+  timeout: 60
+- name: set the locale to American English with a UTF-8 terminal
+  # macOS DOES NOT HAVE `locale-gen`: its locales are compiled in, and a guest asks for one by NAME in
+  # `.GlobalPreferences`. Three separate defaults because they answer three questions - the UI
+  # language, the measurement/format conventions, and the encoding a terminal uses.
+  ssh: >-
+    printf '%s\n' '{{ password }}' | sudo -S -p '' sh -c
+    'defaults write NSGlobalDomain AppleLocale -string "en_US";
+    defaults write NSGlobalDomain AppleLanguages -array "en-US" "en";
+    defaults write NSGlobalDomain AppleMeasurementUnits -string "Inches";
+    defaults write NSGlobalDomain AppleMetricUnits -bool false'
+  timeout: 120
+- name: prove the locale is the American one
+  ssh: >-
+    sh -c 'echo "AppleLocale = $(defaults read NSGlobalDomain AppleLocale)";
+    echo "AppleLanguages = $(defaults read NSGlobalDomain AppleLanguages | tr -d "\n")";
+    defaults read NSGlobalDomain AppleLocale | grep -q "en_US" && echo LOCALE_OK'
+  timeout: 60
 - name: serve the host share
   share_serve: true
   timeout: 60
-- name: mount the host share
+- name: prove the guest can fetch from the host share
   share_mount: true
   share_family: macos
   requires:
   - share
   timeout: 180
-- name: prove the share is readable and writable
-  ssh: 'ls -la ~/shared | head -20 && printf ''written-by-%s\n'' "$(hostname)" > ~/shared/from-guest.txt && cat ~/shared/from-guest.txt
-
-    '
+- name: show what the guest sees at the share
+  # THE SHARE IS HTTP, SO THE GUEST'S OWN CLIENT IS THE PROOF. `share_mount:` fetches a sentinel the
+  # host wrote and compares the bytes; this step is the readable version of the same answer, printed
+  # so a person can see what happened rather than only whether it passed.
+  #
+  # IT USED TO CHECK A CIFS MOUNT AND A ROUND TRIP THROUGH ~/shared. Both are gone: there is no mount
+  # any more, and a guest writing to its own home and reading it back proves the guest's filesystem.
+  ssh: >-
+    sh -c 'curl -fsS --max-time 20 http://172.30.0.1:8080/shared/ 2>&1 | head -20; echo "fetch exit = $?"'
   timeout: 120
 - name: write the launcher
   write: launcher
@@ -92,12 +159,6 @@ steps:
   timeout: 60
 - name: write the login agent plist
   write: macos_agent_plist
-  timeout: 60
-- name: write the mount daemon script
-  write: macos_mount_script
-  timeout: 60
-- name: write the mount daemon plist
-  write: macos_mount_plist
   timeout: 60
 - name: copy the launcher in
   scp:
@@ -109,37 +170,31 @@ steps:
   - org.vm.bootstrap.plist
   - /tmp/bootstrap.plist
   timeout: 300
-- name: copy the mount daemon in
-  scp:
-  - vm-smbmount.sh
-  - /tmp/smbmount.sh
+- name: install the login agent
+  # THE LAUNCHDAEMON THAT MOUNTED THE SHARE IS GONE WITH THE SHARE'S TRANSPORT. It existed because a
+  # macOS LaunchDaemon had to mount SMB as root - `mount_smbfs` refuses a non-root client against
+  # this server - and something had to re-do it at every boot. The launcher now FETCHES its script
+  # over HTTP, which needs no root, no mount and no daemon at boot: one LaunchAgent at login is the
+  # whole mechanism.
+  ssh: "set -e\nlaunchd_home=$(eval echo \"~$(id -un)\")\nmkdir -p \"$launchd_home/Library/LaunchAgents\"\ncp /tmp/bootstrap-launcher.sh \"$launchd_home/bootstrap-launcher.sh\"\nchmod +x \"$launchd_home/bootstrap-launcher.sh\"\nsed 's|__LAUNCHER__|'\"$launchd_home\"'/bootstrap-launcher.sh|' /tmp/bootstrap.plist > \"$launchd_home/Library/LaunchAgents/org.vm.bootstrap.plist\"\necho INSTALLED_FOR_NEXT_LOGIN\n"
   timeout: 300
-- name: copy the mount daemon plist in
-  scp:
-  - org.vm.smbmount.plist
-  - /tmp/smbmount.plist
-  timeout: 300
-- name: install the login agent and the mount daemon
-  ssh: "set -e\nlaunchd_home=$(eval echo \"~$(id -un)\")\nmkdir -p \"$launchd_home/Library/LaunchAgents\"\ncp /tmp/bootstrap-launcher.sh \"$launchd_home/bootstrap-launcher.sh\"\nchmod +x \"$launchd_home/bootstrap-launcher.sh\"\nsed 's|__LAUNCHER__|'\"\
-    $launchd_home\"'/bootstrap-launcher.sh|' /tmp/bootstrap.plist > \"$launchd_home/Library/LaunchAgents/org.vm.bootstrap.plist\"\nprintf '%s\\n' '{{ password }}' | sudo -S -p '' sh -c '\n  mkdir -p /Library/LaunchDaemons /usr/local/bin\n  cp /tmp/smbmount.sh\
-    \ /usr/local/bin/vm-smbmount.sh\n  chmod 700 /usr/local/bin/vm-smbmount.sh\n  chown root:wheel /usr/local/bin/vm-smbmount.sh\n  sed \"s|__SCRIPT__|/usr/local/bin/vm-smbmount.sh|\" /tmp/smbmount.plist > /Library/LaunchDaemons/org.vm.smbmount.plist\n\
-    \  chmod 644 /Library/LaunchDaemons/org.vm.smbmount.plist\n  chown root:wheel /Library/LaunchDaemons/org.vm.smbmount.plist'\nprintf '%s\\n' '{{ password }}' | sudo -S -p '' launchctl bootout system/org.vm.smbmount 2>/dev/null || true\nprintf '%s\\\
-    n' '{{ password }}' | sudo -S -p '' launchctl bootstrap system /Library/LaunchDaemons/org.vm.smbmount.plist\necho INSTALLED_FOR_NEXT_LOGIN\n"
-  timeout: 300
-- name: prove the mount daemon is installed
-  ssh: 'ls -l /Library/LaunchDaemons/org.vm.smbmount.plist /usr/local/bin/vm-smbmount.sh &&
+- name: prove the login agent is installed and loads
+  # THE PLIST IS LINTED AND THE JOB IS ASKED FOR BY NAME, because a LaunchAgent that exists and does
+  # not parse is one that never fires - and the failure is silent.
+  ssh: 'ls -l ~/Library/LaunchAgents/org.vm.bootstrap.plist ~/bootstrap-launcher.sh &&
 
-    plutil -lint /Library/LaunchDaemons/org.vm.smbmount.plist &&
+    plutil -lint ~/Library/LaunchAgents/org.vm.bootstrap.plist &&
 
-    printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' launchctl print system/org.vm.smbmount | head -12
+    launchctl print gui/$(id -u)/org.vm.bootstrap 2>&1 | head -6 || echo "not loaded yet; it loads at next login"
 
     '
   timeout: 120
-- name: prove the daemon mounted the share
-  ssh: 'mount | grep '' on /Users/'' && ls -la ~/shared | head -10
-
-    '
-  timeout: 120
+- name: prove the launcher fetches, by running it now
+  # THE AGENT RUNS AT LOGIN, SO ITS OWN SCRIPT IS RUN HERE IN THE SAME WAY. That is the difference
+  # between "the file was installed" and "the file works": the fetch, the marker and the log are all
+  # exercised, and the log is read back.
+  ssh: sh -c '/bin/sh ~/bootstrap-launcher.sh 2>&1 | head -5; echo "--- log ---"; tail -8 ~/bootstrap.log 2>/dev/null || echo "(no log)"'
+  timeout: 180
 - name: prove the login hook is installed
   ssh: 'ls -l ~/Library/LaunchAgents/org.vm.bootstrap.plist ~/bootstrap-launcher.sh &&
 

@@ -39,7 +39,6 @@ func TestShellScriptsParse(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, body string }{
 		{"launcher.sh", Launcher(macOSOptions())},
-		{"mount.sh", MacOSMountScript(macOSOptions())},
 		{"launcher-linux.sh", Launcher(Options{Family: Linux})},
 	} {
 		path := writeTemp(t, tc.name, tc.body)
@@ -55,7 +54,6 @@ func TestShellScriptsParse(t *testing.T) {
 func TestPlistsParse(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
 		{"agent.plist", MacOSAgentPlist("/Users/vmuser/bootstrap-launcher.sh")},
-		{"mount.plist", MacOSMountPlist("/usr/local/bin/vm-smbmount.sh")},
 	} {
 		var d map[string]any
 		_, err := plist.Unmarshal([]byte(tc.body), &d)
@@ -99,30 +97,35 @@ func TestTheAgentRetriesPastTheLaunchersOwnWait(t *testing.T) {
 	}
 }
 
-// THE MOUNT POINT IS UNMOUNTED, NOT SKIPPED, AND AN EMPTY LEFTOVER IS CLEARED.
+// THE LAUNCHER FETCHES OVER HTTP AND DOES NOT WAIT FOR A MOUNT.
 //
-// `mount_smbfs` refuses a mount point that is STILL A MOUNT with the same `File exists` it gives for
-// a bare directory. The two states produce one message and want opposite handling, which is why both
-// branches are in the script and both are asserted.
-func TestTheMountScriptTellsTheTwoStatesApart(t *testing.T) {
-	body := MacOSMountScript(macOSOptions())
+// THIS TEST REPLACES ONE THAT ASSERTED `mount_smbfs` BEHAVIOUR - an unmount, an rmdir, a "NOT_EMPTY"
+// refusal and the `//guest:@host/share` spelling. All of that existed to make SMB work, and SMB is
+// gone: FreeBSD's client could not connect to this server at all (netsmb speaks SMB1 on NetBIOS 139;
+// smbd serves SMB3 on 445), and working around it took a ports package, a base filesystem, a
+// root-only mount option and a mount table that names the bind.
+//
+// WHAT MATTERS NOW IS THAT THE FETCH RETRIES AND THAT ITS TWO FAILURES ARE DISTINGUISHABLE.
+func TestTheLauncherFetchesOverHTTPAndRetries(t *testing.T) {
+	body := Launcher(Options{Family: MacOS, ShareURL: "http://172.30.0.1:8080/shared/"})
 
 	for _, want := range []struct{ text, why string }{
-		{`mount | grep -q " on $p "`, "an already-mounted path must be detected, not assumed"},
-		{`umount "$p"`, "a live mount must be unmounted; skipping it leaves the old mount in place"},
-		{`rmdir "$p"`, "an empty leftover directory must be removed before the mount"},
-		{"NOT_EMPTY", "a non-empty directory must be refused by name rather than deleted"},
-		{"//guest:@172.30.0.1/shared", "the account has no password; the colon is the spelling"},
+		{"http://172.30.0.1:8080/shared/", "the URL it fetches from must be the daemon's share"},
+		{"curl -fsS", "a fetch that does not fail on an HTTP error would run an error page as a script"},
+		{"--max-time", "a hung fetch must not hold the login hook open"},
+		{"-o \"$FETCHED\"", "the body must land in a file, because sh runs a file"},
+		{"after $i attempt(s)", "the log must say how many attempts were made, so \"not there YET\" " +
+			"and \"not there\" do not look alike"},
 	} {
 		if !strings.Contains(body, want.text) {
-			t.Fatalf("the mount script lost %q: %s", want.text, want.why)
+			t.Fatalf("the launcher lost %q: %s", want.text, want.why)
 		}
 	}
-	// AND IT MUST NOT CARRY A PASSWORD. The account has none, and a secret in a boot script is one
-	// that is readable from the disk it is on.
-	if strings.Contains(body, "admin") {
-		t.Fatal("the mount script contains a password literal; this account has none, and the " +
-			"colon spelling is what the man page documents")
+	// AND IT MUST NOT STILL BE WAITING FOR A MOUNT: that is the mechanism this replaced.
+	for _, gone := range []string{"mount_smbfs", "SHARED=", "~/shared/"} {
+		if strings.Contains(body, gone) {
+			t.Fatalf("the launcher still contains %q, which is the mount this no longer waits for", gone)
+		}
 	}
 }
 
@@ -149,26 +152,26 @@ func TestTheLogAndMarkerAreInTheProfileNotTheShare(t *testing.T) {
 	}
 }
 
-// A FAILED LAUNCH MUST SAY WHAT `New-SmbMapping` ANSWERED.
+// A FAILED FETCH MUST SAY WHAT THE SERVER ANSWERED, AND THE WINDOWS LAUNCHER USES ITS OWN CLIENT.
 //
-// `Out-Null` was used for this once, and then every way of failing to reach the share produced one
-// sentence: "no bootstrap.ps1 on the share; nothing to run". That reads as a missing file and was
-// three different faults.
-func TestTheWindowsLauncherRecordsTheMountAnswer(t *testing.T) {
-	body := Launcher(windowsOptions())
+// THIS REPLACES A TEST THAT ASSERTED `New-SmbMapping` AND ITS `-ErrorAction Stop`. That whole branch
+// existed to map an SMB share with no password, which Windows refuses by policy - and the mapping is
+// gone. `Invoke-WebRequest` is in the box and needs no credential at all.
+func TestTheWindowsLauncherFetchesAndRecordsTheAnswer(t *testing.T) {
+	body := Launcher(Options{Family: Windows, ShareURL: "http://172.30.0.1:8080/shared/"})
 	for _, want := range []struct{ text, why string }{
-		{"New-SmbMapping", "net use cannot express an account with no password positionally"},
+		{"Invoke-WebRequest", "PowerShell ships this; no client package and no credential"},
+		{"-OutFile $Fetched", "the body must land in a file that powershell can run"},
 		{"-ErrorAction Stop", "a refusal must be an exception, not a warning the status never sees"},
-		{`Say ("smb mapping -> FAILED: "`, "the failure must reach the log"},
-		{"smb mapping -> ok", "and so must the success, or a silent failure looks the same"},
+		{`Say ("fetch -> "`, "the failure must reach the log"},
+		{"after $i attempt(s)", "the log must say how many attempts were made"},
 	} {
-		if !strings.Contains(body, want.text) {
+		if strings.Contains(body, want.text) == false {
 			t.Fatalf("the windows launcher lost %q: %s", want.text, want.why)
 		}
 	}
-	if strings.Contains(body, "net use ") {
-		t.Fatal("the launcher still uses `net use`; the account has no password and a positional " +
-			"empty argument collapses in PowerShell")
+	if strings.Contains(body, "New-SmbMapping") || strings.Contains(body, "net use ") {
+		t.Fatal("the windows launcher still maps an SMB share; the share is HTTP now")
 	}
 }
 

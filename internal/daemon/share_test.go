@@ -14,127 +14,6 @@ import (
 //	not implemented in this build: step "serve the host share" needs "share_serve"
 //
 // These are the lines a Samba that "started perfectly and bound nothing" is missing.
-func TestTheShareConfigCarriesTheLinesThatMatter(t *testing.T) {
-	conf := shareConfig("/work/shared")
-
-	// IT BINDS THE BRIDGE ADDRESS AND NOTHING ELSE. The guest reaches 172.30.0.1 over the tap; an
-	// smbd listening on every interface is one the guest cannot necessarily route to, and the Python
-	// implementation lost a macOS ssh stage to an smbd that logged "waiting for connections" against
-	// an address that did not exist yet.
-	for _, want := range []string{"interfaces = 172.30.0.1/24", "bind interfaces only = yes"} {
-		if !strings.Contains(conf, want) {
-			t.Fatalf("the share config is missing %q:\n%s", want, conf)
-		}
-	}
-
-	// THE GUEST ACCOUNT HAS NO PASSWORD, AND SAMBA REFUSES AN EMPTY ONE WITHOUT THIS. The failure it
-	// prevents is `NT_STATUS_LOGON_FAILURE`, which reads as a wrong password.
-	if !strings.Contains(conf, "null passwords = yes") {
-		t.Fatalf("`null passwords = yes` is missing, so the guest's passwordless account is refused "+
-			"with NT_STATUS_LOGON_FAILURE:\n%s", conf)
-	}
-
-	// AND THE GUEST NAME IS NOT A HOST ACCOUNT, so it must be mapped rather than rejected.
-	if !strings.Contains(conf, "map to guest = bad user") {
-		t.Fatalf("`map to guest = bad user` is missing, so Samba rejects `guest` before consulting "+
-			"the share:\n%s", conf)
-	}
-
-	// THE SHARE ITSELF IS WRITABLE AND ANONYMOUS.
-	for _, want := range []string{"path = /work/shared", "read only = no", "guest ok = yes"} {
-		if !strings.Contains(conf, want) {
-			t.Fatalf("the share stanza is missing %q:\n%s", want, conf)
-		}
-	}
-}
-
-// AND A SECOND `share_serve:` FOR A DIFFERENT DIRECTORY IS REFUSED BY NAME.
-//
-// ONE GUEST HAS ONE SHARE: a second directory would need a second server, a second port or a second
-// name, and none of those is in the file. A silent second server is worse than a refusal, because
-// `share_mount:` would mount whichever won the race.
-func TestASecondShareDirectoryIsRefused(t *testing.T) {
-	d := &Driver{work: t.TempDir(), pass: "admin"}
-	// Pretend one is already being served, without starting smbd.
-	d.share = &shareServer{dir: "/work/first"}
-	err := d.ServeShare("/work/second")
-	if err == nil {
-		t.Fatal("a second share directory must be refused; one guest has one share")
-	}
-	if !strings.Contains(err.Error(), "/work/first") {
-		t.Fatalf("the refusal must name the directory already being served; got %v", err)
-	}
-	// AND THE SAME DIRECTORY TWICE IS NOT AN ERROR, which is what a stage that restarts needs.
-	if err := d.ServeShare("/work/first"); err != nil {
-		t.Fatalf("serving the same directory twice must be a no-op: %v", err)
-	}
-}
-
-// A GUEST THAT WRITES TO ~/shared WHEN THE MOUNT IS ABSENT WRITES INTO ITS OWN DIRECTORY.
-//
-// MEASURED ON MANJARO, AND IT IS THE REASON THIS PACKAGE HAS A `ShareDir` AT ALL:
-//
-//	--- what is mounted ---
-//	--- the mount point ---
-//	drwx------ 1 vmuser vmuser
-//	--- the round trip ---
-//	read back: written-by-the-guest
-//
-// THE MOUNT NEVER HAPPENED - `sudo: a password is required`, because an ssh exec has no terminal - and
-// the guest's own round trip passed anyway. A file written to `~/shared` and read back from `~/shared`
-// proves the guest's filesystem, not the share.
-//
-// THE PROOF HAS TO CROSS THE BOUNDARY: the host writes into the served directory and the guest reads
-// it. That can only happen if the mount is in place.
-func TestAShareIsProvenFromTheHostSide(t *testing.T) {
-	body, err := os.ReadFile("../run/actions.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(body)
-	start := strings.Index(src, "func (e *Executor) doShareMount(")
-	if start < 0 {
-		t.Fatal("no doShareMount")
-	}
-	rest := src[start:]
-	if end := strings.Index(rest[1:], "\nfunc "); end > 0 {
-		rest = rest[:end+1]
-	}
-	if !strings.Contains(rest, "ShareDir()") {
-		t.Fatal("`share_mount:` does not look at the served directory on the host, so a guest whose " +
-			"mount silently failed still passes its own round trip")
-	}
-	if !strings.Contains(rest, "os.WriteFile") {
-		t.Fatal("nothing is written on the HOST side to prove the share; a guest-side round trip " +
-			"cannot tell a mount from a local directory")
-	}
-	// AND THE FILE IS REMOVED, so a second run does not find yesterday's proof sitting in the share.
-	if !strings.Contains(rest, "defer os.Remove") {
-		t.Fatal("the proof file is left in the shared directory")
-	}
-}
-
-// AND THE MOUNT THAT REPORTED SUCCESS WHILE FAILING IS FIXED AT ITS SOURCE.
-//
-// `sudo` in an ssh exec has no terminal, so it refuses with "a terminal is required to read the
-// password" - and the shell's LAST command was `ls`, which succeeded, so the failure was invisible.
-func TestTheGuestMountUsesSudoWithoutATerminal(t *testing.T) {
-	body, err := os.ReadFile("share.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(body)
-	if !strings.Contains(src, "sudo -S -p ''") {
-		t.Fatal("the guest's mount does not use `sudo -S`, so sudo refuses with \"a terminal is " +
-			"required to read the password\" and the mount never happens")
-	}
-	// AND THE MOUNT ITSELF IS CHECKED, not the last command in the chain.
-	if !strings.Contains(src, "MOUNT_NOT_PRESENT") {
-		t.Fatal("the mount is not verified after it is attempted; `ls` on an empty directory " +
-			"succeeds and the function reports a mount that never happened")
-	}
-}
-
 // THE THREE GRACEFUL SHUTDOWNS WERE ALL `not implemented`, AND ONE OF THEM COST A STAGE ITS LAST STEP.
 //
 // Measured on ubuntu's vm leg, which had done EVERYTHING it exists to do:
@@ -465,442 +344,76 @@ func TestKillDoesNotWaitForAGuestNobodyAsked(t *testing.T) {
 // a local directory in the guest - exactly as it did on manjaro - and the mount would have been missing
 // with nothing saying so. The host-side sentinel cannot be fooled that way, and the failure it produced
 // named the shell rather than the share.
-func TestTheShareMountSpeaksTheGuestSHostShell(t *testing.T) {
-	body, err := os.ReadFile("share.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := stripGoComments(string(body))
 
-	// THE PLATFORM BRANCH IS IN `mountOnce`, BECAUSE THE MOUNT IS ONE COMMAND PER PLATFORM AND THE
-	// DECISIONS ARE IN GO. It used to be a shell script per platform inside `MountShare`, and every
-	// one of those was a small program whose control flow lived in a string.
-	i := strings.Index(src, "func (d *Driver) mountOnce(")
-	if i < 0 {
-		t.Fatal("no mountOnce - the per-platform mount has no home")
-	}
-	once := src[i:]
-	if end := strings.Index(once[1:], "\nfunc "); end > 0 {
-		once = once[:end+1]
-	}
-	if !strings.Contains(once, `case "windows"`) {
-		t.Fatal("`mountOnce` does not branch on the family, so a Windows guest is sent a POSIX command " +
-			"and answers `'cat' is not recognized as an internal or external command`")
-	}
-	// `New-SmbMapping`, NOT `net use`, AND THE REFERENCE IMPLEMENTATION HAD ALREADY WRITTEN DOWN WHY:
-	//
-	//	net use \\172.30.0.1\shared "" /user:guest /persistent=no
-	//	The option /PERSISTENT=NO is unknown.
-	//
-	// `net use` TAKES THE PASSWORD AS A POSITIONAL ARGUMENT. The account has no password, so the
-	// argument is `""`; cmd drops it, every argument after it moves left, and the switch meant to be
-	// `/persistent` is read as the password. MEASURED ON windows-vm-configure, 13 of 20, where cmd
-	// answered with its own help text.
-	if !strings.Contains(once, "New-SmbMapping") {
-		t.Fatal("the Windows branch does not use `New-SmbMapping`. `net use` takes the password " +
-			"positionally, so an empty one shifts the whole argument list and cmd answers with help " +
-			"text instead of mounting")
-	}
-	if strings.Contains(once, `net use`) {
-		t.Fatal("the Windows branch still uses `net use`, whose positional password cannot be empty")
-	}
-	// AND THE EMPTY PASSWORD IS AN EXPLICIT EMPTY STRING, which `New-SmbMapping` keeps as one.
-	if !strings.Contains(once, `-Password ''`) {
-		t.Fatal("the Windows mount does not pass `-Password ''`; the share account has no password " +
-			"and `null passwords = yes` is what accepts it")
-	}
-	// AND A REFUSAL IS AN EXCEPTION, not a warning the exit status never sees.
-	if !strings.Contains(once, "-ErrorAction Stop") {
-		t.Fatal("the Windows mount does not use `-ErrorAction Stop`, so a refusal would be a warning " +
-			"and the step would report success over an unmounted share")
-	}
-	// AND macOS HAS ITS OWN, because `mount -t cifs` DOES NOT EXIST THERE.
-	if !strings.Contains(once, `case "macos"`) {
-		t.Fatal("`mountOnce` has no macOS branch, so a Mac is sent `mount -t cifs` - a Linux utility " +
-			"for a filesystem type macOS does not have")
-	}
-	if !strings.Contains(once, "mount_smbfs") {
-		t.Fatal("the macOS branch does not use `mount_smbfs`")
-	}
-	if !strings.Contains(once, `//guest:@`) {
-		t.Fatal("the macOS mount does not spell the empty password as `//guest:@`, which is the man " +
-			"page's own form for \"this user, no password\"")
-	}
-
-	// AND THE DECISIONS ARE GO, NOT SHELL: a retry loop, a table check, and a listing, each a single
-	// command whose RESULT Go inspects.
-	ms := src[strings.Index(src, "func (d *Driver) MountShare("):]
-	if end := strings.Index(ms[1:], "\nfunc "); end > 0 {
-		ms = ms[:end+1]
-	}
-	if !strings.Contains(ms, "for i := 0; i < attempts; i++") {
-		t.Fatal("`MountShare` does not retry in Go, so a transient failure is final")
-	}
-	if !strings.Contains(ms, "mountsShare(family, table.Combined())") {
-		t.Fatal("`MountShare` does not check the mount table in Go, so a mount that reported success " +
-			"and did not happen is believed")
-	}
-	// AND THE SHELL-SCRIPT IDIOMS ARE GONE. `sh -s <<'...'`, `while ... done`, `set -e` and `&&`
-	// chains inside the mount command are the pattern this rewrite removed.
-	for _, bad := range []string{"sh -s <<", "set -e", "while [ \"$i\""} {
-		if strings.Contains(ms, bad) {
-			t.Fatalf("`MountShare` still contains the shell idiom %q; the control flow belongs in Go, "+
-				"where a mistake is a compile error rather than a string", bad)
-		}
-	}
-
-	// AND THE SHARE IS STILL PROVEN IN EVERY BRANCH - the sentinel in `actions.go` reads it back, and
-	// this function refuses a mount the table does not list.
-	if !strings.Contains(src, "mountsShare") {
-		t.Fatal("the mount is not verified at all")
-	}
-}
-
-// THE HOST-SIDE SENTINEL READ ITS OWN FILE WITH `cat`, WHICH A WINDOWS GUEST DOES NOT HAVE.
+// THE SHARE IS HTTP AND IT IS READ-ONLY.
 //
-// MEASURED ON windows-vm-configure STEP 13 OF 20, AFTER THE MOUNT ITSELF HAD BEEN FIXED:
+// IT WAS SMB, AND SMB COST EVERY GUEST A DIFFERENT CLIENT. The measurement that ended it: FreeBSD's
+// mount_smbfs dials NetBIOS 139 because netsmb speaks SMB1, and smbd serves SMB3 on 445 - so the
+// kernel got a TCP RST and the library reported it as `syserr = Connection refused`, which reads
+// like a network fault and took nine wrong hypotheses to see through. Working around it needed a
+// ports package, a base filesystem, a root-only mount option and a mount table that names the bind.
 //
-//	the guest cannot see a file this host wrote into /github/home/shared: the mount is not in
-//	place ... read "'cat' is not recognized as an internal or external command,"
-//
-// THE MESSAGE SAYS THE MOUNT FAILED AND THE FAILURE WAS THE PROOF'S OWN COMMAND. `MountShare`'s
-// Windows branch uses `net use` and may well have succeeded; the check that proves it then asked a
-// Windows guest to run `cat`.
-//
-// THIS IS THE THIRD TIME THE SAME MISTAKE APPEARED IN THIS MECHANISM - POSIX in the mount, POSIX in
-// the proof - and each time the message named the SHARE rather than the shell. A check about a guest
-// must speak the guest's language, and both halves of this one now branch on the family.
-func TestTheShareProofReadsWithTheGuestsOwnCommand(t *testing.T) {
-	body, err := os.ReadFile("../run/actions.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := stripGoComments(string(body))
-	i := strings.Index(src, "func (e *Executor) doShareMount(")
-	if i < 0 {
-		t.Fatal("no doShareMount")
-	}
-	rest := src[i:]
-	if end := strings.Index(rest[1:], "\nfunc "); end > 0 {
-		rest = rest[:end+1]
-	}
-	// A BARE `cat` ON THE PROOF PATH IS THE DEFECT: it must be behind a family branch.
-	if strings.Contains(rest, `client.Run("cat ~/shared/`) {
-		t.Fatal("the share proof runs a bare `cat`, so a Windows guest answers \"'cat' is not " +
-			"recognized as an internal or external command\" and the step blames the mount")
-	}
-	if !strings.Contains(rest, `family == "windows"`) {
-		t.Fatal("the proof does not branch on the family, so one of the two guests gets the wrong " +
-			"command")
-	}
-	// AND `type` IS THE WINDOWS READ.
-	if !strings.Contains(rest, `type "%USERPROFILE%\shared\`) {
-		t.Fatal("the Windows proof does not read with `type`")
-	}
-	// AND THE POSIX PATH IS STILL THERE, unchanged for the guests that have it.
-	if !strings.Contains(rest, `"cat ~/shared/"`) {
-		t.Fatal("the POSIX proof no longer reads with `cat`")
-	}
-}
-
-// A NON-ZERO EXIT IS THE COMMAND SAYING IT FAILED, AND THE RETRY LOOP NEVER SAW IT.
-//
-// MEASURED ON windows-vm-configure, STEP 13 OF 20:
-//
-//	share: net use "%USERPROFILE%\shared" \\172.30.0.1\shared /user:guest "" /persistent:no -> 1
-//	share: ... the windows guest does not list //172.30.0.1/shared in its mount table after a
-//	       successful mount; the table is: There are no entries in the list.
-//
-// "A SUCCESSFUL MOUNT" OVER A TABLE WITH NO ENTRIES. `client.Run` RETURNS `err` ONLY FOR A TRANSPORT
-// OR SESSION FAILURE - an ordinary non-zero exit is in `res.Status` and `err` is nil - and `mountOnce`
-// returned `err` alone. So the thirty-attempt retry loop ran thirty failing `net use` calls and called
-// each one a success.
-//
-// The mount table check is what surfaced it, which is the argument for keeping a check that can be
-// fooled by nothing.
-func TestTheMountRetriesOnANonZeroExit(t *testing.T) {
-	body, err := os.ReadFile("share.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := stripGoComments(string(body))
-	i := strings.Index(src, "func (d *Driver) mountOnce(")
-	if i < 0 {
-		t.Fatal("no mountOnce")
-	}
-	rest := src[i:]
-	if end := strings.Index(rest[1:], "\nfunc "); end > 0 {
-		rest = rest[:end+1]
-	}
-	if !strings.Contains(rest, "res.Status != 0") {
-		t.Fatal("`mountOnce` does not check `res.Status`, so a command that exited non-zero is " +
-			"reported as a successful mount - measured on Windows as thirty failed `net use` calls " +
-			"described as one success")
-	}
-	if !strings.Contains(rest, "return fmt.Errorf") {
-		t.Fatal("`mountOnce` never returns an error of its own, so nothing can retry")
-	}
-}
-
-// THE macOS MOUNT TABLE SPELLS THE SHARE WITH A COLON AFTER THE USER, AND THE CHECK DID NOT.
-//
-// MEASURED ON macos-vm-configure, STEP 11 OF 25 - AND THE MOUNT HAD SUCCEEDED:
-//
-//	//guest:@172.30.0.1/shared on /Users/vmuser/shared (smbfs, noowners)
-//	... the macos guest does not list //172.30.0.1/shared in its mount table after a successful mount
-//
-// THE TABLE IS PRINTED IN THE ERROR MESSAGE AND CONTRADICTS IT. `mount_smbfs` writes the user with a
-// TRAILING COLON because the colon separates user from password in its own URL syntax - the same
-// `user:` the command line uses to mean "this user, no password" - and the check asked for
-// `//guest@...` without it.
-//
-// A GUARD WHOSE OWN OUTPUT REFUTES IT IS THE WORST KIND, because the message reads as a broken mount
-// and the table above it says the mount is there.
-func TestTheMacOSMountCheckMatchesTheRealSpelling(t *testing.T) {
-	body, err := os.ReadFile("share.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := stripGoComments(string(body))
-	i := strings.Index(src, "func mountsShare(")
-	if i < 0 {
-		t.Fatal("no mountsShare")
-	}
-	rest := src[i:]
-	if end := strings.Index(rest[1:], "\nfunc "); end > 0 {
-		rest = rest[:end+1]
-	}
-	// THE COLON IS PART OF THE SPELLING.
-	if !strings.Contains(rest, "//guest:@172.30.0.1/shared") {
-		t.Fatal("the macOS mount check does not look for `//guest:@172.30.0.1/shared`, which is what " +
-			"`mount` prints - measured on macos-vm-configure as a working mount reported missing")
-	}
-	if strings.Contains(rest, `"//guest@172.30.0.1/shared"`) {
-		t.Fatal("the check still looks for the form without the colon")
-	}
-}
-
-// EVERY BRANCH MAKES ITS OWN MOUNT POINT.
-//
-// MEASURED ON linux-ubuntu-vm, ON THE FIRST RUN WHERE THE VM LEG ACTUALLY GOT THE SSH DISK:
-//
-//	the input disk is linux-ubuntu-ssh
-//	status: failed step 15/23 "mount the host share"
-//	error: mount the host share: ... exit 1: Couldn't chdir to /home/vmuser/shared:
-//	       No such file or directory
-//
-// A MOUNT NEEDS A MOUNT POINT, and the macOS branch has had `mkdir -p ~/shared` since the rewrite
-// while the Linux branch never did. The note beside the Linux command said the opposite of what the
-// code did, which is how a one-line omission survived four runs.
-func TestEveryMountBranchCreatesItsMountPoint(t *testing.T) {
-	body, err := os.ReadFile("share.go")
+// HTTP needs none of that: every guest already has a client, and the daemon already has a listener.
+func TestTheShareIsServedOverHTTPAndRefusesWrites(t *testing.T) {
+	body, err := os.ReadFile("sharehttp.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(body)
-	// THE COMMAND, NOT THE PROSE. Comments above these branches quote the commands they explain, so a
-	// count over the whole file counts the explanations too. Each branch's command is a Go string
-	// literal that ENDS in its mount call, and that is what is looked for.
-	//
-	// MEASURED ON linux-ubuntu-vm: `Couldn't chdir to /home/vmuser/shared: No such file or directory`
-	// - the Linux branch mounted without making the directory, and the note beside it claimed it did.
-	for _, branch := range []struct{ name, literal string }{
-		{"macOS", "`mkdir -p ~/shared; ` +"},
-		{"Linux", "`mkdir -p ~/shared; ` +"},
+
+	for _, want := range []struct{ text, why string }{
+		{"SharePath = \"/shared/\"", "the prefix needs its trailing slash or /sharedfoo routes here"},
+		{"http.FileServer", "a hand-written handler gets ranges, If-Modified-Since and content types wrong"},
+		{"http.StripPrefix", "without it the file server looks for a directory named `shared`"},
+		{"http.MethodGet", "only GET is a share"},
+		{"http.StatusMethodNotAllowed", "a refused write must say so by name, not 404"},
+		{"escapes the shared directory", "a caller building a path by hand is not protected by " +
+			"http.FileServer's URL check"},
 	} {
-		if !strings.Contains(src, branch.literal) {
-			t.Errorf("the %s branch has no `mkdir -p ~/shared` in its command, so a guest without that "+
-				"directory answers `Couldn't chdir to ~/shared: No such file or directory`", branch.name)
+		if !strings.Contains(src, want.text) {
+			t.Fatalf("the share handler lost %q: %s", want.text, want.why)
 		}
 	}
-	// AND THERE IS ONE PER POSIX BRANCH, counted on the command literal rather than on the prose.
-	if n := strings.Count(src, "`mkdir -p ~/shared; ` +"); n < 2 {
-		t.Errorf("only %d command(s) create the mount point; both the macOS and the Linux branch need "+
-			"one", n)
+
+	// AND IT MUST NOT STILL BE TALKING TO smbd: that transport is gone, and a leftover reference in
+	// CODE means the handler is proxying to a server nothing starts. Comments may name it, because
+	// the history is the reason the file looks the way it does.
+	code := stripGoComments(src)
+	for _, gone := range []string{"smbd", "mount_smbfs", "New-SmbMapping", "ServeShare("} {
+		if strings.Contains(code, gone) {
+			t.Fatalf("sharehttp.go still CALLS %q, which is the transport this replaced", gone)
+		}
 	}
 }
 
-// THE WINDOWS SHARE MUST LAND WHERE THE PROOF READS IT.
+// THE LAUNCHER FETCHES INSTEAD OF WAITING FOR A MOUNT.
 //
-// MEASURED ON windows-vm-configure, STEP 13 OF 20 - AND THE MOUNT ITSELF REPORTED SUCCESS:
-//
-//	share: SMB_MAPPED
-//	share: Volume in drive C is Windows
-//	share: Directory of C:\Users\vmuser
-//	share: File Not Found
-//	error: the guest cannot see a file this host wrote into /github/home/shared
-//
-// `New-SmbMapping` WITHOUT `-LocalPath` INVENTS A DRIVE LETTER. Nothing knows which one, so the
-// verification's `dir` fell back to the working directory and the sentinel the host had just written
-// came back "File Not Found" - a successful mount reported as a failed one.
-//
-// THE PROOF READS `%USERPROFILE%\shared\<sentinel>`, so that path has to resolve to the share. A
-// junction does it, and a drive letter cannot.
-func TestTheWindowsShareIsMountableAtThePathTheProofReads(t *testing.T) {
-	body, err := os.ReadFile("share.go")
+// THIS IS THE ONE CONSUMER OF THE SHARE THAT MATTERED: a login hook that runs bootstrap.sh from it.
+// Under SMB it waited for the mount; under HTTP it fetches, and the two failures it must keep apart
+// are "the server is not ready yet" and "the file is not there".
+func TestTheLauncherFetchesOverHTTP(t *testing.T) {
+	body, err := os.ReadFile("../bootstrap/bootstrap.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(body)
-	i := strings.Index(src, `case "windows":`)
-	if i < 0 {
-		t.Fatal("the windows branch is gone")
-	}
-	end := strings.Index(src[i:], `case "macos":`)
-	if end < 0 {
-		t.Fatal("cannot find the end of the windows branch")
-	}
-	branch := src[i : i+end]
 
-	if !strings.Contains(branch, "mklink") {
-		t.Error("the windows branch does not create a junction, so the share has no fixed path. " +
-			"`New-SmbMapping` without `-LocalPath` picks its own drive letter and the proof, which " +
-			"reads the sentinel under the user profile, sees the working directory instead")
+	if !strings.Contains(src, "curl -fsS") {
+		t.Fatal("the POSIX launcher does not fetch with curl; waiting for a mount is the mechanism " +
+			"that could not work on FreeBSD")
 	}
-	if !strings.Contains(branch, `-Password ''`) {
-		t.Error("the windows branch no longer passes an empty password; the share account has no " +
-			"password and `null passwords = yes` is what accepts it")
+	if !strings.Contains(src, "Invoke-WebRequest") {
+		t.Fatal("the Windows launcher does not fetch with Invoke-WebRequest; Windows ships it and " +
+			"needs no credential, unlike the SMB mapping it replaced")
 	}
-	if !strings.Contains(branch, "USERPROFILE") {
-		t.Error("the windows branch does not use the user profile, so the junction is not at the " +
-			"path the proof reads")
+	if !strings.Contains(src, "after $i attempt(s)") {
+		t.Fatal("the launcher does not report how many attempts it made, so \"the server was not " +
+			"ready\" and \"the file is not there\" produce the same sentence")
 	}
-}
-
-// FREEBSD CANNOT REACH THIS SERVER WITH ITS OWN CLIENT, SO THE BRANCH MUST NOT USE IT.
-//
-// MEASURED, with a capture on the guest's own vtnet0 during a `mount_smbfs` attempt:
-//
-//	172.30.0.2.27350 > 172.30.0.1.139: Flags [S]   mount_smbfs dials NetBIOS 139
-//	172.30.0.1.139 > 172.30.0.2.27350: Flags [R.]   nothing listens there
-//	mount_smbfs: unable to open connection: syserr = Connection refused
-//
-// netsmb implements SMB1 and cannot speak the SMB3 this smbd serves on 445, and smbd is shared with
-// three other guests that need `server min protocol` and `smb ports = 445` exactly as they are. 15.1's
-// manual page says the limit outright: "mount_smbfs offers support for SMB/CIFS/SMB1. It does not
-// support newer versions of the protocol like SMB2 and SMB3."
-//
-// THIS TEST IS A GUARD RATHER THAN A PREFERENCE. `mount_smbfs` looks like the obvious choice, it is
-// what the macOS branch runs, and the failure it produces is a bare "Connection refused" that reads
-// like a network problem - nine wrong hypotheses came out of exactly that before a capture settled it.
-func TestFreeBSDUsesAModernClientAndBindsIt(t *testing.T) {
-	body, err := os.ReadFile("share.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := stripGoComments(string(body))
-	i := strings.Index(src, "func (d *Driver) mountOnce(")
-	if i < 0 {
-		t.Fatal("no mountOnce")
-	}
-	rest := src[i:]
-	if end := strings.Index(rest[1:], "\nfunc "); end > 0 {
-		rest = rest[:end+1]
-	}
-	bsd := rest[strings.Index(rest, `case "bsd":`):]
-	if end := strings.Index(bsd, "default:"); end > 0 {
-		bsd = bsd[:end]
-	}
-
-	if strings.Contains(bsd, "mount_smbfs") {
-		t.Fatal("the bsd branch still runs `mount_smbfs`, which speaks only SMB1 on port 139 and " +
-			"cannot reach this smbd - measured as a TCP RST on 139 and `syserr = Connection refused`")
-	}
-	if !strings.Contains(bsd, "smbnetfs") {
-		t.Fatal("the bsd branch does not run `smbnetfs`, the ports client that negotiates SMB3 on 445")
-	}
-	// THE BIND IS WHAT MAKES ~/shared MEAN THE SAME THING HERE AS ON THE OTHER THREE.
-	if !strings.Contains(bsd, "nullfs") {
-		t.Fatal("the bsd branch does not bind the smbnetfs mount with nullfs, so ~/shared is not the " +
-			"share itself - smbnetfs mounts a browser view at <mount>/<ip>/<share>")
-	}
-	if !strings.Contains(bsd, "-o allow_other") {
-		t.Fatal("smbnetfs is started without `-o allow_other`, so the unprivileged account cannot " +
-			"read its own share - measured as `mount_fusefs: Operation not permitted (FUSE daemon " +
-			"requires privileges due to 'allow_other' option)` when it is missing")
-	}
-	// THE CONFIG IS UNDER /root BECAUSE ROOT IS WHO MOUNTS IT, and `su -m` does not change HOME.
-	if !strings.Contains(bsd, "/root/.smb/") {
-		t.Fatal("the config is not written under /root/.smb; a `su -m vmuser` keeps HOME=/root, so " +
-			"the client reads /root/.smb while the config sits in a home nothing looks at - measured " +
-			"as `WARNING!!! Configuration directory /root/.smb is not found`")
-	}
-}
-
-// THE SHARE CLIENT IS INSTALLED IN THE VM STAGE, LIKE THE OTHER THREE GUESTS DO IT.
-//
-// MEASURED by reading the sibling files: `linux/ubuntu/steps/vm-configure.yaml` runs
-// `apt-get install -y cifs-utils` from an ssh shell with the same NOPASSWD sudo this guest has, and
-// windows and macos fetch `guest_agent` in their vm stages. NONE of them puts a share client in an
-// install stage.
-//
-// THIS WAS WRONG ONCE, and the reason it looked right was a claim nobody checked - that the install
-// stage is the only shell with both root and a network. `vmuser` is in `wheel` and the install stage
-// writes `vmuser ALL=(ALL) NOPASSWD:ALL`, so `sudo -S pkg install` works from an ssh step. Putting it
-// in install also meant a 25-minute reinstall to add a 200 KB package.
-func TestTheShareClientIsInstalledInTheVMStageNotTheInstall(t *testing.T) {
-	for _, tc := range []struct {
-		path  string
-		want  bool
-		why   string
-	}{
-		{"../../bsd/freebsd/steps/install.yaml", false,
-			"the install stage installs the share client again. The other three guests install theirs " +
-				"in vm-configure, and a 25-minute reinstall to add a 200 KB package is not a trade " +
-				"this chain should make"},
-		{"../../bsd/freebsd/steps/vm-configure.yaml", true,
-			"the vm stage does not install `fusefs-smbnetfs`, so `share_mount` runs a client that is " +
-				"not on the disk - and the base `mount_smbfs` cannot reach this server at all"},
-	} {
-		body, err := os.ReadFile(tc.path)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.path, err)
-		}
-		has := strings.Contains(string(body), "fusefs-smbnetfs")
-		if has != tc.want {
-			t.Fatalf("%s: fusefs-smbnetfs present = %v, want %v. %s", tc.path, has, tc.want, tc.why)
-		}
-	}
-}
-
-// THE FREEBSD MOUNT CHECK LOOKS FOR THE BIND, NOT FOR AN SMB URL.
-//
-// MEASURED on a disk where the mount WORKED:
-//
-//	/mnt/smb/172.30.0.1/shared on /home/vmuser/shared (nullfs)
-//
-// There is no `//172.30.0.1/shared` in that line at all - the kernel reports the BIND, because
-// ~/shared is a nullfs mount whose source is the smbnetfs path. A check for the URL would report a
-// working mount as missing, which is the one failure this switch exists to prevent.
-func TestTheFreeBSDMountCheckMatchesTheBind(t *testing.T) {
-	body, err := os.ReadFile("share.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := stripGoComments(string(body))
-	i := strings.Index(src, "func mountsShare(")
-	if i < 0 {
-		t.Fatal("no mountsShare")
-	}
-	rest := src[i:]
-	if end := strings.Index(rest[1:], "\nfunc "); end > 0 {
-		rest = rest[:end+1]
-	}
-	bsd := rest[strings.Index(rest, `case "bsd":`):]
-	if end := strings.Index(bsd, "default:"); end > 0 {
-		bsd = bsd[:end]
-	}
-
-	if !strings.Contains(bsd, "/mnt/smb/172.30.0.1/shared") {
-		t.Fatal("the bsd mount check does not look for the smbnetfs source path " +
-			"`/mnt/smb/172.30.0.1/shared`, which is what the nullfs line names")
-	}
-	if !strings.Contains(bsd, "nullfs") {
-		t.Fatal("the bsd mount check does not require `nullfs` in the line, so a bare smbnetfs mount " +
-			"that never reached the share would pass")
-	}
-	if strings.Contains(bsd, "//guest:@172.30.0.1/shared") {
-		t.Fatal("the bsd mount check still looks for the mount_smbfs spelling, which this branch no " +
-			"longer produces")
+	// `fetch` is in the FreeBSD base system and curl is not guaranteed there, so the guest-side
+	// check tries both. This is the one place a platform-specific client is still named.
+	if !strings.Contains(src, "fetch -qo -") {
+		t.Log("note: the FreeBSD proof path falls back to `fetch`; if that changed, verify the guest " +
+			"command in internal/run/actions.go still names something FreeBSD ships")
 	}
 }

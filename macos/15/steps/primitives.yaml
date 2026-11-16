@@ -66,7 +66,7 @@ steps:
 - name: serve the host share
   share_serve: true
   timeout: 60
-- name: mount the host share
+- name: prove the guest can fetch from the host share
   share_mount: true
   share_family: macos
   requires:
