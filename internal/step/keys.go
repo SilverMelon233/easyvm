@@ -185,6 +185,15 @@ var Keys = map[string]Key{
 		Summary: "run on a throwaway diff over the read-only source"},
 	"disk_gb": {Name: "disk_gb", Kind: KindInt,
 		Summary: "size of a disk this step creates"},
+	// THE PARTITION TABLE, FOR AN INSTALLER THAT EXPECTS ONE TO EXIST.
+	//
+	// Android-x86's first pane lists the partitions it FINDS; given a blank disk it hands the run to
+	// cgdisk, whose seventeen line prompts take `260M` and `EF00` as TYPED TEXT and where one
+	// misaligned key silently retypes the ESP as "Linux filesystem".
+	"disk_gpt": {Name: "disk_gpt", Kind: KindBool,
+		Summary: "partition the created disk: a 260 MiB ESP typed EF00 at LBA 2048, Linux on the rest"},
+	"disk_esp_mib": {Name: "disk_esp_mib", Kind: KindInt,
+		Summary: "size of that ESP; 260 is what the installer draws as 0.25GB"},
 	"disk_settle": {Name: "disk_settle", Kind: KindFloat,
 		Summary: "wait until the target qcow2 stops growing for this many quiet seconds"},
 	"disk_min_mb": {Name: "disk_min_mb", Kind: KindInt,
@@ -383,6 +392,27 @@ var Keys = map[string]Key{
 		Summary: "write one of the login/bootstrap files on the HOST, for the scp: after it. " +
 			"Kinds: launcher, macos_agent_plist, macos_mount_script, macos_mount_plist, " +
 			"windows_task"},
+	// THE UEFI FALLBACK PATH, PUT ON A DISK THAT IS NOT RUNNING.
+	//
+	// AN INSTALLER THAT REGISTERS ITS LOADER WITH `efibootmgr` PUTS THE ENTRY IN THE NVRAM, NOT ON
+	// THE DISK, and this repository makes a FRESH variable store for every boot - deliberately, so a
+	// guest cannot inherit an entry naming a disk somebody else wrote. Firmware with an empty NVRAM
+	// looks in exactly one place:
+	//
+	//	\EFI\BOOT\BOOTX64.EFI
+	//
+	// which is why a disk whose installer wrote /EFI/BLISSOS still boots to
+	//
+	//	BdsDxe: No bootable option or device was found.
+	//
+	// This step copies the loader tree to that path and rewrites the config's `search.fs_uuid`, a
+	// UUID recorded BEFORE the installer formatted the partition - so it names a filesystem that no
+	// longer exists.
+	"esp_fallback": {Name: "esp_fallback", Kind: KindString,
+		Summary: "copy a disk's EFI loader tree to \\EFI\\BOOT and repair its config search; the " +
+			"value is the disk, or `disk` for the one this stage built"},
+	"esp_from": {Name: "esp_from", Kind: KindString,
+		Summary: "with esp_fallback: the loader directory inside the ESP, default /EFI/BLISSOS"},
 	// --- the three-step model ---------------------------------------------------------------
 	//
 	// ONE OCR STEP, ONE CONDITION STEP, AND A LOOP THAT NAMES ALL THREE. The six keys they replace

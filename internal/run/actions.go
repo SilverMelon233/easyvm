@@ -359,6 +359,27 @@ func (e *Executor) createDisk(s walk.Step) error {
 	e.Driver.Log(fmt.Sprintf("  %s: %d KiB (a qcow2 grows as it is written)", filepath.Base(path),
 		fi.Size()>>10))
 
+	// A GPT IS WRITTEN HERE RATHER THAN BY THE INSTALLER, AND THAT IS A MEASURED REQUIREMENT.
+	//
+	// Android-x86's first pane lists the partitions IT FINDS. Given a blank disk it offers
+	// "Create/Modify partitions" and the walkthrough has to drive cgdisk - seventeen line prompts in
+	// a TUI that accepts `260M`, `EF00` and a name as TYPED LINES, where one misaligned key silently
+	// changes the ESP's type to "Linux filesystem" and the install then has no ESP at all.
+	//
+	// Given the table below it shows `vda1 0.25GB` already selected, and ten key presses finish the
+	// install. The ESP must also be 1 MiB aligned and typed EF00 - measured, twice: a table whose
+	// first partition starts at LBA 34 makes the installer report "No ESP is selected", and one
+	// whose ESP type GUID is not C12A7328-F81F-11D2-BA4B-00A0C93EC93B makes it answer "This is not
+	// an EFI System Partition, please check again".
+	if s.Has("disk_gpt") {
+		espMiB, _ := s.Float("disk_esp_mib", 260)
+		if err := writeGPT(path, gb, int(espMiB)); err != nil {
+			return fail(s.Name, "%v", err)
+		}
+		e.Driver.Log(fmt.Sprintf("  GPT: ESP %d MiB at LBA 2048 (type EF00), the rest Linux",
+			int(espMiB)))
+	}
+
 	if setter, ok := e.Driver.Machine().(interface{ SetDisk(string) }); ok {
 		setter.SetDisk(path)
 	}

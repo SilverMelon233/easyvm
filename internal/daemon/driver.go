@@ -702,17 +702,15 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	// (its HWC opens /dev/dri/card0 and a std VGA has no DRM node), and the default otherwise. The
 	// resolution rides on the `-device` form because `-vga` cannot carry one.
 	//
-	// AN ANDROID GUEST REFUSES EVERY OTHER VALUE OF `--vga` RATHER THAN IGNORING IT, because the
-	// failure is invisible: a std VGA gives Android no DRM node, it brings up no display, and the
-	// screen stops on initrd's last line with nothing in the console - which reads as a hang and was
-	// chased at 240 s, 600 s and 600 s again. A run that asked for `--vga std` would look like a
-	// machine that will not boot, so the request is refused by name here.
-	if boot.OS == machine.Android && opts.VGA != "" && opts.VGA != machine.AndroidVGA {
-		return fmt.Errorf("`os: android` needs `--vga %s`, not %q: its HWC opens /dev/dri/card0, "+
-			"and any other adapter gives it a framebuffer with no DRM device - Android then draws "+
-			"nothing and the screen stops on initrd's last line with no error", machine.AndroidVGA,
-			opts.VGA)
-	}
+	// AN ANDROID GUEST CANNOT BE TALKED OUT OF `virtio`, AND THE GUARD IS IN `VGA` RATHER THAN HERE.
+	//
+	// `CommonOptions.Normalise` fills an unset `VGA` with `std`, so by the time a caller reaches this
+	// switch every request LOOKS explicit - a check here refused every android boot, including the
+	// ones that asked for nothing, which is how this was found: `boot: os: android needs --vga
+	// virtio, not "std"` on a walkthrough that had never mentioned VGA at all.
+	//
+	// So `Boot.VGA` ignores its argument for this family and answers `virtio` regardless;
+	// `TestAndroidRefusesAnyOtherAdapter` holds that for std, cirrus, qxl and vmware.
 	switch boot.VGA(opts.VGA) {
 	case "none":
 		args = append(args, "-vga", "none")

@@ -26,6 +26,9 @@ func ExecutableKeys() []string {
 		"at_button", "host_log", "run", "disk_settle", "do",
 		"repeat_until",
 		"demo_script",
+		// A DISK EDIT, NOT A GUEST ACTION. It has its own branch because the guest it belongs to has
+		// usually just been shut down - qemu holds the qcow2's write lock while it runs.
+		"esp_fallback",
 		"wait",
 	}
 }

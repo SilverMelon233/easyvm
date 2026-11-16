@@ -299,6 +299,13 @@ func (e *Executor) runOne(s walk.Step) error {
 	// THE ACTION COMES FIRST AND THE CHECK IS PART OF IT, so `run` is matched before `expect`.
 	case s.Has("run"):
 		return e.doRun(s)
+	// THE UEFI FALLBACK PATH RUNS ON THE HOST, AGAINST A DISK THAT IS NOT RUNNING.
+	//
+	// It cannot be a `run:` step: that one types into the guest, and this guest is the INSTALLER with
+	// no shell to type into. It is also not a guest action at all - it edits a FAT filesystem inside
+	// a qcow2 at byte offsets, which is what `esp_fallback:` exists for.
+	case s.Has("esp_fallback"):
+		return e.doESPFallback(s)
 	// AND SO IS EVERY OTHER ACTION THAT CARRIES ITS OWN CHECK.
 	//
 	// `at_window` AND `at_button` ARE CLICKS WITH A `expect_any:` AFTER THEM, and dispatching them below
@@ -764,6 +771,11 @@ func stepNeedsAGuest(s walk.Step) bool {
 	switch {
 	// the ending of a walk, and anything that turns files into other files
 	case s.Has("shutdown"), s.Has("compress"), s.Has("publish"), s.Has("snapshot"):
+		return false
+	// AND ANYTHING THAT EDITS A DISK RATHER THAN ASKS A GUEST. `esp_fallback:` opens the qcow2 with
+	// qemu-io and rewrites FAT structures at byte offsets; the machine it belongs to has usually
+	// just been shut down, which is the point - qemu holds the write lock while it runs.
+	case s.Has("esp_fallback"):
 		return false
 	case hasKey(s, "record"):
 		// `record: false` stops the sampler; the string form starts one and needs a screen.
