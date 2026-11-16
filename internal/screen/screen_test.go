@@ -450,3 +450,95 @@ func TestEveryNamedDesktopFamilyIsDispatched(t *testing.T) {
 		}
 	}
 }
+
+// EVERY DESKTOP-ENVIRONMENT KEY THE WALKTHROUGHS USE IS DISPATCHED, AND EACH ONE IS A REAL
+// MEASUREMENT RATHER THAN A COPY-PASTE THAT NOTHING CALLS.
+//
+// THE KEYS NAME THE ENVIRONMENT, NOT THE DISTRIBUTION, because two media that run KDE draw one
+// desktop and two that run different environments do not. The distribution reaches the key by the
+// desktop its ISO carries:
+//
+//	kde        kubuntu, cachyos, endeavouros, manjaro, opensuse-leap-16.1
+//	gnome      ubuntu, popos, fedora-workstation, nixos, zorin
+//	cinnamon   mint
+//	xfce       mx
+func TestEveryDesktopEnvironmentKeyIsDispatched(t *testing.T) {
+	body, err := os.ReadFile("../run/actions.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+	for _, key := range []string{"linux", "linux/kubuntu", "linux/kde", "linux/gnome", "linux/cinnamon", "linux/xfce"} {
+		if !strings.Contains(src, `case "`+key+`":`) {
+			t.Errorf("no `case %q:` in the desktop dispatch, so `desktop: %s` falls to the default and "+
+				"fails on a running guest", key, key)
+		}
+	}
+}
+
+// AND EVERY WALKTHROUGH NAMES ONE OF THEM. A file that says `desktop: linux/something` this build has
+// no branch for is a wait that can never be satisfied, and the failure reads as a guest that never
+// booted.
+func TestEveryWalkthroughNamesADispatchedDesktop(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join("..", "..", "linux", "*", "steps", "install.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Skip("no linux install walkthroughs here")
+	}
+	known := map[string]bool{
+		"linux": true, "linux/kubuntu": true, "linux/kde": true,
+		"linux/gnome": true, "linux/cinnamon": true, "linux/xfce": true,
+	}
+	for _, f := range files {
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(body), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "desktop:") {
+				continue
+			}
+			value := strings.TrimSpace(strings.TrimPrefix(trimmed, "desktop:"))
+			if value == "" || strings.HasPrefix(value, "-") {
+				continue
+			}
+			if !known[value] {
+				t.Errorf("%s: `desktop: %s` has no branch in the dispatch table", filepath.Base(filepath.Dir(filepath.Dir(f))), value)
+			}
+		}
+	}
+}
+
+// THE KDE BRANCH ANSWERS FOR BOTH PANEL HEIGHTS, WHICH IS THE REASON IT EXISTS.
+//
+// MEASURED on two live media: manjaro draws a 48-row panel and `IsLinuxDesktop` sees it
+// (drop=128.4); cachyos draws an 8-row panel and the same test answers false (drop=0.0, edge=16.9).
+// One environment, two heights, and a single branch has to accept both.
+func TestKDEDesktopAcceptsBothPanelHeights(t *testing.T) {
+	// A TALL PANEL: 48 rows at the bottom, brighter than the body - manjaro's shape.
+	tall := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	fill(tall, tall.Bounds(), color.RGBA{60, 20, 40, 255})
+	fill(tall, image.Rect(0, 1032, 1920, 1080), color.RGBA{230, 230, 230, 255})
+	if ok, st := IsKDEDesktop(tall); !ok {
+		t.Fatalf("a 48-row panel must read as KDE: drop=%.1f edge=%.1f", st.BrightnessDrop, st.VarianceRatio)
+	}
+
+	// A THIN PANEL: the last 8 rows only, which the band average dilutes - cachyos' shape.
+	thin := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	fill(thin, thin.Bounds(), color.RGBA{22, 22, 22, 255})
+	fill(thin, image.Rect(0, 1072, 1920, 1080), color.RGBA{46, 46, 46, 255})
+	if ok, st := IsKDEDesktop(thin); !ok {
+		t.Fatalf("an 8-row panel must also read as KDE, and that is the reason this branch exists: "+
+			"drop=%.1f edge=%.1f", st.BrightnessDrop, st.VarianceRatio)
+	}
+
+	// AND AN INSTALLER IS NOT A DESKTOP AT EITHER HEIGHT: one flat window, no bar.
+	win := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	fill(win, win.Bounds(), color.RGBA{222, 222, 222, 255})
+	if ok, _ := IsKDEDesktop(win); ok {
+		t.Fatal("a flat Calamares window must not read as a KDE desktop")
+	}
+}

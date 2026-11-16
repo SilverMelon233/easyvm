@@ -27,11 +27,29 @@ steps:
   iso: installer_iso
   timeout: 1800
 
-# CACHYOS BOOTS TO A REAL KDE DESKTOP WITH A PANEL, so `desktop: linux` sees it - unlike Kubuntu,
-# whose first screen is a launcher with no panel. MEASURED: the bottom panel is there from the first
-# frame, and `IsLinuxDesktop` answers true.
+# `desktop: linux/kde`, BECAUSE THIS MEDIUM'S PANEL IS EIGHT ROWS TALL AND THE BAND TEST
+# CANNOT SEE IT - AND ITS KDE SIBLINGS DRAW A FORTY-EIGHT ROW PANEL THAT THE BAND TEST SEES FINE.
+#
+# MEASURED with the CachyOS Hello window open:
+#
+#	IsLinuxDesktop=false   drop=0.0   topVar=9.5   bottomVar=12.5
+#
+# `IsLinuxDesktop` averages the bottom 4.5% of the frame - about 48 rows - and looks for a flat band
+# whose brightness differs from the body by more than 40. CachyOS draws its panel in the last EIGHT
+# rows, so the average is forty rows of dark wallpaper plus eight of panel and the difference is gone.
+#
+# THE EDGE IS THERE WHEN IT IS MEASURED WHERE IT IS DRAWN:
+#
+#	1071: 22.1
+#	1072: 39.1   d=+17.0   <- the panel's top edge
+#	1073: 40.3 ... 46.6 at the bottom
+#
+# `screen.IsKDEDesktop` tries the band average and then the row step, so ONE branch answers for both
+# heights: manjaro's 48-row panel and this one's 8-row panel are the same desktop environment drawn
+# differently, and a test that answered differently for them would be measuring the panel's height
+# rather than the desktop's existence.
 - name: wait for the live desktop
-  desktop: linux
+  desktop: linux/kde
   timeout: 5400
   poll: 5
   keep_alive: true

@@ -29,7 +29,7 @@ steps:
 
 # ENDEAVOUROS BOOTS TO A REAL KDE DESKTOP WITH A PANEL, so `desktop: linux` sees it.
 - name: wait for the live desktop
-  desktop: linux
+  desktop: linux/kde
   timeout: 5400
   poll: 5
   keep_alive: true

@@ -985,3 +985,136 @@ func bandMean(img image.Image, w, h int, lo, hi float64) [3]float64 {
 	band, _ := bandStats(img, w, h, lo, hi)
 	return band
 }
+
+// IsCachyOSDesktop reports whether a frame is the KDE desktop CachyOS' live medium boots to.
+//
+// IT IS A SEPARATE TEST BECAUSE CACHYOS' PANEL IS EIGHT PIXELS TALL AND `IsLinuxDesktop` CANNOT SEE IT.
+//
+// MEASURED on this image, with the CachyOS Hello window open:
+//
+//	IsLinuxDesktop=false   drop=0.0   topVar=9.5   bottomVar=12.5
+//
+// `IsLinuxDesktop` averages the bottom 4.5% of the frame - about 48 rows at 1080 - and looks for a
+// flat band whose brightness differs from the body by more than 40. CachyOS draws its panel in the
+// last EIGHT rows (y=1072..1080), so the average is 40 rows of dark wallpaper plus 8 rows of panel
+// and the difference disappears. The edge is unmistakable when it is measured where it is:
+//
+//	1071: 22.1
+//	1072: 39.1   d=+17.0   <- the panel's top edge
+//	1073: 40.3
+//	...  46.6  to the bottom
+//
+// SO THIS TEST LOOKS FOR A STEP IN THE LAST FEW ROWS instead of a band's average, which is the same
+// question `IsLinuxDesktop` asks - "is there a bar along the bottom" - asked at the resolution this
+// medium draws it.
+func IsCachyOSDesktop(img image.Image) (bool, Stats) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	st := Stats{Width: w, Height: h}
+	if w == 0 || h < 40 {
+		return false, st
+	}
+
+	rowMean := func(y int) float64 {
+		var sum float64
+		var n int
+		for x := b.Min.X; x < b.Max.X; x += 4 {
+			r, g, bl := rgb8(img.At(x, y))
+			sum += float64(r+g+bl) / 3
+			n++
+		}
+		if n == 0 {
+			return 0
+		}
+		return sum / float64(n)
+	}
+
+	// THE PANEL IS THE LAST FEW ROWS, SO THE STEP IS LOOKED FOR IN THE LAST EIGHTEEN.
+	//
+	// A step of 10 or more between consecutive rows is far above the 1-2 that a gradient or a
+	// wallpaper produces, and far below the 17 measured here. The direction is not fixed: a light
+	// theme draws a brighter bar, a dark one a darker bar, and what identifies a panel is the EDGE.
+	var best float64
+	bestAt := 0
+	for y := b.Max.Y - 18; y < b.Max.Y; y++ {
+		if y <= b.Min.Y {
+			continue
+		}
+		d := rowMean(y) - rowMean(y-1)
+		if d < 0 {
+			d = -d
+		}
+		if d > best {
+			best, bestAt = d, y
+		}
+	}
+	st.BrightnessDrop = best
+	st.TopMean = [3]float64{rowMean(b.Max.Y - 4), rowMean(b.Max.Y - 4), rowMean(b.Max.Y - 4)}
+	st.BottomMean = [3]float64{rowMean(b.Max.Y - 2), rowMean(b.Max.Y - 2), rowMean(b.Max.Y - 2)}
+	st.VarianceRatio = float64(bestAt)
+
+	return best >= 10, st
+}
+
+// IsKDEDesktop reports whether a frame is a KDE Plasma desktop, whatever height its panel is.
+//
+// KDE IS ONE DESKTOP ENVIRONMENT AND ITS PANEL IS NOT ONE HEIGHT. MEASURED on two live media that
+// both run Plasma:
+//
+//	manjaro     panel 48 rows    IsLinuxDesktop=true   drop=128.4   edge= 6.9
+//	cachyos     panel  8 rows    IsLinuxDesktop=false  drop=  0.0   edge=16.9
+//
+// `IsLinuxDesktop` averages the bottom 4.5% of the frame, so a forty-eight row panel survives that
+// average and an eight row one does not: forty rows of wallpaper plus eight of panel is a difference
+// of nothing. The two media are the same desktop drawn with different panel heights, and a test that
+// answers differently for them is measuring the panel's height rather than the desktop's existence.
+//
+// SO BOTH MEASUREMENTS ARE TRIED, IN THE ORDER THAT COSTS LEAST:
+//
+//	the band average, which is `IsLinuxDesktop` and works for a normal panel
+//	the row-to-row step in the last eighteen rows, which is what an eight row panel produces
+//
+// A frame that satisfies either is a Plasma desktop. The installers these media boot satisfy
+// neither: Calamares draws one flat window with no bar along any edge.
+func IsKDEDesktop(img image.Image) (bool, Stats) {
+	if ok, st := IsLinuxDesktop(img); ok {
+		return true, st
+	}
+	return IsCachyOSDesktop(img)
+}
+
+// IsGNOMEDesktop reports whether a frame is a GNOME desktop.
+//
+// GNOME DRAWS A TOP PANEL AND THE SAME BAND TEST SEES IT - measured on zorin (a GNOME derivative) at
+// `drop=114.0`, which is a thirty-two row bar over a lighter body. Ubuntu, popos, fedora-workstation,
+// nixos and zorin all run it, so one measurement serves all five.
+//
+// THIS IS `IsLinuxDesktop` UNDER A NAME THAT SAYS WHICH ENVIRONMENT IT IS FOR, AND THE NAME IS HONEST
+// ABOUT WHAT IT CANNOT DO: it answers "a desktop with a bar along an edge is up", not "this is GNOME
+// and not Cinnamon". Both media that run GNOME and media that run Cinnamon pass it, because they draw
+// the same shape.
+//
+// THE NAME EARNS ITS KEEP IN THE DISPATCH TABLE, NOT IN THE ARITHMETIC. A reader of
+// `desktop: linux/gnome` can find the test that answers it, and the day a GNOME draws its bar in a
+// way this cannot see, that change lands here rather than in every caller.
+func IsGNOMEDesktop(img image.Image) (bool, Stats) {
+	return IsLinuxDesktop(img)
+}
+
+// IsCinnamonDesktop reports whether a frame is a Cinnamon desktop.
+//
+// CINNAMON IS A GNOME FORK AND DRAWS THE SAME SHAPE: a bar along an edge over a body. Measured on
+// mint's live medium. It is a separate name for the same reason GNOME's is separate - so the dispatch
+// table says which medium uses which desktop, and so a change for one does not silently change the
+// other. The measurement is shared and this comment says so.
+func IsCinnamonDesktop(img image.Image) (bool, Stats) {
+	return IsLinuxDesktop(img)
+}
+
+// IsXFCEDesktop reports whether a frame is an XFCE desktop.
+//
+// XFCE'S PANEL IS THE ONE `IsLinuxDesktop` WAS WRITTEN AGAINST - a thirty-to-forty row bar, often at
+// the top - and mint's XFCE sibling and mx both draw it. Measured on mx's medium.
+func IsXFCEDesktop(img image.Image) (bool, Stats) {
+	return IsLinuxDesktop(img)
+}

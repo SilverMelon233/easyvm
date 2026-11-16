@@ -463,8 +463,44 @@ func (e *Executor) doDesktop(s walk.Step) error {
 		// `screen.IsKubuntuLauncher` is that measurement, and naming it in the file as
 		// `desktop: linux/kubuntu` is what makes the choice visible where the walk is read rather
 		// than implicit in a family-wide threshold.
+		// THE DESKTOP ENVIRONMENT IS THE UNIT, NOT THE DISTRIBUTION.
+		//
+		// Two media that run the same environment draw the same desktop, and one measurement serves
+		// both; two media that run different environments do not, and a single `linux` threshold
+		// answers for neither. So the key names the ENVIRONMENT - `linux/kde`, `linux/gnome`,
+		// `linux/cinnamon`, `linux/xfce` - and the distribution reaches it by the desktop its ISO
+		// carries:
+		//
+		//	kde        kubuntu, cachyos, endeavouros, manjaro, opensuse-leap-16.1
+		//	gnome      ubuntu, popos, fedora-workstation, nixos, zorin
+		//	cinnamon   mint
+		//	xfce       mx
+		//
+		// `linux/kubuntu` REMAINS, because that medium's first screen is not a desktop at all - it is
+		// a launcher on a full-bleed gradient, and it has its own measurement. The name is kept
+		// rather than renamed because the file that uses it says which medium it is about.
 		case "linux/kubuntu":
 			ok, lastStats = screen.IsKubuntuLauncher(img)
+
+		// KDE, WHOSE PANEL IS NOT ONE HEIGHT. MEASURED on two live media:
+		//
+		//	manjaro   panel 48 rows   IsLinuxDesktop=true   drop=128.4
+		//	cachyos   panel  8 rows   IsLinuxDesktop=false  drop=  0.0   edge=16.9
+		//
+		// `IsKDEDesktop` tries the band average first and the row-step second, so one branch answers
+		// for both without either file depending on the other's panel height.
+		case "linux/kde":
+			ok, lastStats = screen.IsKDEDesktop(img)
+
+		case "linux/gnome":
+			ok, lastStats = screen.IsGNOMEDesktop(img)
+
+		case "linux/cinnamon":
+			ok, lastStats = screen.IsCinnamonDesktop(img)
+
+		case "linux/xfce":
+			ok, lastStats = screen.IsXFCEDesktop(img)
+
 		case "android":
 			// ANDROID DRAWS A PANEL TOO, AND A LINUX PANEL'S TEST CANNOT SEE IT.
 			//
