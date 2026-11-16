@@ -5,7 +5,7 @@ resolution:
 vars:
   hostname:
     from: args.hostname
-    default: easyvm-windows11
+    default: easyvm-win11
   timezone:
     from: args.timezone
     default: America/Los_Angeles

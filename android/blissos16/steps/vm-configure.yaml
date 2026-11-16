@@ -29,7 +29,7 @@ resolution:
 vars:
   hostname:
     from: args.hostname
-    default: easyvm-blissos16
+    default: easyvm-bliss
   timezone:
     from: args.timezone
     default: America/Los_Angeles
