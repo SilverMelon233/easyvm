@@ -178,7 +178,7 @@ steps:
 #
 # Welcome -> Location
 - name: next from welcome
-  click: [1356, 753]
+  click: [1356, 751]
   wait_after: 8
 
 # Location IS LEFT AS IT IS: Asia/Hong Kong and English (Hong Kong SAR China) are the defaults and
@@ -204,7 +204,7 @@ steps:
 
 # Keyboard -> Bootloader. The Generic 105-key PC and Default layout are the defaults.
 - name: next from keyboard
-  click: [1356, 753]
+  click: [1356, 834]
   wait_after: 8
 
 - name: the bootloader page
@@ -222,7 +222,7 @@ steps:
 # btrfs-specific machinery. MEASURED: the list is GRUB / rEFInd / rEFInd + AI SDK / systemd-boot /
 # Limine, Limine preselected, and GRUB is at (440, 313).
 - name: choose grub
-  click: [440, 313]
+  click: [500, 305]
   wait_after: 5
 
 - name: grub is selected
@@ -243,7 +243,7 @@ steps:
 # Bootloader -> Partitions. THIS MEDIUM PRESELECTS NOTHING HERE, so `Erase disk` has to be clicked
 # before it is selected - the opposite of Kubuntu, where it is already on.
 - name: next from bootloader
-  click: [1356, 753]
+  click: [1356, 791]
   wait_after: 10
 
 - name: select erase disk
@@ -267,11 +267,11 @@ steps:
 # so accepting the default produces a COW filesystem on a COW disk image. The combo is at (532, 423)
 # and its list is btrfs / xfs / ext4 / f2fs / zfs, with ext4 the third entry at (526, 516).
 - name: open the filesystem list
-  click: [532, 423]
+  click: [543, 425]
   wait_after: 5
 
 - name: choose ext4
-  click: [526, 516]
+  click: [527, 517]
   wait_after: 6
 
 - name: the page after choosing ext4
@@ -291,7 +291,7 @@ steps:
 
 # Partitions -> Desktop, where Plasma Desktop is preselected.
 - name: next from partitions
-  click: [1356, 753]
+  click: [1356, 793]
   wait_after: 10
 
 - name: the desktop page
@@ -304,7 +304,7 @@ steps:
 
 # Desktop -> Packages, where the CachyOS sets are already ticked.
 - name: next from desktop
-  click: [1356, 753]
+  click: [1356, 793]
   wait_after: 12
 
 - name: the packages page
@@ -317,7 +317,7 @@ steps:
 
 # Packages -> Users
 - name: next from packages
-  click: [1356, 753]
+  click: [1356, 793]
   wait_after: 12
 
 - name: the users page
@@ -375,7 +375,7 @@ steps:
 
 # Users -> Summary
 - name: next from users
-  click: [1356, 753]
+  click: [1356, 793]
   wait_after: 10
 
 - name: the summary page
@@ -399,7 +399,7 @@ steps:
 # sit at y=887 rather than y=791, measured - which is why a shared coordinate for both pages clicks
 # the summary's progress text and nothing happens.
 - name: start the install
-  click: [1356, 887]
+  click: [1362, 872]
   wait_after: 10
 
 - name: the confirmation dialog
@@ -413,7 +413,7 @@ steps:
 # `Install Now` INSIDE THE DIALOG, AT (1055, 616). The dialog's title is the check, so a click that
 # missed it is visible as a page with no dialog rather than as a silent no-op.
 - name: install now
-  click: [1055, 616]
+  click: [1055, 617]
   wait_after: 25
 
 # THE INSTALL WRITES FOR TWENTY MINUTES AND THE PROGRESS BAR IS THE ONLY SIGNAL. `disk_settle` waits
