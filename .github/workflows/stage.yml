@@ -241,8 +241,9 @@ jobs:
           #	=== manifest ghcr.io/easydev-org/easyvm:  iso-ubuntu-desktop
           #	##[error]  iso-ubuntu-desktop is not in the package
           #
-          # The tag IS in the package; the spaces were. GitHub renders `${{ toJSON(...) }}` inside a
-          # `run:` block with the indentation of the surrounding YAML, so the JSON arrives padded.
+          # The tag IS in the package; the spaces were. The expression below renders inside a `run:`
+          # block with the indentation of the surrounding YAML, so the JSON arrives padded - which is
+          # why the strip comes before anything else.
           # `printf '%s\n'` AND NOT `%s`: without the trailing newline the LAST pair never reaches
           # `read`, so a single asset would be skipped entirely and two would deliver one.
           # `tr -d ' \t'` AND NOT `[:space:]`: newlines must survive, because the sed below is
