@@ -26,6 +26,10 @@ on:
       disks_repository:
         description: "the ghcr repository that holds the disks"
         default: "easydev-org/easyvm"
+      from_tag:
+        description: >-
+          start from a PUBLISHED disk: linux-kubuntu or linux-kubuntu-ssh. Empty runs the whole chain. A fix to a later stage then costs that stage, not the entire bake.
+        default: ""
 
 concurrency:
   group: kubuntu
@@ -50,24 +54,25 @@ permissions:
   # live log is a check run, and publishing one needs `checks: write`.
   checks: write
 
+# THE LEGS ARE JOBS THAT DEPEND ON EACH OTHER, NOT A MATRIX.
+#
+# A MATRIX LEG THAT ASKS FOR THE TAG THE LEG BEFORE IT PUBLISHES GETS A 404 WHILE THAT LEG IS STILL
+# RUNNING, falls back to the INSTALL disk - which has no sshd - and spends its whole budget on a
+# machine that could never answer. `needs:` is the fix: a leg is not SCHEDULED until its input exists.
+#
+# THE ORDER IS install -> ssh -> vm-configure, WHICH IS THE ORDER THE DISK IS BUILT IN. This file used
+# to list them as one parallel matrix with `ssh` first, which is the same mistake one layer down.
 jobs:
-  stages:
+  install:
+    # `from_tag:` NAMES A PUBLISHED DISK AND THE CHAIN STARTS FROM IT, so the install does not run.
+    if: github.event_name != 'workflow_dispatch' || inputs.from_tag == ''
     uses: ./.github/workflows/stage.yml
     secrets: inherit
     with:
       group: kubuntu
       disks_repository: ${{ inputs.disks_repository }}
-      # THE LEGS, AS JSON. `fromJSON` in the called workflow turns this back into a matrix.
       stages: |
         [
-          {
-            "name": "linux-kubuntu-ssh",
-            "file": "linux/kubuntu/steps/ssh.yaml",
-            "pull": "linux-kubuntu",
-            "out": "linux-kubuntu-ssh.qcow2",
-            "timeout": 60,
-            "publish": "linux-kubuntu-ssh"
-          },
           {
             "name": "linux-kubuntu-install",
             "file": "linux/kubuntu/steps/install.yaml",
@@ -75,14 +80,45 @@ jobs:
             "out": "linux-kubuntu.qcow2",
             "publish": "linux-kubuntu",
             "timeout": 90
-          },
+          }
+        ]
+
+  ssh:
+    needs: [install]
+    if: always() && !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.from_tag == '' || inputs.from_tag == 'linux-kubuntu')
+    uses: ./.github/workflows/stage.yml
+    secrets: inherit
+    with:
+      group: kubuntu
+      disks_repository: ${{ inputs.disks_repository }}
+      stages: |
+        [
+          {
+            "name": "linux-kubuntu-ssh",
+            "file": "linux/kubuntu/steps/ssh.yaml",
+            "pull": "linux-kubuntu",
+            "out": "linux-kubuntu-ssh.qcow2",
+            "publish": "linux-kubuntu-ssh",
+            "timeout": 60
+          }
+        ]
+
+  vm:
+    needs: [ssh]
+    if: always() && !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.from_tag == '' || inputs.from_tag == 'linux-kubuntu' || inputs.from_tag == 'linux-kubuntu-ssh')
+    uses: ./.github/workflows/stage.yml
+    secrets: inherit
+    with:
+      group: kubuntu
+      disks_repository: ${{ inputs.disks_repository }}
+      stages: |
+        [
           {
             "name": "linux-kubuntu-vm",
             "file": "linux/kubuntu/steps/vm-configure.yaml",
             "pull": "linux-kubuntu-ssh",
-            "fallback": "linux-kubuntu",
             "out": "linux-kubuntu-vm.qcow2",
-            "timeout": 60,
-            "publish": "linux-kubuntu-vm"
+            "publish": "linux-kubuntu-vm",
+            "timeout": 60
           }
         ]
