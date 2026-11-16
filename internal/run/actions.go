@@ -175,21 +175,24 @@ func (e *Executor) assetPath(v string) string {
 	if p, ok := e.assets[v]; ok {
 		return p
 	}
-	// `driver_iso` IS THE VENDOR ISO UNDER A NAME THE BOOT STEP CAN USE. It is the file the answer
-	// CD's drivers were extracted FROM, and Setup also wants it attached so the INSTALLED system can
-	// pick up network and ballooning - "the same drivers again". Two names for one file, because
-	// the two steps care about different things: one needs the contents, the other needs the device.
-	// `installer_iso` IS THE IMAGE `fetch: linux_iso` RESOLVED. The boot step names the ROLE, and
-	// the asset layer keeps the path - so a file never spells a filename that CI chose.
-	if v == "installer_iso" {
-		if p, ok := e.assets[string(asset.LinuxISO)]; ok {
-			return p
-		}
-	}
-	if v == "driver_iso" {
-		if p, ok := e.assets[string(asset.VirtioWin)]; ok {
-			return p
-		}
+	// A NAME THAT IS NOT AN ASSET ROLE IS A PATH, AND A RELATIVE ONE IS RELATIVE TO THE WORK
+	// DIRECTORY - NOT TO THE PROCESS'S CURRENT DIRECTORY.
+	//
+	// MEASURED on run 43879668884, whose install leg had the ISO right there:
+	//
+	//	=== the media this stage boots from is already on disk
+	//	  required: freebsd.iso
+	//	error: boot the installer: boot: no the installer medium at freebsd.iso:
+	//	       stat freebsd.iso: no such file or directory
+	//
+	// `require:` joins `e.Work` and finds the file; `boot:` passed the bare name to qemu, which
+	// resolved it against the PROCESS'S directory - `/__w/easyvm/easyvm`, where no ISO lives. Two
+	// steps, two answers about one file, and the one that failed named the file rather than the
+	// directory it looked in.
+	//
+	// SO EVERY RELATIVE PATH IS JOINED HERE, once, for every role a boot step can name.
+	if !filepath.IsAbs(v) {
+		return filepath.Join(e.Work, v)
 	}
 	return v
 }
