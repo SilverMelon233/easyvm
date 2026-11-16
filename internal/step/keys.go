@@ -361,7 +361,7 @@ var Keys = map[string]Key{
 	"share_dir": {Name: "share_dir", Kind: KindString,
 		Summary: "the host directory to share; default ~/shared"},
 	"share_family": {Name: "share_family", Kind: KindString,
-		Summary: "which client the guest uses: macos, windows, linux"},
+		Summary: "which client the guest uses: macos, windows, linux, bsd"},
 
 	// --- panes: the macOS shape ---------------------------------------------------------
 	"when": {Name: "when", Kind: KindWords,

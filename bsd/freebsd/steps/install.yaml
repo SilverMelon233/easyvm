@@ -1125,6 +1125,51 @@ steps:
   - key: ret
     wait_after: 6
 
+- name: install the guest agent, which is what lets the host shut this machine down
+  # `qemu-guest-agent` IS THE FOURTH SHUTDOWN PATH, and the other three guests all have it.
+  #
+  # WHY IT IS HERE AND NOT IN vm-configure: this shell is ROOT INSIDE THE CHROOT, which is the only
+  # place in the whole chain with both root and a network. The ssh stage is the unprivileged account
+  # and vm-configure runs against a live guest, so `pkg install` belongs to this stage - the same
+  # argument that puts xfce here.
+  #
+  # ONE SHORT COMMAND, BECAUSE THE KEYBOARD HAS A LIMIT: the line that installs xfce is 119
+  # characters and adding this package would make it 136, past the point where the translator starts
+  # dropping characters. `type:` has no newline, so it cannot be wrapped either - it gets its own step.
+  do:
+  - type: env ASSUME_ALWAYS_YES=yes pkg install -y qemu-guest-agent
+    wait_after: 4
+  - key: ret
+    wait_after: 45
+  # THE POLL IS THE PROOF, NOT THE WAIT, for the same measured reason as the xfce step above.
+  - type: sh -c 'i=0; while [ $i -lt 40 ]; do pkg info qemu-guest-agent >/dev/null 2>&1 && break; sleep 5; i=$((i+1)); done; pkg info qemu-guest-agent 2>&1 | grep -E "^(Name|Version)"'
+    wait_after: 3
+  - key: ret
+    wait_after: 20
+
+- name: prove the guest agent's device and enable it at every boot
+  # THE PACKAGE IS NOT THE SERVICE. Installing it puts the binary on the disk; `sysrc` is what makes
+  # init start it, and without that the socket `/dev/virtio-ports/org.qemu.guest_agent.0` exists but
+  # nothing has opened it - so `shutdown: guest_agent` would wait out its timeout on a guest whose
+  # agent was never running.
+  #
+  # `-f /dev/virtio-ports/...` IS THE OTHER HALF: the device is created by the qemu command line
+  # (`-device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0`), not by the package, so its
+  # presence proves the host side is wired the way this stage assumes.
+  do:
+  - type: sysrc qemu_guest_agent_enable=YES
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+  - type: ls /usr/local/bin/qemu-ga /usr/local/etc/rc.d/qemu-guest-agent
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+  - type: grep qemu_guest_agent /etc/rc.conf
+    wait_after: 2
+  - key: ret
+    wait_after: 4
+
 - name: tell Xorg to draw through the kernel framebuffer
   # `scfb` HAS TO BE NAMED. Installing `xf86-video-scfb` puts the driver on the disk, but Xorg's
   # autoconfiguration looks for a PCI GPU and QEMU's plain VGA adapter has none it recognises - so it

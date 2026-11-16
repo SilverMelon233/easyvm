@@ -88,6 +88,57 @@ steps:
 
     '
   timeout: 120
+- name: turn on automatic login, because an unattended client cannot type a password
+  # A GUEST THAT BOOTS TO A PASSWORD PROMPT CANNOT BE DRIVEN BY ANYTHING UNATTENDED, and this is
+  # issue easydev-org/easyvm#1's second ask. Ubuntu 26.04 runs gdm3, whose file is `/etc/gdm3/custom.conf`
+  # and whose section is `[daemon]` - not `[Seat:*]`, which is lightdm's and is accepted silently by
+  # nothing.
+  #
+  # `sed -i` RATHER THAN A REWRITE: the file exists with the commented-out lines gdm ships, and
+  # replacing it with two lines would drop settings that are already there.
+  #
+  # THE TWO `sed` EXPRESSIONS ARE SEPARATE STEPS because the first can match a commented line and the
+  # second must not: `s/^#*AutomaticLoginEnable=.*/...` turns `#AutomaticLoginEnable=false` into the
+  # enabled form, and the same for the name. A single expression that assumed the lines were absent
+  # appended duplicates instead of editing them.
+  ssh: 'printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' sh -c ''sed -i "s/^#*AutomaticLoginEnable=.*/AutomaticLoginEnable=true/" /etc/gdm3/custom.conf; sed -i "s/^#*AutomaticLogin=.*/AutomaticLogin={{ user }}/" /etc/gdm3/custom.conf'' 2>&1 | tail -3
+
+    '
+  timeout: 120
+- name: make sure those two lines exist even if gdm shipped neither
+  # `grep -q` BEFORE `printf >>`: gdm's own file has both lines commented out, so the `sed` above is
+  # what normally does the work - but a custom.conf that has neither line is a valid file that `sed`
+  # leaves untouched, and the result is a guest that still asks for a password with a config that
+  # looks like it was edited.
+  ssh: 'printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' sh -c ''grep -q "^AutomaticLoginEnable=" /etc/gdm3/custom.conf || printf "AutomaticLoginEnable=true\n" >> /etc/gdm3/custom.conf; grep -q "^AutomaticLogin=" /etc/gdm3/custom.conf || printf "AutomaticLogin={{ user }}\n" >> /etc/gdm3/custom.conf'' 2>&1 | tail -3
+
+    '
+  timeout: 120
+- name: prove automatic login is configured
+  # THE FILE IS THE PROOF, because the effect only shows on the next boot - and `grep` on an
+  # uncommented line is what distinguishes "written" from "written behind a #".
+  ssh: grep -E "^AutomaticLogin(Enable)?=" /etc/gdm3/custom.conf
+  timeout: 60
+- name: turn off the idle lock screen
+  # THE LOCK SCREEN IS WHAT A REMOTE VIEWER THEN SEES, and `xset` from the ssh stage does not fix it:
+  # that call applies to the X server of the session it ran in and is lost at logout, while these are
+  # the settings the session reads when it starts. All five keys are now MY OWN SESSION's
+  # configuration and survive a reboot.
+  #
+  # `dbus-run-session` RATHER THAN PLAIN `gsettings`: `gsettings` needs a session bus, an ssh exec has
+  # none, and without one every write fails with "Failed to commit changes to dconf: Could not
+  # connect: No such file or directory" - which reads like a permissions problem.
+  ssh: 'dbus-run-session -- gsettings set org.gnome.desktop.session idle-delay 0 && dbus-run-session -- gsettings set org.gnome.desktop.screensaver idle-activation-enabled false && dbus-run-session -- gsettings set org.gnome.desktop.screensaver lock-enabled false && dbus-run-session -- gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type nothing && echo LOCK_DISABLED
+
+    '
+  timeout: 180
+- name: prove the idle lock is off
+  # EACH KEY IS READ BACK, because `gsettings set` exits 0 for a key that does not exist on this
+  # schema and for a write that went to a temporary bus that died with the command.
+  ssh: 'dbus-run-session -- sh -c ''gsettings get org.gnome.desktop.session idle-delay; gsettings get org.gnome.desktop.screensaver lock-enabled; gsettings get org.gnome.desktop.screensaver idle-activation-enabled''
+
+    '
+  timeout: 120
 - name: install the cifs client
   ssh: 'printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' DEBIAN_FRONTEND=noninteractive apt-get install -y cifs-utils 2>&1 | tail -5
 

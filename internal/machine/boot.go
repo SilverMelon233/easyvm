@@ -655,6 +655,66 @@ func (b Boot) VGA(defaultVGA string) string {
 	return defaultVGA
 }
 
+// AudioArgs is the sound card, because a guest without one reports every capture failure as its own
+// fault.
+//
+// MEASURED, on five live guests driven by an unattended client, and this is issue
+// easydev-org/easyvm#1 in its own words:
+//
+//	Windows 11    audio: None - GetDefaultAudioEndpoint: Element not found. (0x80070490)
+//	Ubuntu 26.04  ok, because PipeWire is in the image - the guest was given a device by luck
+//	macOS 15      system_profiler SPAudioDataType prints an empty `Devices:` section
+//
+// `0x80070490` IS `ERROR_NOT_FOUND`, which is as precise as an error gets: there is no render
+// endpoint because there is no device. Every audio test on every guest was measuring the absence of
+// a sound card and reporting it as a capture failure.
+//
+// TWO DEVICES RATHER THAN ONE, BECAUSE THE GUESTS DISAGREE ABOUT WHAT THEY CAN ENUMERATE:
+//
+//	HDA   what Windows, Linux and the BSDs expect, and what their drivers bind out of the box.
+//	USB   what macOS needs. MEASURED: AppleHDA's controller loads against an ICH9 HDA device once
+//	      OpenCore injects a matching device-id - `com.apple.driver.AppleHDAController (600.2)`,
+//	      `com.apple.iokit.IOHDAFamily (600.2)`, `com.apple.iokit.IOAudioFamily (600.2)` all appear -
+//	      but it never enumerates the CODEC: `IOHDACodecDevice` has no children, `AppleHDAEngine` is
+//	      never instantiated, and CoreAudio still reports zero devices. qemu's `hda-duplex` does not
+//	      present a vendor/product pair that AppleHDA's personalities match.
+//	      `AppleUSBAudio` is in every macOS, is already loaded, and binds qemu's `usb-audio` with no
+//	      injection at all.
+//
+// `-audiodev none` KEEPS THE CODEC, THE PCI FUNCTION AND THE GUEST-VISIBLE ENDPOINTS and discards the
+// samples once they reach qemu. That is correct here and not a compromise: the container has no sound
+// server - `-audiodev help` lists only alsa/oss/wav/none and there is no `/dev/snd` - and loopback
+// capture reads the render stream INSIDE the guest, before the hardware is involved.
+//
+// `hda-duplex` RATHER THAN `hda-output`: duplex carries line-out AND line-in, so one codec gives the
+// guest a speaker endpoint and a microphone endpoint.
+//
+// ORDERING IS LOAD-BEARING AND QEMU'S ERROR DOES NOT SAY SO: `-audiodev` must come before the device
+// that names it, or qemu fails with `audiodev snd0 not found`, which reads like a missing option
+// rather than a sequencing mistake. `ich9-intel-hda` creates the controller and its HDA bus;
+// `hda-duplex` is a codec ON that bus, so the controller comes first.
+//
+// IT IS UNCONDITIONAL, AND THAT IS DELIBERATE. A `sound:` key on the walkthrough would let a file
+// silently opt out, and the failure mode is the one above: a guest with no card that reports it as a
+// capture bug three stages later.
+func (b Boot) AudioArgs() []string {
+	// `usb-audio` NEEDS THE xHCI CONTROLLER, which Windows' answer/driver CDs already create and
+	// macOS's own device list creates. On a guest with neither, `bus=xhci.0` names a bus that does
+	// not exist and qemu refuses to start - so this branch is only taken for macOS, whose
+	// `ExtraArgs` always carries the controller.
+	if b.OS.IsMacOS() {
+		return []string{
+			"-audiodev", "none,id=snd0",
+			"-device", "usb-audio,bus=xhci.0,audiodev=snd0",
+		}
+	}
+	return []string{
+		"-audiodev", "none,id=snd0",
+		"-device", "ich9-intel-hda",
+		"-device", "hda-duplex,audiodev=snd0",
+	}
+}
+
 // OSK is Apple's SMC key, obfuscated the way every hackintosh does it.
 const OSK = "ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc"
 

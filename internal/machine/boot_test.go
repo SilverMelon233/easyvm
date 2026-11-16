@@ -849,3 +849,132 @@ func TestTheUSBControllerIsNamedOnce(t *testing.T) {
 		})
 	}
 }
+
+// EVERY GUEST GETS A SOUND CARD, AND macOS GETS A DIFFERENT ONE.
+//
+// THIS IS issue easydev-org/easyvm#1's FIRST ASK, and the failure it prevents is silent: a guest with
+// no card reports it as a capture failure of its own.
+//
+//	Windows 11    audio: None - GetDefaultAudioEndpoint: Element not found. (0x80070490)
+//	              `0x80070490` is ERROR_NOT_FOUND: no render endpoint, because no device.
+//	macOS 15      system_profiler SPAudioDataType prints an empty `Devices:` section
+//
+// TWO PROPERTIES ARE ASSERTED AND BOTH ARE LOAD-BEARING:
+//
+//	- ORDER: `-audiodev` must precede the device that names it. qemu's failure is
+//	  `audiodev snd0 not found`, which reads like a missing option rather than a sequencing mistake.
+//	- macOS: `usb-audio`, because AppleHDA loads against an ICH9 controller and then never enumerates
+//	  the CODEC - measured, with `IOHDACodecDevice` having no children and `AppleHDAEngine` never
+//	  instantiated, while CoreAudio reported zero devices.
+func TestEveryGuestGetsASoundCard(t *testing.T) {
+	pos := func(args []string, want string) int {
+		for i, a := range args {
+			if a == want {
+				return i
+			}
+		}
+		return -1
+	}
+
+	for _, tc := range []struct {
+		name string
+		boot Boot
+		want []string
+		deny []string
+	}{
+		{
+			name: "linux",
+			boot: Boot{OS: Linux},
+			want: []string{"-audiodev", "none,id=snd0", "ich9-intel-hda", "hda-duplex,audiodev=snd0"},
+			deny: []string{"usb-audio,bus=xhci.0,audiodev=snd0"},
+		},
+		{
+			name: "windows",
+			boot: Boot{OS: Windows},
+			want: []string{"-audiodev", "none,id=snd0", "ich9-intel-hda", "hda-duplex,audiodev=snd0"},
+			deny: []string{"usb-audio,bus=xhci.0,audiodev=snd0"},
+		},
+		{
+			name: "bsd",
+			boot: Boot{OS: BSD},
+			want: []string{"-audiodev", "none,id=snd0", "ich9-intel-hda", "hda-duplex,audiodev=snd0"},
+			deny: []string{"usb-audio,bus=xhci.0,audiodev=snd0"},
+		},
+		{
+			name: "macos",
+			boot: Boot{OS: MacOS},
+			want: []string{"-audiodev", "none,id=snd0", "usb-audio,bus=xhci.0,audiodev=snd0"},
+			deny: []string{"ich9-intel-hda", "hda-duplex,audiodev=snd0"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := tc.boot.AudioArgs()
+			for _, w := range tc.want {
+				if pos(args, w) < 0 {
+					t.Fatalf("%s: the sound card is missing %q; got %v", tc.name, w, args)
+				}
+			}
+			for _, d := range tc.deny {
+				if pos(args, d) >= 0 {
+					t.Fatalf("%s: %q is on this guest's command line and must not be: %v",
+						tc.name, d, args)
+				}
+			}
+			// THE AUDIODEV COMES FIRST. qemu refuses the other order with a message about the id.
+			if a, d := pos(args, "-audiodev"), pos(args, "ich9-intel-hda"); a >= 0 && d >= 0 && a > d {
+				t.Fatalf("%s: `-audiodev` must come before the controller: %v", tc.name, args)
+			}
+			if a, d := pos(args, "-audiodev"), pos(args, "usb-audio,bus=xhci.0,audiodev=snd0"); a >= 0 && d >= 0 && a > d {
+				t.Fatalf("%s: `-audiodev` must come before the codec: %v", tc.name, args)
+			}
+			// THE CONTROLLER BEFORE THE CODEC: `hda-duplex` is a codec ON the controller's bus.
+			if c, d := pos(args, "ich9-intel-hda"), pos(args, "hda-duplex,audiodev=snd0"); c >= 0 && d >= 0 && c > d {
+				t.Fatalf("%s: the codec must come after the controller: %v", tc.name, args)
+			}
+		})
+	}
+}
+
+// THE DAEMON ACTUALLY ASKS FOR THE SOUND CARD.
+//
+// `TestEveryGuestGetsASoundCard` proves the METHOD builds the right arguments. It says nothing about
+// whether anything calls it, and the difference is not academic: this repository has already shipped
+// a comment describing a `virtio-tablet-pci` that was never in the argument vector, and a sound card
+// that exists only in a method is the same class of mistake with a worse symptom - a guest that boots
+// and reports every capture as its own failure.
+//
+// MEASURED, run 43784600196's disk, before this call existed:
+//
+//	pciconf -lv | grep -i hda     NO_AUDIO_ON_PCI
+//	virtio_pci0  0:1:0  virtio-serial
+//	vgapci0      0:2:0  VGA
+//	virtio_pci1  0:3:0  virtio-blk
+//	xhci0        0:4:0  xHCI
+//
+// four devices and no controller, on a guest built from `machine.Boot` - because the method was
+// written and the argument list never named it.
+func TestTheDaemonAsksForTheSoundCard(t *testing.T) {
+	body, err := os.ReadFile("../daemon/driver.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "boot.AudioArgs()") {
+		t.Fatal("internal/daemon/driver.go never calls `boot.AudioArgs()`, so no guest has a sound " +
+			"card no matter what that method returns. Measured consequence: `pciconf -lv` on a " +
+			"freebsd guest lists hostb0, virtio_pci0, vgapci0, virtio_pci1 and xhci0 - no HDA " +
+			"controller - and `/dev/sndstat` says `No devices installed.`")
+	}
+	// AND IT MUST COME AFTER `StorageArgs`, because macOS's `usb-audio` rides the xHCI controller
+	// that call creates, and BEFORE nothing in particular on the other families - but the ordering
+	// that matters is inside AudioArgs (`-audiodev` first), which the other test holds.
+	storage := strings.Index(string(body), "boot.StorageArgs()")
+	audio := strings.Index(string(body), "boot.AudioArgs()")
+	if storage < 0 || audio < 0 {
+		t.Fatal("driver.go no longer names both StorageArgs and AudioArgs")
+	}
+	if audio < storage {
+		t.Fatal("`AudioArgs()` is appended before `StorageArgs()`. macOS's `usb-audio` names " +
+			"`bus=xhci.0`, and that bus is created by StorageArgs - qemu refuses with " +
+			"`Bus 'xhci.0' not found`")
+	}
+}

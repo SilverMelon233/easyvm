@@ -127,6 +127,37 @@ steps:
 
     '
   timeout: 60
+- name: name the machine's own domain for winlogon, or the auto-logon half-applies
+  # `AutoLogon` IN THE ANSWER FILE ALREADY SETS `AutoAdminLogon`, `DefaultUserName` and
+  # `DefaultPassword`. THIS IS THE FOURTH VALUE AND IT CANNOT GO IN THE ANSWER FILE: it is the
+  # COMPUTER NAME, which Windows assigns during setup and which the answer file does not know.
+  #
+  # MEASURED, and it is in issue easydev-org/easyvm#1's own words: with an empty domain the machine
+  # "half-applies the setting and still stops at the login screen". `WORKGROUP` is not the answer
+  # either - that is the WORKGROUP name, not the local account's domain.
+  #
+  # `$env:COMPUTERNAME` IS THE DOMAIN A LOCAL ACCOUNT BELONGS TO, and that is the whole point: the
+  # account is `.\vmuser`, so the domain is the machine.
+  #
+  # `-Type String` MATTERS AS MUCH AS THE VALUE: `Set-ItemProperty` with no type stores a REG_SZ for
+  # this name, but a `$true` written for `AutoAdminLogon` becomes `True` and Winlogon does not read
+  # that as a boolean. That is the second trap in the same issue.
+  ssh: 'powershell -NoProfile -Command "Set-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'' -Name DefaultDomainName -Value $env:COMPUTERNAME -Type String; Set-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'' -Name AutoAdminLogon -Value ''1'' -Type String; Write-Output AUTOLOGON_DOMAIN_SET"
+
+    '
+  timeout: 120
+- name: prove all four winlogon values are what an unattended boot needs
+  # ALL FOUR ARE READ BACK, because any three leave the machine at a login screen and none of them
+  # produces an error when it is wrong.
+  #
+  #	AutoAdminLogon          '1', as a STRING - 'True' is not a boolean Winlogon reads
+  #	DefaultUserName         the account
+  #	DefaultDomainName       the COMPUTER NAME, not WORKGROUP and not empty
+  #	DefaultPassword         present at all, which is what makes this a local-account logon
+  ssh: 'powershell -NoProfile -Command "Get-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'' | Select-Object AutoAdminLogon, DefaultUserName, DefaultDomainName | Format-List; if ((Get-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'').DefaultPassword) { Write-Output PASSWORD_PRESENT } else { Write-Output PASSWORD_MISSING; exit 1 }"
+
+    '
+  timeout: 120
 - name: stop the machine
   shutdown: ssh
   timeout: 300

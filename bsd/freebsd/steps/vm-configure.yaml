@@ -125,6 +125,38 @@ steps:
     - login
     - password
 
+- name: the guest agent answers, which is what makes a graceful shutdown possible
+  # THE OTHER THREE GUESTS PROVE THIS TOO, and this is the same question asked in FreeBSD's own
+  # vocabulary: the package ships `qemu-ga`, the rc script starts it when `sysrc` said so, and the
+  # device it talks on is created by the host's qemu line rather than by the package.
+  #
+  # `pgrep` RATHER THAN A PORT: the agent speaks on a VIRTIO SERIAL PORT, not on TCP, so "is a process
+  # running and is the character device there" is the whole of the check.
+  ssh: sh -c 'pgrep -f qemu-ga >/dev/null && ls /dev/virtio-ports/org.qemu.guest_agent.0 && echo GUEST_AGENT_UP'
+  timeout: 180
+
+- name: serve the host share
+  # THE SAME TWO STEPS THE OTHER THREE GUESTS USE, and until now freebsd had neither: this file
+  # mentioned `share_serve` and `share_mount` ZERO times while windows, ubuntu and macos each had both,
+  # so a freebsd guest could not see the host directory that every other guest can.
+  #
+  # NOTHING HAS TO BE INSTALLED FIRST: `mount_smbfs` is part of the FreeBSD base system, unlike
+  # Linux's `cifs-utils`. That is why there is no `pkg install` beside this step.
+  share_serve: true
+  timeout: 60
+
+- name: mount the host share
+  # `share_family: bsd` SELECTS `mount_smbfs -I 172.30.0.1` in `internal/daemon/share.go`. Without the
+  # branch, this family fell through to `mount -t cifs`, which FreeBSD's mount(8) rejects with
+  # "unknown file system type" before it touches the network - its kernel has no cifs filesystem.
+  #
+  # THE PROOF IS ON THE HOST SIDE: the daemon writes a sentinel into the served directory and has the
+  # GUEST read it, because a guest writing to ~/shared and reading it back proves the guest's own
+  # filesystem and nothing more.
+  share_mount: true
+  share_family: bsd
+  timeout: 180
+
 - name: flush the writes before anything else
   # `sync` BEFORE THE SHUTDOWN, AND IT IS NOT REDUNDANT WITH IT.
   #

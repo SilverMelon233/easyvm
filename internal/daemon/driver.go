@@ -669,6 +669,10 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		args = append(args, "-device", DefaultVideoDevice)
 	}
 	args = append(args, boot.StorageArgs()...)
+	// THE SOUND CARD, BEFORE THE POINTER AND THE NETWORK, because `-audiodev` must precede the device
+	// that names it and macOS's `usb-audio` rides the xHCI controller `StorageArgs` has just created.
+	// See `machine.Boot.AudioArgs` for the measurement and for why macOS gets a different device.
+	args = append(args, boot.AudioArgs()...)
 	args = append(args, boot.SMCArgs("")...)
 	args = append(args, boot.ExtraArgs()...)
 	args = append(args,

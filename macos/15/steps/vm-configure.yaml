@@ -149,6 +149,68 @@ steps:
 
     '
   timeout: 60
+- name: write the automatic login password, which is XOR'd against Apple's fixed key
+  # macOS HAS NO `autologin-user` FILE. Auto-login is a 12-byte file at `/etc/kcpassword` holding the
+  # password XOR'd against a fixed key, plus one key in the loginwindow preferences - and missing
+  # EITHER half leaves the machine at a password prompt. This is issue easydev-org/easyvm#1's second
+  # ask, and macOS was the one guest of the four where neither half existed.
+  #
+  # THE KEY IS APPLE'S OWN, published in every write-up of this file:
+  #
+  #	0x7D 0x89 0x52 0x23 0xD2 0xBC 0xDD 0xEA 0xA3 0xB9 0x1F
+  #
+  # THE PADDING IS PART OF THE FORMAT: the payload is the password, then NULs, up to a multiple of 12
+  # bytes - an 8-character password becomes 12. A file that is not a multiple of 12 has kcpassword's
+  # own reader stop early, and the effect is a login that does not happen with no error anywhere.
+  #
+  # `perl` RATHER THAN `python3`: macOS 15 ships no python3 and this repository does not install one
+  # (`python3` is refused by policy), while perl is in the base system on every macOS. `printf '%02x'`
+  # and `hex()` are enough for XOR; no module is needed.
+  #
+  # `chmod 600 root:wheel` BECAUSE loginwindow REFUSES A FILE ANYONE ELSE CAN READ, and it refuses it
+  # silently - the file is there, the password is right, and nothing logs in.
+  ssh: 'printf ''%s'' ''{{ password }}'' | perl -e ''my $key = pack("C*", 0x7d,0x89,0x52,0x23,0xd2,0xbc,0xdd,0xea,0xa3,0xb9,0x1f); my $pw = <STDIN>; chomp $pw; my @b = unpack("C*", $pw); my $n = ((int(@b / 12) + 1) * 12); push @b, (0) x ($n - @b); my $k = 0; my $out = ""; for my $c (@b) { $out .= sprintf("%02x", $c ^ ord(substr($key, $k % 12, 1))); $k++ } print $out'' > /tmp/kcpassword.hex && printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' sh -c ''perl -e "print pack(q{H*}, do { local $/; <STDIN> })" < /tmp/kcpassword.hex > /etc/kcpassword && chown root:wheel /etc/kcpassword && chmod 600 /etc/kcpassword'' && ls -l /etc/kcpassword && echo KCPASSWORD_WRITTEN
+
+    '
+  timeout: 180
+- name: give loginwindow the other half, without which macOS shows the lock screen anyway
+  # `autoLoginUserScreenLocked = 0` IS THE SECOND HALF AND IT IS EASY TO MISS: without it macOS logs
+  # the user in and then IMMEDIATELY presents the lock screen, which from the outside is
+  # indistinguishable from auto-login not working at all. This is the same trap
+  # `windows/11/answer/Autounattend.xml` records for `LogonCount=1`.
+  #
+  # `defaults write` AS THE USER, NOT AS ROOT: the preferences file lives in the user's own domain,
+  # and a root write goes to /var/root/Library/Preferences where loginwindow never looks.
+  ssh: 'defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string ''{{ user }}'' 2>&1 || printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string ''{{ user }}''; printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked -bool false; echo AUTOLOGIN_CONFIGURED
+
+    '
+  timeout: 120
+- name: prove both halves are in place
+  # BOTH ARE READ BACK, because either one being wrong is a password prompt and neither one is an
+  # error: `ls -l` shows the file exists, `stat -f%z` shows it is a multiple of 12, and the two
+  # `defaults read` lines show the user and the screen-locked flag.
+  ssh: 'stat -f "%z bytes" /etc/kcpassword && stat -f "%Sp %Su" /etc/kcpassword && sudo -n defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser && sudo -n defaults read /Library/Preferences/com.apple.loginwindow autoLoginUserScreenLocked
+
+    '
+  timeout: 120
+- name: turn off display sleep and the screen saver, which is what a viewer then sees
+  # `pmset` NEEDS SUDO AND HAS NO UNPRIVILEGED FORM. The screen saver's idle time is a SEPARATE
+  # domain - `com.apple.screensaver idleTime` - and setting only `pmset` leaves a guest whose display
+  # stays on and whose saver still covers it.
+  #
+  # `defaults -currentHost` BECAUSE THAT IS WHERE macOS LOOKS for this key; a plain `defaults write
+  # com.apple.screensaver` writes a file the saver does not read, and the write succeeds.
+  ssh: 'printf ''%s\n'' ''{{ password }}'' | sudo -S -p '''' pmset displaysleep 0 sleep 0; defaults -currentHost write com.apple.screensaver idleTime 0; echo SLEEP_DISABLED
+
+    '
+  timeout: 180
+- name: prove the machine will not go to sleep
+  # `pmset -g custom` PRINTS THE EFFECTIVE VALUES, which is what matters: the command above can exit 0
+  # and be ignored if another profile overrides it.
+  ssh: 'pmset -g custom | grep -iE "displaysleep|sleep" | head -4; defaults -currentHost read com.apple.screensaver idleTime
+
+    '
+  timeout: 120
 - name: stop the machine
   shutdown: ssh
   timeout: 300

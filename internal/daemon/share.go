@@ -312,6 +312,32 @@ func (d *Driver) mountOnce(client *guest.Client, family, dir string) error {
 			`printf '%s\n' ` + shellQuote(d.pass) + ` | sudo -S -p '' umount ~/shared 2>/dev/null; ` +
 			`printf '%s\n' ` + shellQuote(d.pass) +
 			` | sudo -S -p '' mount_smbfs -f 0666 -d 0777 '//guest:@172.30.0.1/shared' ~/shared`
+	case "bsd":
+		// `mount_smbfs`, NOT `mount -t cifs`: FREEBSD HAS NO CIFS FILESYSTEM TYPE.
+		//
+		// MEASURED BY READING THE KERNEL's own list on 15.1-RELEASE: `sysctl vfs.generic.fstypes`
+		// prints ufs, zfs, devfs, fdescfs, procfs, cd9660, msdosfs, nfs, ntfs, nullfs, tmpfs, udf,
+		// autofs - and `cifs` is not among them, so the branch below would have run
+		//
+		//	mount -t cifs //172.30.0.1/shared ~/shared -o username=guest,password=...
+		//
+		// and FreeBSD's mount(8) answers "unknown file system type" before it touches the network.
+		//
+		// THE SYNTAX IS macOS'S, WITH ONE ADDITION: `-I ADDRESS` PICKS THE INTERFACE, because
+		// FreeBSD's mount_smbfs resolves the server name through NetBIOS or DNS and `172.30.0.1` is
+		// neither - without `-I` it asks the resolver about a name that is really an address. The
+		// same `//guest:@host/shared` spelling carries the user with a trailing colon and an empty
+		// password, which is what `null passwords = yes` on the host side accepts.
+		//
+		// `-f 0666 -d 0777` because an SMB mount is owned by root by default and these files belong
+		// to the unprivileged account; `mkdir -p` and a tolerated `umount` because a retry over a
+		// half-finished mount otherwise fails with a message about the DIRECTORY, which reads like a
+		// different fault.
+		cmd = `mkdir -p ~/shared; ` +
+			`printf '%s\n' ` + shellQuote(d.pass) + ` | sudo -S -p '' umount ~/shared 2>/dev/null; ` +
+			`printf '%s\n' ` + shellQuote(d.pass) +
+			` | sudo -S -p '' mount_smbfs -I 172.30.0.1 -f 0666 -d 0777` +
+			` '//guest:@172.30.0.1/shared' ~/shared`
 	default:
 		// `mount -t cifs` WITH THE CREDENTIALS ON THE COMMAND LINE, because a credentials FILE would
 		// have to be copied into the guest first and that is a second thing that can fail. The share
@@ -417,6 +443,18 @@ func mountsShare(family, table string) bool {
 		// TRAILING COLON because the colon separates user from password in its own URL syntax - the
 		// same `user:` the command line uses to mean "this user, no password".
 		return strings.Contains(table, "//guest:@172.30.0.1/shared")
+	case "bsd":
+		// FREEBSD PRINTS IT THE WAY macOS DOES, WITH ONE DIFFERENCE THAT MATTERS WHEN `-I` IS USED.
+		//
+		// `mount_smbfs` writes `//guest:@172.30.0.1/shared on /home/vmuser/shared (smbfs, ...)` -
+		// the same spelling as macOS, because it is the same program. Accepting only the macOS
+		// spelling and not checking whether it also appears here is how a family gets a branch that
+		// looks right and is never exercised.
+		return strings.Contains(table, "//guest:@172.30.0.1/shared") ||
+			// AND THE BARE FORM, because a mount_smbfs that resolved the address before mounting
+			// prints no user at all in some versions, and a working mount reported as missing is the
+			// failure this whole switch exists to prevent.
+			strings.Contains(table, "//172.30.0.1/shared")
 	default:
 		return strings.Contains(table, "//172.30.0.1/shared")
 	}
