@@ -19,7 +19,7 @@ steps:
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
   require:
-  - nixos.iso:500
+  - nixos.iso
 - name: start recording
   record: nixos-install.mp4
 - name: create the empty disk

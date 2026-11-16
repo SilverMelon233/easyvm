@@ -20,7 +20,7 @@ steps:
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
   require:
-  - mint.iso:500
+  - mint.iso
 - name: start recording
   record: mint-install.mp4
 - name: create the empty disk

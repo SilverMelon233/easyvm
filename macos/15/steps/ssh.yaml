@@ -55,7 +55,7 @@ steps:
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
   require:
-  - boot.img:200
+  - boot.img
   - macos.rom
   - macos.vars
 - name: start recording

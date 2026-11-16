@@ -9,8 +9,7 @@ import (
 	"github.com/easydev-org/easyvm/internal/walk"
 )
 
-// doRequire refuses the walk unless every file it names is present, at a plausible size, in the work
-// directory.
+// doRequire refuses the walk unless every file it names is present in the work directory.
 //
 // WHY A STEP AND NOT A COMMENT. Every medium a walkthrough boots from is now pulled by the workflow
 // BEFORE `easyvm run` is called - the installer ISOs, the macOS recovery image, OpenCore's three
@@ -27,14 +26,12 @@ import (
 // after ten minutes of clicking a live desktop has spent ten minutes to learn something available in
 // the first second.
 //
-// THE SIZE FLOOR IS NOT DECORATION. `pull-artifact.sh` writes to `<dest>.part` and renames when the
-// bytes are in, so a truncated file should not survive - but a `boot.img` that is 256 MiB of zeros
-// and a `.xip` that is an HTML error page saved under the right name both look present to `-e`. The
-// floors are deliberately far below the real sizes (200 MiB for a boot image that is 256) because the
-// point is to catch a stub, not to police a republished artifact.
+// IT ASKS ONE QUESTION: IS THE FILE THERE. Not how big it is, not whether it looks like the right
+// format - a size floor was tried and removed, because the only size a walk can honestly name is the
+// exact one, and a floor below it answers a question nobody asked while adding a second way for this
+// step to be wrong. A pull that wrote nothing leaves no file, and that is what this catches.
 //
-// THE KEYS ARE `require:` (a list) AND EVERY ENTRY IS `name` OR `name:min_mib`. A bare name means
-// "present and not empty", which is what a 128 KiB NVRAM file needs.
+// THE KEYS ARE `require:` AND EVERY ENTRY IS A FILENAME, relative to the work directory or absolute.
 func (e *Executor) doRequire(s walk.Step) error {
 	raw, ok := s.Spec["require"]
 	if !ok {
@@ -48,48 +45,32 @@ func (e *Executor) doRequire(s walk.Step) error {
 		return fail(s.Name, "`require:` names no files, so it would pass by checking nothing")
 	}
 
-	var missing, bad []string
+	var problems []string
 	for _, item := range items {
 		entry, _ := item.(string)
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
-			missing = append(missing, "(an empty entry)")
+			problems = append(problems, "an empty entry")
 			continue
 		}
 
-		name := entry
-		var floorMiB int64
-		if i := strings.IndexByte(entry, ':'); i >= 0 {
-			name = strings.TrimSpace(entry[:i])
-			fmt.Sscanf(strings.TrimSpace(entry[i+1:]), "%d", &floorMiB)
-		}
-
-		path := name
+		path := entry
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(e.Work, path)
 		}
 		fi, err := os.Stat(path)
 		if err != nil {
-			missing = append(missing, name)
+			problems = append(problems, entry+" is not in "+e.Work)
 			continue
 		}
 		if fi.IsDir() {
-			bad = append(bad, fmt.Sprintf("%s is a directory", name))
+			problems = append(problems, entry+" is a directory, not a file")
 			continue
 		}
-		if floorMiB > 0 && fi.Size() < floorMiB<<20 {
-			bad = append(bad, fmt.Sprintf("%s is %d bytes, below its %d MiB floor",
-				name, fi.Size(), floorMiB))
-		}
-		e.Driver.Log(fmt.Sprintf("  required: %s (%d MiB)", name, fi.Size()>>20))
+		e.Driver.Log(fmt.Sprintf("  required: %s", entry))
 	}
 
-	if len(missing) > 0 || len(bad) > 0 {
-		var problems []string
-		for _, m := range missing {
-			problems = append(problems, m+" is not in "+e.Work)
-		}
-		problems = append(problems, bad...)
+	if len(problems) > 0 {
 		// THE SENTENCE NAMES WHAT TO DO RATHER THAN WHAT HAPPENED, because the answer is always the
 		// same one: the workflow's `assets:` list is what puts these files here, and a leg that
 		// reaches this message has an `assets:` entry missing or a pull that failed.

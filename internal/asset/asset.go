@@ -130,49 +130,19 @@ func Fetch(spec Spec) (Result, error) {
 		// copy into the guest that is not executable fails at `chmod` inside the guest with a
 		// permission error that reads as a broken download.
 		return fetchMacGuestAgent(spec)
-	case Xcode:
-		// THE ONE APPLE ASSET THAT CANNOT COME FROM APPLE. See internal/asset/xcode.go: the
-		// developer portal answers an unauthenticated request with a redirect to /unauthorized, so
-		// the file comes from archive.org with the sha1 Apple's own release index publishes.
-		return fetchXcode(spec)
-	case Packages:
-		// `dev_packages` IS TWO .pkg FILES, NOT A `brew install`. Homebrew's installer refuses a
-		// non-arm64 macOS outright, so an Intel Sequoia guest installs each tool from the publisher
-		// that still ships an Intel build. See internal/asset/devpackages.go.
-		return fetchDevPackages(spec)
-
-	// THE VENDOR'S DRIVER ISO, PULLED FROM THIS REPOSITORY'S OWN PACKAGE.
-	//
-	// It is 700 MiB and the registry still has it, so a previous run's copy is reused - with its
-	// size checked, because a truncated ISO extracts a truncated driver and the guest then fails
-	// at the device rather than here.
-	case VirtioWin:
-		return fetchVirtioWin(work)
-
-	// THE ANSWER CD, BUILT RATHER THAN DOWNLOADED: the template is in the repository and the
-	// drivers are extracted out of the vendor ISO.
 	case AnswerISO:
 		return fetchAnswerISO(spec)
 
 	// THE INSTALLER ITSELF. Named by `iso:` on a boot step; this fetches or finds it.
-	case WindowsISO:
-		return fetchWindowsISO(work)
-
-	// macOS'S TWO INPUTS, IN THE ORDER THEY ARE NEEDED: the recovery image first, because the
-	// firmware is built FROM it - Apple's APFS driver is inside that image, and OpenCore cannot read
-	// an APFS partition without it.
-	case RecoveryMacOS:
-		return fetchRecoveryMacOS(spec)
 	case OpenCore:
 		return fetchOpenCore(spec)
-	case LinuxISO:
-		return fetchLinuxISO(spec)
 	}
+	// THREE KINDS LEFT, AND EACH IS LOCAL WORK: two guests' agents and the Windows answer CD. Every
+	// medium a walk boots from is pulled by its workflow now, so a download kind here would be a
+	// second place to look for a file that is already on disk.
 	return Result{}, fmt.Errorf("%q is not an asset this build knows; the kinds are %s",
 		kind, strings.Join([]string{
-			string(GuestAgentWindows), string(GuestAgentMacOS), string(Xcode), string(Packages),
-			string(VirtioWin), string(AnswerISO), string(WindowsISO),
-			string(RecoveryMacOS), string(OpenCore), string(LinuxISO),
+			string(GuestAgentWindows), string(GuestAgentMacOS), string(AnswerISO), string(OpenCore),
 		}, ", "))
 }
 
@@ -251,58 +221,6 @@ const windowsISOTag = "iso-windows11"
 // slightly smaller still passes, and well above the size of a truncated download or an error page.
 const windowsISOMinSize = 2000 << 20
 
-// fetchWindowsISO finds or pulls the Windows installer image.
-func fetchWindowsISO(work string) (Result, error) {
-	if err := os.MkdirAll(work, 0o755); err != nil {
-		return Result{}, err
-	}
-	dest := filepath.Join(work, "windows11.iso")
-	if fi, err := os.Stat(dest); err == nil && fi.Size() >= windowsISOMinSize {
-		return Result{Main: dest}, nil
-	}
-
-	// THE DISKS LIVE IN THIS REPOSITORY'S OWN ghcr PACKAGE, NOT ANOTHER REPOSITORY'S.
-	//
-	// `easydev-org/easydiskbake` WAS THE DEFAULT AND IT CANNOT BE: a GITHUB_TOKEN is scoped to the
-	// repository whose workflow holds it, so a token minted for `easydev-org/easyvm` has `packages`
-	// access to `easyvm` and to nothing else. The push that produced the first real disk measured it:
-	//
-	//	FAILED: the registry refused a pull,push token (HTTP 403):
-	//	{"errors":[{"code":"DENIED","message":"requested access to the resource is denied"}]}
-	//
-	// The disk existed - 3927 MiB of installed opensuse-tumbleweed - and could not be published,
-	// because the destination belonged to a different repository. Reading has the same shape: a
-	// private package in another repository is not readable with this token either.
-	//
-	// SO BOTH DIRECTIONS ARE THIS REPOSITORY. `workflows/artifacts-publish.yml` mirrors every pinned
-	// upstream input into `ghcr.io/easydev-org/easyvm`, and every fetch and every push goes there.
-	repository := os.Getenv("DISKS_REPOSITORY")
-	if repository == "" {
-		repository = "easydev-org/easyvm"
-	}
-	art := oci.Artifact{
-		Repository: strings.ToLower(repository),
-		Tag:        windowsISOTag,
-		Token:      os.Getenv("GITHUB_TOKEN"),
-	}
-	ctx, cancel := oci.WithTimeout(60 * time.Minute)
-	defer cancel()
-	if err := oci.Pull(ctx, art, dest, func(msg string) { _ = msg }); err != nil {
-		return Result{}, fmt.Errorf("pulling %s from %s: %w. The installer image is 7.7 GiB and "+
-			"is not in this repository; it must be published under that tag, or placed at %s "+
-			"before the run", windowsISOTag, repository, err, dest)
-	}
-	fi, err := os.Stat(dest)
-	if err != nil {
-		return Result{}, err
-	}
-	if fi.Size() < windowsISOMinSize {
-		return Result{}, fmt.Errorf("%s is %d MiB, below the %d MiB floor: a truncated installer "+
-			"is an ISO that boots to the firmware and stops", dest, fi.Size()>>20,
-			windowsISOMinSize>>20)
-	}
-	return Result{Main: dest}, nil
-}
 
 // recoveryMacOSTag is the artifact the recovery image is published under.
 //
@@ -322,67 +240,6 @@ func recoveryMacOSTag(release string) string {
 	return "macos-recovery-" + release
 }
 
-// fetchRecoveryMacOS pulls the recovery image for a release.
-//
-// IT IS AN INPUT EVEN TO A STAGE THAT DOES NOT BOOT FROM IT - opencore.Build extracts Apple's APFS
-// driver out of it - which is why it is an asset rather than part of a boot step.
-func fetchRecoveryMacOS(spec Spec) (Result, error) {
-	if err := os.MkdirAll(spec.Work, 0o755); err != nil {
-		return Result{}, err
-	}
-	dest := filepath.Join(spec.Work, "recovery.dmg")
-	// THE RECOVERY IMAGE IS REISSUED BY APPLE ON EVERY REQUEST, so there is no sha256 to pin -
-	// unlike every other asset here. What IS checked is that it is a plausible image, which catches
-	// a truncated transfer and an HTML error page.
-	//
-	// THE LOOKUP IS LOGGED, because "I put the file there and it still pulled from ghcr" is a
-	// question about WHICH PATH, and the answer has to be on the line rather than in a reader's
-	// head. Measured once already: a file at /work/recovery.dmg and a `spec.Work` that was not
-	// /work look identical from the outside.
-	if fi, err := os.Stat(dest); err == nil && fi.Size() > 200<<20 {
-		return Result{Main: dest}, nil
-	} else {
-		size := int64(-1)
-		if fi != nil {
-			size = fi.Size()
-		}
-		fmt.Printf("  recovery: %s is not usable (%d bytes, err %v); pulling the published image\n",
-			dest, size, err)
-	}
-	// THE DISKS LIVE IN THIS REPOSITORY'S OWN ghcr PACKAGE, NOT ANOTHER REPOSITORY'S.
-	//
-	// `easydev-org/easydiskbake` WAS THE DEFAULT AND IT CANNOT BE: a GITHUB_TOKEN is scoped to the
-	// repository whose workflow holds it, so a token minted for `easydev-org/easyvm` has `packages`
-	// access to `easyvm` and to nothing else. The push that produced the first real disk measured it:
-	//
-	//	FAILED: the registry refused a pull,push token (HTTP 403):
-	//	{"errors":[{"code":"DENIED","message":"requested access to the resource is denied"}]}
-	//
-	// The disk existed - 3927 MiB of installed opensuse-tumbleweed - and could not be published,
-	// because the destination belonged to a different repository. Reading has the same shape: a
-	// private package in another repository is not readable with this token either.
-	//
-	// SO BOTH DIRECTIONS ARE THIS REPOSITORY. `workflows/artifacts-publish.yml` mirrors every pinned
-	// upstream input into `ghcr.io/easydev-org/easyvm`, and every fetch and every push goes there.
-	repository := os.Getenv("DISKS_REPOSITORY")
-	if repository == "" {
-		repository = "easydev-org/easyvm"
-	}
-	tag := recoveryMacOSTag(spec.Release)
-	art := oci.Artifact{
-		Repository: strings.ToLower(repository),
-		Tag:        tag,
-		Token:      os.Getenv("GITHUB_TOKEN"),
-	}
-	ctx, cancel := oci.WithTimeout(45 * time.Minute)
-	defer cancel()
-	if err := oci.Pull(ctx, art, dest, func(string) {}); err != nil {
-		return Result{}, fmt.Errorf("pulling %s from %s: %w. The recovery image is the installer "+
-			"AND the source of Apple's APFS driver, so a macOS stage cannot start without it",
-			tag, repository, err)
-	}
-	return Result{Main: dest}, nil
-}
 
 // fetchOpenCore builds the firmware a macOS guest boots through.
 //
@@ -476,77 +333,6 @@ func linuxISOTag(release string) string {
 	return "iso-" + release
 }
 
-// fetchLinuxISO finds or pulls a distribution's installer image.
-//
-// TWO SOURCES, IN THIS ORDER:
-//
-//	1  an image already in the work directory, which is how a manual run hands one over
-//	2  the ghcr tag, which IS published for all thirteen distributions
-//
-// AND NO VENDOR DOWNLOAD. A 3-to-7 GiB transfer inside a walkthrough step runs with the stage clock,
-// which is why the Python implementation kept `fetch_iso.py` separate from the walk. Pulling the
-// published artifact is the same bytes, one registry call, and resumable.
-//
-// A MISSING IMAGE IS A SENTENCE ABOUT THE FILE, not a boot that hangs: `boot: iso: installer_iso`
-// resolves to the path this step records, and Validate reports a missing installer by name.
-func fetchLinuxISO(spec Spec) (Result, error) {
-	if err := os.MkdirAll(spec.Work, 0o755); err != nil {
-		return Result{}, err
-	}
-	release := spec.Release
-	if release == "" {
-		return Result{}, fmt.Errorf("`fetch: linux_iso` needs a `release:` - the distribution's name, " +
-			"which is also the tag its image would be published under")
-	}
-
-	// 1. ALREADY HERE. The workflow puts it in the work directory, and so does a manual run.
-	for _, name := range []string{release + ".iso", "installer.iso"} {
-		path := filepath.Join(spec.Work, name)
-		if fi, err := os.Stat(path); err == nil && fi.Size() > 500<<20 {
-			return Result{Main: path}, nil
-		}
-	}
-
-	// 2. THE PUBLISHED ARTIFACT, IF THERE IS ONE.
-	// THE DISKS LIVE IN THIS REPOSITORY'S OWN ghcr PACKAGE, NOT ANOTHER REPOSITORY'S.
-	//
-	// `easydev-org/easydiskbake` WAS THE DEFAULT AND IT CANNOT BE: a GITHUB_TOKEN is scoped to the
-	// repository whose workflow holds it, so a token minted for `easydev-org/easyvm` has `packages`
-	// access to `easyvm` and to nothing else. The push that produced the first real disk measured it:
-	//
-	//	FAILED: the registry refused a pull,push token (HTTP 403):
-	//	{"errors":[{"code":"DENIED","message":"requested access to the resource is denied"}]}
-	//
-	// The disk existed - 3927 MiB of installed opensuse-tumbleweed - and could not be published,
-	// because the destination belonged to a different repository. Reading has the same shape: a
-	// private package in another repository is not readable with this token either.
-	//
-	// SO BOTH DIRECTIONS ARE THIS REPOSITORY. `workflows/artifacts-publish.yml` mirrors every pinned
-	// upstream input into `ghcr.io/easydev-org/easyvm`, and every fetch and every push goes there.
-	repository := os.Getenv("DISKS_REPOSITORY")
-	if repository == "" {
-		repository = "easydev-org/easyvm"
-	}
-	tag := linuxISOTag(release)
-	dest := filepath.Join(spec.Work, "installer.iso")
-	art := oci.Artifact{
-		Repository: strings.ToLower(repository), Tag: tag, Token: os.Getenv("GITHUB_TOKEN"),
-	}
-	ctx, cancel := oci.WithTimeout(45 * time.Minute)
-	defer cancel()
-	if err := oci.Pull(ctx, art, dest, func(string) {}); err == nil {
-		if fi, err := os.Stat(dest); err == nil && fi.Size() > 500<<20 {
-			return Result{Main: dest}, nil
-		}
-	}
-
-	// AND NEITHER SOURCE HAD IT, WHICH IS A SENTENCE ABOUT BOTH.
-	return Result{}, fmt.Errorf("no installer image for %q. Looked for %s.iso and installer.iso in %s, "+
-		"and pulled %s/%s without success. Place the ISO at %s, or check that the tag is the one this "+
-		"repository publishes - the vendor's edition is part of some of them (`opensuse-tumbleweed-kde` "+
-		"rather than `opensuse-tumbleweed`)",
-		release, release, spec.Work, repository, tag, filepath.Join(spec.Work, "installer.iso"))
-}
 
 // fetchAnswerISO builds Windows' answer CD.
 //

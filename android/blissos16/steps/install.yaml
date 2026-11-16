@@ -67,7 +67,7 @@ steps:
     # `assets:` in its workflow and placed here by `pull-artifact.sh` before
     # `easyvm run` is called; nothing in this file downloads.
     require:
-    - blissos-16.9.7.iso:500
+    - blissos-16.9.7.iso
   - name: start recording
     record: blissos16-install.mp4
 

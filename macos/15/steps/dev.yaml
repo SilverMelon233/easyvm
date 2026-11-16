@@ -25,10 +25,10 @@ steps:
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
   require:
-  - boot.img:200
+  - boot.img
   - macos.rom
   - macos.vars
-  - Xcode_26.3_Universal.xip:1000
+  - Xcode_26.3_Universal.xip
   - packages.tar
 - name: start recording
   record: macos15-dev.mp4

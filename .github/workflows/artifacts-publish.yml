@@ -286,6 +286,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: pull the recovery image the build reads
+        # THE BUILD DOES NOT DOWNLOAD. `macos/15/steps/firmware.yaml` requires `recovery.dmg` in its
+        # work directory and fails in the first second without it - the same rule every install stage
+        # follows. What the build still does is extract Apple's APFS driver out of that image, which
+        # is local work on a local file.
+        uses: easydev-org/easyactions/oci-pull@main
+        with:
+          tag: macos-recovery-sequoia
+          dest: ${{ github.workspace }}/work
+          repository: ${{ inputs.disks_repository }}
+          token: ${{ github.token }}
+          check-name: opencore-recovery
+
+      - name: name it what the walk reads
+        # `oci-pull` writes the artifact under its own name; the walk names `recovery.dmg`. One mv is
+        # cheaper than teaching the pull action about filenames.
+        run: |
+          set -eu
+          mkdir -p "$GITHUB_WORKSPACE/work"
+          src="$(find "$GITHUB_WORKSPACE/work" -maxdepth 1 -type f -name 'macos-recovery*' | head -1)"
+          [ -n "$src" ] || { echo "::error::the recovery pull produced no file"; ls -l "$GITHUB_WORKSPACE/work"; exit 1; }
+          mv "$src" "$GITHUB_WORKSPACE/work/recovery.dmg"
+          ls -l "$GITHUB_WORKSPACE/work/recovery.dmg"
+
       - name: run the build in the image that already has the tools
         # `--entrypoint easyvm` IS NOT NEEDED: the image's ENTRYPOINT is the program, which is what
         # the Containerfile's own comment says it cost a run to get wrong.

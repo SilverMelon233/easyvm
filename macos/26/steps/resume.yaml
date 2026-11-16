@@ -37,21 +37,15 @@ vars:
     default: out/mac26.qcow2
 
 steps:
-  # THE RECOVERY IMAGE IS AN INPUT EVEN HERE, AND `fetch:` IS WHAT NAMES IT.
+  # THE RECOVERY IMAGE IS A PREPARED INPUT, LIKE EVERY OTHER MEDIUM HERE.
   #
-  # `recovery:` on a boot step takes an ASSET ROLE, not a path - `recovery_macos` is a name a
-  # `fetch:` step registers. A resume file without the fetch therefore fails with
-  #
-  #	boot: no the recovery image at recovery_macos: stat recovery_macos: no such file or directory
-  #
-  # which names the role rather than the missing step.
-  #
-  # AND THE FETCH DOES NOT DOWNLOAD ANYTHING WHEN THE FILE IS THERE. `fetchRecoveryMacOS` looks for
-  # `<work>/recovery.dmg` first and returns it if it is over 200 MiB, so a resume on a machine that
-  # has already fetched once costs a stat.
-  - name: name the recovery image, which the boot step needs for its APFS driver
-    asset: recovery_macos
-    release: '26'
+  # `recovery:` takes a PATH as readily as an asset role, and a path is what this file names now:
+  # the workflow pulls `macos-recovery-<release>` into the work directory before the walk starts, and
+  # nothing below reaches the network. That is the same rule the install stages follow, and it is why
+  # there is no `asset:` here - a walk that downloads is a walk whose duration a file cannot describe.
+  - name: the recovery image this boot reads is already on disk
+    require:
+    - recovery.dmg
 
   - name: boot the disk that is already there
     boot: true
@@ -59,7 +53,7 @@ steps:
     # THE RECOVERY IMAGE IS AN INPUT TO THE OPENCORE BUILD EVEN WHEN THE STAGE DOES NOT INSTALL -
     # `opencore.Build` extracts Apple's APFS driver out of it, and there is no other source for that
     # driver. `boot:` attaches it only when the step also installs.
-    recovery: recovery_macos
+    recovery: recovery.dmg
     # EIGHT GIGABYTES, WHICH IS WHAT AN INSTALL NEEDS RATHER THAN WHAT A BOOT NEEDS.
     #
     # MEASURED: at 4096 the macOS 26 install wrote 37 GiB and then stopped making progress - the

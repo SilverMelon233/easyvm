@@ -19,7 +19,7 @@ steps:
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
   require:
-  - endeavour.iso:500
+  - endeavour.iso
 - name: start recording
   record: endeavouros-install.mp4
 - name: create the empty disk

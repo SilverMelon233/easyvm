@@ -19,7 +19,7 @@ steps:
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
   require:
-  - manjaro.iso:500
+  - manjaro.iso
 - name: start recording
   record: manjaro-install.mp4
 - name: create the empty disk
