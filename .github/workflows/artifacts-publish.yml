@@ -291,23 +291,19 @@ jobs:
         # work directory and fails in the first second without it - the same rule every install stage
         # follows. What the build still does is extract Apple's APFS driver out of that image, which
         # is local work on a local file.
-        uses: easydev-org/easyactions/oci-pull@main
-        with:
-          tag: macos-recovery-sequoia
-          dest: ${{ github.workspace }}/work
-          repository: ${{ inputs.disks_repository }}
-          token: ${{ github.token }}
-          check-name: opencore-recovery
-
-      - name: name it what the walk reads
-        # `oci-pull` writes the artifact under its own name; the walk names `recovery.dmg`. One mv is
-        # cheaper than teaching the pull action about filenames.
+        #
+        # `pull-artifact.sh` RATHER THAN THE `oci-pull` ACTION, AND THE ACTION IS WHY THIS STEP FAILED
+        # FIRST: it took a DIRECTORY as `dest` and wrote nothing this job could find - measured on run
+        # 43884985678, where the step after it reported "the recovery pull produced no file" against an
+        # empty work directory. The script takes a destination FILENAME, which is what the walk reads.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -eu
           mkdir -p "$GITHUB_WORKSPACE/work"
-          src="$(find "$GITHUB_WORKSPACE/work" -maxdepth 1 -type f -name 'macos-recovery*' | head -1)"
-          [ -n "$src" ] || { echo "::error::the recovery pull produced no file"; ls -l "$GITHUB_WORKSPACE/work"; exit 1; }
-          mv "$src" "$GITHUB_WORKSPACE/work/recovery.dmg"
+          sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+            ghcr.io "$(printf '%s' "${{ inputs.disks_repository }}" | tr '[:upper:]' '[:lower:]')" \
+            macos-recovery-sequoia "$GITHUB_WORKSPACE/work/recovery.dmg"
           ls -l "$GITHUB_WORKSPACE/work/recovery.dmg"
 
       - name: run the build in the image that already has the tools
