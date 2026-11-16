@@ -210,6 +210,27 @@ func machineFromSteps(f *walk.File) (MachineSpec, []walk.Step, error) {
 				Template: s.Get("template"),
 				Recovery: s.Get("recovery"),
 			})
+		case s.Has("require"):
+			// `require:` IS PREPARATION THAT DOWNLOADS NOTHING, AND IT MUST NOT END THE SCAN.
+			//
+			// MEASURED, on a macOS 26 resume file whose first step is `require: [recovery.dmg]`:
+			//
+			//	/walks/mac26-resume.yaml: no `boot:` step and no `machine:` block, so there is no
+			//	machine to start
+			//
+			// The file HAS a `boot:` step three lines further down. `machineFromSteps` reads a LEADING
+			// RUN of steps that build a machine, and its `switch` had no case for `require:` - so the
+			// first step fell to `default: goto done`, the scan stopped before reaching `boot:`, and
+			// `create` refused a file it could run.
+			//
+			// AND IT IS THE STEP EVERY STAGE NOW STARTS WITH. Commit 2b8dbed put one at the front of
+			// every file it touched and did not teach this function the key, so every one of those
+			// files would have failed `create` - the instructions are on disk, and the machine that
+			// reads them did not know the word.
+			//
+			// IT IS SKIPPED RATHER THAN CHECKED HERE: `create` runs the machine half and the daemon's
+			// own `require:` handling does the checking, so doing it twice would report one missing
+			// file twice and the second time from a place that cannot name the step.
 		case s.Has("boot") || s.Has("boot_from"):
 			step := s
 			// THE SIZE IS READ WHEREVER IT IS WRITTEN, because a walkthrough that has no `machine:`

@@ -218,13 +218,27 @@ jobs:
             exit 1
           }
           repo="$(printf '%s' "${{ inputs.disks_repository }}" | tr '[:upper:]' '[:lower:]')"
-          # ONE PAIR PER LINE, `tag|name`, BUILT BY SHELL RATHER THAN BY A PARSER. `toJSON` of a list
-          # of strings is `["a:b","c:d"]`, so stripping the brackets and quotes and turning `","`
-          # into newlines gives one pair per line - no JSON parser, no nested IFS, and no library
-          # this image would have to carry for one line of a workflow.
+          # ONE PAIR PER LINE, STILL `tag:name`, AND THE SPLIT IS ON THE COLON.
+          #
+          # THE FIRST VERSION SPLIT ON A PIPE THAT WAS NEVER IN THE INPUT. `toJSON` of a list of
+          # strings is `["iso-freebsd:freebsd.iso"]`, so stripping the brackets and quotes and turning
+          # `","` into newlines gives one `tag:name` per line - and `IFS='|'` then read the WHOLE line
+          # as the tag:
+          #
+          #	[error] iso-freebsd:freebsd.iso is not in the package
+          #
+          # MEASURED on runs 43875028889 and 43875047148, whose install legs failed in 24 seconds with
+          # the tag and the filename reported as one name. A `read` that finds no separator leaves the
+          # first variable holding everything and the second empty, which is exactly what happened.
+          #
+          # `${pair%%:*}` AND `${pair#*:}` RATHER THAN `IFS=':' read`, because a filename may contain a
+          # colon and a tag may not: the FIRST colon is the separator on both sides.
           printf '%s\n' '${{ toJSON(matrix.assets) }}' \
             | sed -e 's/^\[//' -e 's/\]$//' -e 's/","/\n/g' -e 's/"//g' \
-            | while IFS='|' read -r tag name; do
+            | while IFS= read -r pair; do
+            [ -n "$pair" ] || continue
+            tag=${pair%%:*}
+            name=${pair#*:}
             [ -n "$tag" ] || continue
             dest="$GITHUB_WORKSPACE/work/$name"
             echo "=== pull $tag -> $dest"
