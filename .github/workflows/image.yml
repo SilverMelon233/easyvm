@@ -334,8 +334,14 @@ jobs:
             *"another easyvm is already using"*) ;;
             *) echo "=== THE REFUSAL DID NOT NAME A HOLDER ==="; exit 1 ;;
           esac
+          # THE CONTAINER SEES THE BIND MOUNT'S TARGET, which is `/work`, not the host path it was
+          # mounted from. Asserting the host path failed on a correct refusal:
+          #
+          #	FAILED: another easyvm is already using /work (pid 1); one work directory holds one
+          #	        machine. Stop it, or pass a different --work
+          #	=== THE REFUSAL DID NOT NAME THE DIRECTORY ===
           case "$(cat /tmp/second.log)" in
-            *"$work"*) ;;
+            *"/work"*) ;;
             *) echo "=== THE REFUSAL DID NOT NAME THE DIRECTORY ==="; exit 1 ;;
           esac
           case "$(cat /tmp/second.log)" in
