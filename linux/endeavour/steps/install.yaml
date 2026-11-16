@@ -1,4 +1,4 @@
-name: endeavour - the Calamares walk
+name: endeavouros - install to ext4, then the power button
 resolution:
 - 1920
 - 1080
@@ -11,10 +11,10 @@ vars:
     default: admin
   out:
     from: args.out
-    default: out/distro.qcow2
+    default: out/endeavouros.qcow2
 steps:
 - name: start recording
-  record: endeavour-install.mp4
+  record: endeavouros-install.mp4
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
@@ -26,140 +26,316 @@ steps:
   os: linux
   iso: installer_iso
   timeout: 1800
+
+# ENDEAVOUROS BOOTS TO A REAL KDE DESKTOP WITH A PANEL, so `desktop: linux` sees it.
 - name: wait for the live desktop
   desktop: linux
   timeout: 5400
   poll: 5
   keep_alive: true
-- name: pin the wizard's language to english
-  run: sudo sed -i 's#https://geoip.kde.org/v1/ubiquity#http://127.0.0.1:9/x#' /etc/calamares/modules/welcome_offline.conf; exit
-  terminal_wait: 10
-  wait_after: 8
-- name: close the terminal
-  click:
-  - 1402
-  - 310
+
+- name: let the desktop settle
+  wait: 15
+  keep_alive: true
+
+# THE WELCOME WINDOW IS `Welcome v26.7.2-1 [ISO: 2026.08.15]` AND ITS `Start the Installer` BUTTON IS
+# AT (748, 431), measured on the frame. ONE CLICK: unlike CachyOS Hello's, this opens a dialog rather
+# than needing a second press to take focus.
+- name: start the installer
+  click: [748, 431]
+  wait_after: 25
+
+# ENDEAVOUROS ASKS FOR AN INSTALL METHOD BEFORE CALAMARES: `Online` or `Offline`.
+#
+# `Offline` IS THE ONE THIS WALK USES. Online fetches every package from the network during the
+# install, which turns a 20-minute install into a network test - and the disk it produces is the same
+# either way. The button is at (1084, 591).
+- name: choose the offline method
+  click: [1084, 591]
+  wait_after: 30
+
+- name: calamares is up
+  ocr:
+    name: cal
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 5
+
+- name: the welcome page is in English or needs changing
+  check:
+    name: seen
+    from: cal
+    mode: says_any
+    words:
+    - - welcome
+    - - 歡迎
+
+# THE MEDIUM OPENS IN TRADITIONAL CHINESE, AND EVERY LATER OCR STEP READS ENGLISH.
+#
+# THE WHOLE LOCALE NAME IS TYPED, AND A PREFIX IS NOT ENOUGH - MEASURED, TWICE, ON THIS INSTALLER:
+#
+#	typed `eng`                 highlights `Esperanto`. `eng` is not a prefix of `American English`,
+#	                            which is the row Qt shows, so the search falls elsewhere and the
+#	                            target is only reachable by pressing `up` a fixed number of times -
+#	                            which depends on where the list happens to be scrolled. THAT IS NOT
+#	                            REPRODUCIBLE and it was the first version of this step.
+#	typed `american english`    highlights `American English` directly, on a list that has never been
+#	                            touched. Measured: the row came up highlighted at the bottom of the
+#	                            visible list with no scrolling at all.
+#
+# So the whole name is typed and `ret` accepts it, and there is no positional assumption left.
+- name: open the language list
+  click: [1080, 792]
+  wait_after: 4
+
+- name: type the locale's own name, which is what the list shows
+  type: american english
+  wait_after: 4
+
+- name: choose it
+  key: ret
   wait_after: 6
-- name: wait for the calamares window
+
+- name: the installer speaks English
+  ocr:
+    name: english
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+- name: the page is in English
+  check:
+    name: ok
+    from: english
+    mode: says
+    words: [welcome]
+
+# THE FOOTER OF THIS INSTALLER: `Next` IS AT (1410, 878), measured - one row further down than
+# Kubuntu's and CachyOS' (1356, 791), because this Calamares draws its buttons in a different strip.
+#
+# Welcome -> Location
+- name: next from welcome
+  click: [1410, 878]
+  wait_after: 9
+
+# Location IS LEFT AS IT IS. Location -> Keyboard
+- name: next from location
+  click: [1410, 878]
+  wait_after: 9
+
+# Keyboard -> Bootloader, where `systemd-boot` is preselected and the walk keeps it: the Summary reads
+# `Install option: systemd-boot`, and the disk this produces boots from it.
+- name: next from keyboard
+  click: [1410, 878]
+  wait_after: 9
+
+- name: the bootloader page
+  ocr:
+    name: boot
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+# Bootloader -> Partitions
+- name: next from bootloader
+  click: [1410, 878]
+  wait_after: 9
+
+- name: the partitions page
+  ocr:
+    name: parts
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+# THIS MEDIUM PRESELECTS NOTHING HERE, so `Erase disk` has to be clicked. Measured: both radio buttons
+# are empty and the panel under them reads `Unpartitioned space or unknown partition table`.
+- name: select erase disk
+  click: [679, 252]
+  wait_after: 8
+
+- name: the partitions page with erase selected
+  ocr:
+    name: erase
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+# AND THIS ONE DEFAULTS TO ext4, WHICH IS A MEASUREMENT RATHER THAN AN ASSUMPTION.
+#
+# With `Erase disk` selected the page reads
+#
+#	[No swap ▾]  [ext4 ▾]
+#	2.00GiB FAT32    126.00 GiB ext4
+#
+# so no filesystem step is needed here. THE THREE MEDIA DIFFER AND THAT IS WHY EACH FILE SAYS WHICH:
+# kubuntu defaults to ext4, cachyos to btrfs, endeavouros to ext4 - and a family-wide assumption would
+# have been wrong for one of the three.
+- name: the default filesystem is ext4
+  check:
+    name: ext4
+    from: erase
+    mode: says
+    words: [ext4]
+
+# Partitions -> Users
+- name: next from partitions
+  click: [1410, 878]
+  wait_after: 10
+
+- name: the users page
+  ocr:
+    name: users
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+# THE FIVE FIELDS, AND THE TWO PASSWORD BOXES ARE ON ONE ROW.
+#
+# MEASURED, and this is the mistake the first attempt made: the boxes' INTERIOR is y=502..528 and
+# their border is above and below it, so a click at y=490 lands on the border and types nowhere. The
+# row's centre is (700, 515) for the password and (900, 515) for the repeat.
+- name: the full name
+  click: [850, 299]
+  type: '{{ user }}'
+  wait_after: 2
+
+- name: the login name
+  click: [850, 354]
+  clear: true
+  type: '{{ user }}'
+  wait_after: 2
+
+- name: the computer name
+  click: [850, 434]
+  clear: true
+  type: endeavouros
+  wait_after: 2
+
+- name: the password
+  click: [700, 515]
+  type: '{{ password }}'
+  wait_after: 2
+
+- name: the password again
+  click: [900, 515]
+  clear: true
+  type: '{{ password }}'
+  wait_after: 2
+
+# THE ROOT PASSWORD IS REUSED, WHICH IS A CHECKBOX ON THIS INSTALLER AND NOT A DEFAULT.
+#
+# MEASURED: with the box clear, two MORE password fields appear below it (`Root password`,
+# `Repeat root password`) and the form cannot be completed until they are filled. Ticking it removes
+# them and sets root's password to the user's, which is what every other distribution here does.
+- name: reuse the user password for root
+  click: [585, 646]
+  wait_after: 3
+
+# AND THE ACCOUNT LOGS ITSELF IN: an unattended client cannot type at a login screen.
+- name: log in automatically
+  click: [585, 695]
+  wait_after: 3
+
+- name: the users page is filled in
+  ocr:
+    name: filled
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+# THE FORM'S OWN VERDICT IS `OK!` IN A GREEN BOX, AND `Password is too short` IS NOT A REFUSAL.
+#
+# MEASURED: `admin` shows that warning and the installer still proceeds and still sets it - so `short`
+# is deliberately absent from `without:` here, exactly as in the other two files. `match` is checked
+# because two different passwords IS a refusal.
+- name: the password was accepted
+  check:
+    name: ok
+    from: filled
+    mode: says_without
+    words: [ok]
+    without: [match]
+
+# Users -> Summary
+- name: next from users
+  click: [1410, 878]
+  wait_after: 10
+
+- name: the summary page
+  ocr:
+    name: summary
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+# THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM.
+- name: the summary names ext4
+  check:
+    name: ext4
+    from: summary
+    mode: says
+    words: [ext4]
+
+# Summary -> the confirmation dialog. `Install` IS AT (1392, 881) - the same strip as `Next` but the
+# button itself sits further right, and clicking (1456, 886) landed on its edge and did nothing.
+- name: start the install
+  click: [1392, 881]
+  wait_after: 10
+
+- name: the confirmation dialog
+  ocr:
+    name: confirm
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+# `Install Now` INSIDE THE DIALOG, AT (1067, 539).
+- name: install now
+  click: [1067, 539]
+  wait_after: 25
+
+- name: the install writes the disk
+  disk_settle: 300
+  disk_min_mb: 4000
+  timeout: 3600
+  poll: 20
+  keep_alive: true
+
+- name: the install is done
   loop:
-    max: 120
+    max: 80
     do:
-    - click:
-      - 420
-      - 300
-      wait_after: 5
+    - wait: 15
     ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
+      name: done
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
       scale: 1
       wait: 0
     check:
-      name: done
-      from: screen
-      mode: says_any
-      words:
-      - - american
-        - english
-      - - erase
-        - disk
-      - - welcome
+      name: finished
+      from: done
+      mode: says
+      words: [installed]
     until:
-      fact: done
-- name: start the installer
-  click:
-  - 735
-  - 425
-  wait_after: 20
-- name: offline
-  click:
-  - 1069
-  - 590
-  expect_any:
-  - - welcome
-  - - location
-  wait_after: 55
-- name: welcome
-  click:
-  - 1406
-  - 873
-  wait_after: 20
-- name: location
-  click:
-  - 1406
-  - 873
-  wait_after: 20
-- name: keyboard
-  click:
-  - 1406
-  - 873
-  wait_after: 20
-- name: bootloader
-  click:
-  - 1406
-  - 873
-  wait_after: 20
-- name: partitions - erase the disk
-  click:
-  - 566
-  - 258
-  wait_after: 8
-- name: partitions
-  click:
-  - 1406
-  - 873
-  wait_after: 22
-- name: users - full name
-  click:
-  - 847
-  - 302
-  type: '{{ user }}'
-  wait_after: 2
-- name: users - login name
-  click:
-  - 847
-  - 356
-  type: '{{ user }}'
-  wait_after: 2
-- name: users - password
-  click:
-  - 700
-  - 513
-  type: '{{ password }}'
-  wait_after: 2
-- name: users - confirm password
-  click:
-  - 982
-  - 513
-  type: '{{ password }}'
-  wait_after: 3
-- name: users
-  click:
-  - 1406
-  - 873
-  wait_after: 22
-- name: summary - install
-  click:
-  - 1406
-  - 873
-  wait_after: 18
-- name: the install confirmation's install now
-  click:
-  - 1059
-  - 542
-  wait_after: 30
-- name: the install runs, as measured
-  wait: 2700
-  keep_alive: true
+      fact: finished
+
+# `kill`, BECAUSE A LIVE INSTALLER DOES NOT ANSWER THE POWER BUTTON - the zorin run that proved it
+# waited five minutes and then published a 0 MiB disk when the fallback kill raced `qemu-img convert`.
 - name: stop the machine
   shutdown: kill
-  timeout: 120
+  timeout: 600
+
 - name: publish the disk
   compress: '{{ out }}'
 - name: stop recording
