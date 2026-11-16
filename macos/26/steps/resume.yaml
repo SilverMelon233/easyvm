@@ -1,0 +1,47 @@
+name: macos 26 - start the disk that is already there
+resolution:
+- 1920
+- 1080
+
+# A RESUME FILE, AND IT EXISTS BECAUSE THE OBVIOUS WAY TO RESTART A GUEST DELETES IT.
+#
+# THE MEASUREMENT, AT THE COST OF A 37 GiB macOS INSTALL:
+#
+#	`create -file <setup.yaml>` runs every `disk:` step before it boots, and `createDisk` DELETES a
+#	previous file rather than reusing it - by design, because "starting from whatever a failed run
+#	left is how an install writes into half a system and reports success". So restarting a guest
+#	from the file that built it starts over:
+#
+#		removing the disk a previous run left at /work/disk.qcow2
+#		disk.qcow2: 221 MiB
+#
+#	and the 37 GiB that were there - a recovery that had formatted the disk, downloaded Tahoe and
+#	written most of a system - were gone before the question "is it really using the disk from last
+#	time" could be asked.
+#
+# SO THIS FILE HAS ONE STEP AND IT IS `boot:`. The disk is the artifact; the work is on it. A resume
+# file that recreated the disk would be a file that cannot resume anything.
+#
+# THE TWO FILES ARE A PAIR AND THE NAMES SAY WHICH IS WHICH:
+#
+#	steps/setup.yaml    makes the disk and installs onto it. Run it ONCE per disk.
+#	steps/resume.yaml   starts the disk that exists. Run it as often as the disk needs looking at.
+#
+# macOS 15 does not need this because its stages are separate already - `setup.yaml`, then `ssh.yaml`,
+# then `vm-configure.yaml`, each booting a disk it did not make. 26 has two stages in
+# `.github/workflows/macos26.yml` for the same reason, and neither of them is a `create`.
+
+vars:
+  out:
+    from: args.out
+    default: out/mac26.qcow2
+
+steps:
+  - name: boot the disk that is already there
+    boot: true
+    os: macos
+    # THE RECOVERY IMAGE IS AN INPUT TO THE OPENCORE BUILD EVEN WHEN THE STAGE DOES NOT INSTALL -
+    # `opencore.Build` extracts Apple's APFS driver out of it, and there is no other source for that
+    # driver. `boot:` attaches it only when the step also installs.
+    recovery: recovery_macos
+    timeout: 900
