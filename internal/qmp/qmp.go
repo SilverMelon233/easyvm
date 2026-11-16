@@ -691,61 +691,26 @@ const PinnedQEMU = "11.1.0"
 const AxisMax = 32767
 
 // moveTo puts the pointer at a PIXEL coordinate, in the range the guest expects.
-//
-// EACH AXIS EVENT IS ITS OWN `input-send-event`, AND THAT IS THE FIX FOR A POINTER THAT NEVER MOVED.
-//
-// MEASURED, on kubuntu 26.04's Calamares, where every click landed on a control the caller had not
-// aimed at and the screen showed the pointer stuck in the top-left corner:
-//
-//	POST /api/click {"x":1700,"y":900}   ->  the pointer was still at (2, 6) afterwards
-//	POST /api/click {"x":117,"y":268}    ->  same, and the click went wherever it already was
-//
-// The cause was the shape of the request, not the numbers. This function used to send four absolute
-// events in ONE call - X=0, Y=0, X=target, Y=target - and QEMU APPLIES ONE EVENT PER AXIS FROM A
-// BATCH: the corner arrived, the target was dropped on the floor. So the pointer went to (0,0) and
-// stayed there, and every click pressed at the corner while reporting the coordinates the caller
-// asked for. That reads as a dead widget, which is exactly how it was first mistaken.
-//
-// SENDING THEM SEPARATELY IS ALSO WHAT MAKES THE CORNER SAFE TO KEEP: the corner is there because a
-// pointer that has never moved may not be where the device says, and a guest's first absolute report
-// can be ignored. With one call per event the order is the order of the calls, and the target is
-// last.
 func (c *Conn) moveTo(x, y int) error {
 	w, h := c.screen()
-
-	// A CORNER FIRST, THEN THE TARGET, one request each.
-	//
-	// The corner is sent as a PAIR of axes in one call because it is a single position, and the
-	// target the same way - what may not be batched is TWO positions.
-	for _, step := range []struct {
-		x, y int64
-	}{
-		{0, 0},
-		{toAxis(x, w), toAxis(y, h)},
-	} {
-		events := []raw.InputEvent{
-			raw.InputEventAbs(raw.InputMoveEvent{Axis: raw.InputAxisX, Value: step.x}),
-			raw.InputEventAbs(raw.InputMoveEvent{Axis: raw.InputAxisY, Value: step.y}),
-		}
-		if err := c.withRaw(func(m *raw.Monitor) error {
-			return m.InputSendEvent(nil, nil, events)
-		}); err != nil {
-			return fmt.Errorf("pointer to (%d, %d), at %s: %w", x, y, axisName(step.x, step.y), err)
-		}
+	events := []raw.InputEvent{
+		// A CORNER FIRST, because a pointer that has never moved may not be where the device says.
+		// The guest's first absolute report can be ignored, so the position is ESTABLISHED before it
+		// is used - and the second move is the one the guest acts on.
+		raw.InputEventAbs(raw.InputMoveEvent{Axis: raw.InputAxisX, Value: 0}),
+		raw.InputEventAbs(raw.InputMoveEvent{Axis: raw.InputAxisY, Value: 0}),
+		raw.InputEventAbs(raw.InputMoveEvent{Axis: raw.InputAxisX, Value: toAxis(x, w)}),
+		raw.InputEventAbs(raw.InputMoveEvent{Axis: raw.InputAxisY, Value: toAxis(y, h)}),
+	}
+	if err := c.withRaw(func(m *raw.Monitor) error {
+		return m.InputSendEvent(nil, nil, events)
+	}); err != nil {
+		return fmt.Errorf("pointer to (%d, %d): %w", x, y, err)
 	}
 	// AND IT IS GIVEN A MOMENT, because the move is a report the guest has to process before a press
 	// means anything at that position.
 	time.Sleep(150 * time.Millisecond)
 	return nil
-}
-
-// axisName names an absolute-coordinate pair for an error, so a failure says which of the two moves
-// was refused.
-func axisName(x, y int64) string {
-	if x == 0 && y == 0 {
-		return "the corner"
-	}
-	return "the target"
 }
 
 // screen is the frame size the pointer's pixels are in, remembered from the last screendump.
