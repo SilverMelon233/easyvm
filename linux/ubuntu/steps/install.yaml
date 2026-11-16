@@ -260,10 +260,19 @@ steps:
   check:
     name: update_offered
     from: page
+    # `says` TAKES A FLAT WORD LIST, NOT A LIST OF WORD-SETS. `says_any` is the mode that takes
+    # `[[a, b], [c]]`; giving `says` a nested list makes ONE "word" out of `[update available]`, which
+    # no reading can contain. MEASURED on run 43974328331, where the reading was
+    #
+    #	-_- Nov 16 23:00 + a0 O Update available x ...
+    #
+    # and the check answered `update_offered = false (mode says: missing from ...)` - the dialog was
+    # on screen, the dialog says exactly these words, and the step that closes it never ran. The page
+    # wait behind it then spent twenty-four attempts reading the dialog instead of the page.
     mode: says
     words:
-    - - update
-      - available
+    - update
+    - available
 - name: close the update dialog
   if: update_offered
   then:
