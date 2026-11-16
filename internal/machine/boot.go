@@ -36,6 +36,16 @@ const (
 	Windows OS = "windows"
 	Linux   OS = "linux"
 	MacOS   OS = "macos"
+	// Android IS A LINUX GUEST WITH A KERNEL HANDED TO IT BY THE HOST.
+	//
+	// Android-x86 IS NOT A DISK WITH A BOOTLOADER WHEN IT IS BEING INSTALLED. Its own initrd finds the
+	// system image, mounts it, and mounts a writable ext4 for /data - so the INSTALLER is started with
+	// `-kernel` and `-initrd` out of the ISO's own directory, and the ISO as a cdrom, exactly the way
+	// easydiskbake's lib/vm_session.py does it. The INSTALLED disk then boots through UEFI and GRUB
+	// like any other UEFI system, and `-kernel` is absent on that path - its absence is what makes the
+	// launch a proof that the disk can start itself.
+	Android OS = "android"
+
 	// BSD IS A DIFFERENT OPERATING SYSTEM AND THE SAME MACHINE.
 	//
 	// GhostBSD boots the way every Linux here does - UEFI firmware, a virtio disk, std VGA at the
@@ -46,11 +56,16 @@ const (
 	BSD OS = "bsd"
 )
 
-// IsLinuxLike reports whether this guest boots UEFI with a virtio disk - every Linux and the BSD.
+// IsLinuxLike reports whether this guest boots UEFI with a virtio disk.
 //
 // IT EXISTS SO `StorageArgs` DOES NOT HAVE TO LIST THEM: a `switch` over three cases where two share
 // every field is a place for the third to be forgotten when a fourth arrives.
-func (o OS) IsLinuxLike() bool { return o == Linux || o == BSD }
+//
+// ANDROID IS ONE OF THEM. An INSTALLED Android-x86 disk is started by UEFI reading the ESP's GRUB,
+// exactly like a Linux guest: same firmware, same virtio-blk target, same std VGA. The `-kernel`
+// path it also supports belongs to the INSTALLER and is decided by whether `Kernel` is set, which is
+// a different question from this one.
+func (o OS) IsLinuxLike() bool { return o == Linux || o == BSD || o == Android }
 
 // IsMacOS reports whether this guest boots through OpenCore.
 //
@@ -61,17 +76,13 @@ func (o OS) IsMacOS() bool { return o == MacOS }
 // ParseOS refuses anything that is not a machine this build can start.
 func ParseOS(s string) (OS, error) {
 	switch OS(s) {
-	case Windows, Linux, MacOS, BSD:
+	case Windows, Linux, MacOS, BSD, Android:
 		return OS(s), nil
 	case "":
-		return "", fmt.Errorf("a boot step must name `os:` - windows, linux or macos")
-	case "android":
-		return "", fmt.Errorf("`os: android` is not implemented yet: it boots with -kernel and " +
-			"-initrd rather than firmware, and a half-implemented version would fail inside the " +
-			"guest rather than here")
+		return "", fmt.Errorf("a boot step must name `os:` - windows, linux, macos, bsd or android")
 	}
-	return "", fmt.Errorf("%q is not an os this build starts; the three are windows, linux and "+
-		"macos", s)
+	return "", fmt.Errorf("%q is not an os this build starts; the five are windows, linux, "+
+		"macos, bsd and android", s)
 }
 
 // Boot is what one `boot:` step says.
@@ -97,6 +108,20 @@ type Boot struct {
 	// Incoming is a migration stream to restore instead of booting. See the -incoming arguments in
 	// Boot.StorageArgs' caller: it is not a device, it is the machine's starting state.
 	Incoming string
+
+	// Kernel and Initrd are the two files qemu loads INSTEAD of letting firmware find a bootloader.
+	//
+	// ONLY ANDROID-X86 USES THEM, AND ONLY WHILE IT IS BEING INSTALLED. Measured, and it is the
+	// single fact that decides whether the installer ever draws a pane: the published ISO is not a
+	// partitioned disk with a bootloader, it is a set of files, so firmware booting it gets nowhere.
+	// `-kernel` with the ISO's own kernel and initrd starts the installer; the INSTALLED disk boots
+	// through UEFI and GRUB with both fields empty, which is what makes that boot a proof.
+	Kernel string
+	Initrd string
+	// KernelAppend is the kernel command line, and it is a platform fact rather than a caller's
+	// choice: Android-x86's init reads INSTALL=1 to install, and `HWC=drm_minigbm` to pick the
+	// hardware composer that a plain qemu VGA supports.
+	KernelAppend string
 }
 
 // Validate refuses a boot that cannot work, before qemu is started.
@@ -138,6 +163,39 @@ func (b Boot) Validate() error {
 
 	if b.Recovery != "" && !b.OS.IsMacOS() {
 		return fmt.Errorf("`recovery:` is macOS's install medium; this guest is %s", b.OS)
+	}
+
+	// AN ANDROID GUEST IS THE ONE THAT MAY BE HANDED A KERNEL, AND THE TWO FILES TRAVEL TOGETHER.
+	//
+	// MEASURED, in that order: `-kernel` without `-initrd` gets as far as the kernel's own panic about
+	// a missing root, and `-initrd` without `-kernel` is ignored entirely - qemu accepts the argument
+	// and boots the firmware instead, which looks like a disk that will not start.
+	//
+	// AND `-kernel` IS REFUSED FOR EVERY OTHER FAMILY, because a guest whose kernel comes from the host
+	// is not a guest that can prove its own disk boots. Windows, Linux, macOS and the BSDs all install
+	// by their own bootloader writing their own disk.
+	if b.Kernel != "" || b.Initrd != "" {
+		if b.OS != Android {
+			return fmt.Errorf("`kernel:`/`initrd:` are android's install path only; this guest is "+
+				"%s and boots its own bootloader", b.OS)
+		}
+		if b.Kernel == "" || b.Initrd == "" {
+			return fmt.Errorf("`kernel:` and `initrd:` are both needed: qemu accepts one without " +
+				"the other and then boots the wrong thing")
+		}
+		for why, path := range map[string]string{
+			"the kernel": b.Kernel,
+			"the initrd": b.Initrd,
+		} {
+			if err := requireFile(path, why); err != nil {
+				return err
+			}
+		}
+	}
+	if b.OS == Android && b.ISO != "" && b.Kernel == "" {
+		return fmt.Errorf("an android install needs `kernel:` and `initrd:` as well as `iso:`: " +
+			"the ISO is not a partitioned disk with a bootloader, so firmware booting it gets " +
+			"nowhere, and the installer never draws a pane")
 	}
 	if b.OS.IsMacOS() {
 		// OPENCORE IS NOT OPTIONAL FOR macOS, EVEN FROM AN INSTALLED DISK. Those three files are
@@ -219,8 +277,25 @@ func requireFile(path, why string) error {
 func (b Boot) StorageArgs() []string {
 	args := []string{}
 
-	if b.OS.IsMacOS() {
-		// OPENCORE'S OWN DISK, FIRST AND WITH bootindex=0. "A disk with no bootindex is not in the
+	// THE KERNEL AND INITRD COME FIRST, BEFORE ANY DRIVE, BECAUSE THAT IS THE ORDER qemu READS THEM.
+	//
+	// Measured: with `-kernel` after the drives qemu starts and the guest never loads the installer -
+	// the argument is accepted and the boot does not happen, which is indistinguishable from an
+	// installer that hung. There is no error to read.
+	//
+	// AND THEY ARE ONLY FOR AN ANDROID INSTALL. An installed Android disk has neither, and that is
+	// what makes its boot a proof rather than a re-run of the host's kernel.
+	if b.Kernel != "" {
+		args = append(args, "-kernel", b.Kernel)
+	}
+	if b.Initrd != "" {
+		args = append(args, "-initrd", b.Initrd)
+	}
+	if b.KernelAppend != "" {
+		args = append(args, "-append", b.KernelAppend)
+	}
+
+	if b.OS.IsMacOS() {		// OPENCORE'S OWN DISK, FIRST AND WITH bootindex=0. "A disk with no bootindex is not in the
 		// boot order at all" - the firmware then reports it could not load Boot0001, six runs in a
 		// row.
 		args = append(args,

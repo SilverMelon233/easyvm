@@ -117,6 +117,24 @@ jobs:
           # /usr/freebsd-packages/offline with no network at all. See `bsd/freebsd/steps/install.yaml`
           # for why that choice is what makes this stage work.
           - { tag: "iso-freebsd", group: "linux", url: "https://download.freebsd.org/releases/amd64/amd64/ISO-IMAGES/15.1/FreeBSD-15.1-RELEASE-amd64-disc1.iso", sha: "fa27646f05a1440fd26ffbb85e06a50bc86e128242a4e9cb7bb3ea76e1aa5fd9", size: "1352255488" }
+          # BLISSOS 16.9.7 (Android 13, x86_64), THE MEDIUM android/blissos16 FETCHES.
+          #
+          # THE SHA256 IS MEASURED FROM A COMPLETE DOWNLOAD, NOT COPIED FROM A WEB PAGE, BECAUSE
+          # SOURCEFORGE PUBLISHES NO CHECKSUM FOR THIS FILE: there is no upstream number to compare
+          # against, so the number comes from the bytes. That still catches a truncated, replaced or
+          # partially-mirrored download - which is what the check is for - and it is a weaker claim
+          # than a vendor's own, recorded here as such rather than presented as stronger.
+          #
+          # MIRRORED RATHER THAN FETCHED FROM THE VENDOR AT STAGE TIME. SourceForge served this file
+          # at about 0.5 MB/s on the measurement that produced the pin, and easydiskbake's own CI run
+          # was cancelled at exactly 1h0m0s with the ISO at 92%. The same bytes from ghcr arrive in
+          # about a minute, and every other installer here already works that way.
+          #
+          # 16.9.7 IS THE NEWEST PUBLICLY PUBLISHED IMAGE: the project's pages say "Public images are
+          # paused" with no ETA, BlissOS17 (Android 14) and Voyager/18 (Android 15) exist on
+          # SourceForge as directories with no ISO in them, and Android 15 exists only as source in
+          # platform_manifest's voyager-qpr2-x86 tree, which has to be BUILT - 350 GB and hours.
+          - { tag: "iso-blissos-16.9.7", group: "linux", url: "https://sourceforge.net/projects/blissos-x86/files/Official/BlissOS16/FOSS/Generic/Bliss-v16.9.7-x86_64-OFFICIAL-foss-20241011.iso/download", sha: "735cb962ec6bd92b62eb82a812831a38d79a0dfdf12b7973d2d0f7ab001ba68e", size: "2342518784" }
           - { tag: "macos-asset-opencore", group: "macos", url: "https://github.com/acidanthera/OpenCorePkg/releases/download/1.0.7/OpenCore-1.0.7-RELEASE.zip", sha: "2ffab6ebf58c7aefb0bcb3a1a385d207746823d6dd87d44bd666e1286939943e", size: "10437696" }
           - { tag: "macos-asset-opencore-template", group: "macos", url: "https://github.com/LongQT-sea/OpenCore-ISO/releases/download/v0.7/LongQT-OpenCore-v0.7.iso", sha: "287328995d4198f1b05166f087d85bf7ef66bedafe150d17ad112ac8de60051d", size: "15884288" }
           - { tag: "macos-asset-ovmf-code", group: "macos", url: "https://raw.githubusercontent.com/kholia/OSX-KVM/326053dd61f49375d5dfb28ee715d38b04b5cd8e/OVMF_CODE.fd", sha: "52a625db5a45329bf8005232db33e94781787d92ae8d088f2f73332dd4ded3a9", size: "1966080" }

@@ -134,6 +134,21 @@ var Keys = map[string]Key{
 	"driver_cd": {Name: "driver_cd", Kind: KindString,
 		Summary: "a third CD-ROM carrying the virtio drivers, for the installed system to pick up " +
 			"network and ballooning"},
+	// --- android's install path, and only that ------------------------------------------
+	//
+	// ANDROID-X86's ISO IS NOT A BOOTABLE DISK. It is a set of files, and firmware booting it gets
+	// nowhere, so the INSTALLER is started with its own kernel and initrd out of that set. The
+	// INSTALLED disk is booted by UEFI and GRUB with these absent, which is what makes that boot a
+	// proof.
+	"kernel": {Name: "kernel", Kind: KindString,
+		Summary: "android's installer kernel, taken out of the ISO. Refused for every other os, " +
+			"because a guest handed a kernel is not a guest that proves its own disk starts"},
+	"initrd": {Name: "initrd", Kind: KindString,
+		Summary: "android's installer initrd. It travels with `kernel:` - qemu accepts one without " +
+			"the other and then boots the wrong thing"},
+	"append": {Name: "append", Kind: KindString,
+		Summary: "the kernel command line handed to `-append`. `INSTALL=1` is what makes " +
+			"Android-x86's init install rather than run a live system"},
 	"cpu": {Name: "cpu", Kind: KindString,
 		Summary: "the guest's -cpu model when the disk's packages need a fixed one; empty is " +
 			"-cpu host"},

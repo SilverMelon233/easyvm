@@ -517,6 +517,9 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		OpenCoreVars: spec.OpenCoreVars,
 		BootImage:    spec.BootImage,
 		Incoming:     spec.Incoming,
+		Kernel:       spec.Kernel,
+		Initrd:       spec.Initrd,
+		KernelAppend: spec.KernelAppend,
 	}
 	if err := boot.Validate(); err != nil {
 		return err
