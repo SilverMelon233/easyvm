@@ -380,7 +380,10 @@ func InstallAPFSDriver(efiDir, recovery, work string, log func(string)) error {
 	}
 	fi, _ := os.Stat(source)
 
-	drivers := filepath.Join(efiDir, "OC", "Drivers")
+	// `efiDir/EFI/OC`, NOT `efiDir/OC` - the same segment `MergeTemplate` puts the tree under, and
+	// the same mistake `WriteConfig` had. The driver has to land beside the config it is registered
+	// in, or OpenCore looks for a driver in a directory the firmware never reads.
+	drivers := filepath.Join(efiDir, "EFI", "OC", "Drivers")
 	if err := os.MkdirAll(drivers, 0o755); err != nil {
 		return err
 	}
@@ -388,9 +391,9 @@ func InstallAPFSDriver(efiDir, recovery, work string, log func(string)) error {
 		return err
 	}
 
-	configPath := findFileCI(filepath.Join(efiDir, "OC"), "config.plist")
+	configPath := findFileCI(filepath.Join(efiDir, "EFI", "OC"), "config.plist")
 	if configPath == "" {
-		return fmt.Errorf("no config.plist under %s/OC to register apfs.efi in", efiDir)
+		return fmt.Errorf("no config.plist under %s/EFI/OC to register apfs.efi in", efiDir)
 	}
 	root, err := readPlist(configPath)
 	if err != nil {
