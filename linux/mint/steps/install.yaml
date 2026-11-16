@@ -103,6 +103,43 @@ steps:
   - 1306
   - 727
   wait_after: 15
+# UBIQUITY HAS NO FILESYSTEM SELECTOR, AND THIS DIALOG IS THE ONLY PLACE IT NAMES ONE.
+#
+# MEASURED on this image, verbatim:
+#
+#	The following partitions are going to be formatted:
+#	partition #1 of Virtual disk 1 (vda) as ESP
+#	partition #2 of Virtual disk 1 (vda) as ext4
+#
+# `Installation type` offers only `Erase disk and install Linux Mint` with
+# `Advanced features... None selected`, and None means ext4 - so every page before this one is
+# silent about the filesystem and a walk that accepted the default could publish a btrfs disk with
+# nothing above noticing.
+#
+# THE RESULTING DISK WAS VERIFIED INDEPENDENTLY: s_magic=0xef53, incompat=0x000002c6,
+# EXTENTS=True, 64BIT=True - the same signature zorin produces, which is the same installer.
+- name: the dialog names the filesystem it will create
+  ocr:
+    name: format
+    region:
+    - 0
+    - 0
+    - 1920
+    - 1080
+    region_at:
+    - 1920
+    - 1080
+    scale: 1
+    wait: 0
+
+- name: the root partition will be ext4
+  check:
+    name: ext4
+    from: format
+    mode: says
+    words:
+    - ext4
+
 - name: write the changes to disks
   click:
   - 1266
