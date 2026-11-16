@@ -338,7 +338,15 @@ jobs:
         # these tests passed against - not a second pull of `:latest` that could be another commit.
         run: |
           set -euo pipefail
-          docker build -f ./Containerfile --target easyvm-runtime -t easyvm-ci:local .
+          # `runtime` AND NOT `easyvm-runtime`. The latter is the base stage - qemu, the tools and the
+          # binary - and it has NO ENTRYPOINT, because the entrypoint belongs to the product. MEASURED
+          # on run 43803801237, where this named the base:
+          #
+          #	exec: "serve": executable file not found in $PATH
+          #
+          # which is the exact failure the shipped image's own comment warns about, reproduced in a
+          # check written to catch it.
+          docker build -f ./Containerfile --target runtime -t easyvm-ci:local .
           docker build -f ./Containerfile --target tester -t easyvm-tester:ci .
           docker run --rm \
             -v "$PWD:/src" \
