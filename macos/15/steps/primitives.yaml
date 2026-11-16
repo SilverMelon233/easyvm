@@ -16,13 +16,6 @@ ssh_user: vmuser
 ssh_port: 2222
 boot_disk: from_caller
 steps:
-- name: fetch the recovery image
-  release: '15'
-  asset: recovery_macos
-- name: build OpenCore from the recovery image
-  release: '15'
-  recovery: recovery_macos
-  build: opencore
 - name: boot the disk
   boot: true
   os: macos

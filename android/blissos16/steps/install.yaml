@@ -80,24 +80,10 @@ steps:
     disk_gpt: true
     disk_esp_mib: '{{ esp_mib }}'
 
-  - name: fetch the installer image
-    asset: linux_iso
-    release: blissos-16.9.7
-
-  # =======================================================================================
-  # 2. THE MACHINE, BOOTED FROM ITS OWN ISO
-  # =======================================================================================
-  #
-  # NO `console=ttyS0` ON THE KERNEL LINE, AND THE ISO'S OWN `grub.cfg` DOES NOT ADD ONE: with a
-  # serial console the TUI moves to the serial line and every key this file sends goes to a console
-  # nobody is drawing on. Measured, four runs.
-  #
-  # THE CD IS bootindex=0 AND THE DISK IS 1, so firmware boots the medium and the installer finds the
-  # target itself - the same arrangement windows/11 uses.
   - name: boot the installer
     boot: true
     os: android
-    iso: installer_iso
+    iso: blissos-16.9.7.iso
     memory_mb: 4096
     timeout: 900
 

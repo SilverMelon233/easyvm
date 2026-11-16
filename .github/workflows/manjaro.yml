@@ -72,6 +72,7 @@ jobs:
             "name": "linux-manjaro-install",
             "file": "linux/manjaro/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-manjaro-kde:manjaro.iso"],
             "out": "linux-manjaro.qcow2",
             "publish": "linux-manjaro",
             "timeout": 90

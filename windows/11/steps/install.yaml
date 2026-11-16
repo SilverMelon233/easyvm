@@ -32,14 +32,15 @@ steps:
 - name: build the answer CD
   template: windows/11/answer/Autounattend.xml
   generate: answer_iso
-- name: name the installer
-  asset: windows_iso
 - name: boot the installer
   boot: true
   os: windows
-  iso: windows_iso
-  answer_cd: answer_iso
-  driver_cd: driver_iso
+  # EVERY MEDIUM IS A PREPARED INPUT. The installer ISO and the vendor driver ISO are pulled by the
+  # workflow before this file runs, and the answer CD is still GENERATED here because it is a
+  # template with this walkthrough's own account in it - `generate:` is rendering, not downloading.
+  iso: windows.iso
+  answer_cd: answer.iso
+  driver_cd: virtio-win.iso
   timeout: 1800
 - name: wait for the firmware to offer the DVD
   until_console: DVD-ROM

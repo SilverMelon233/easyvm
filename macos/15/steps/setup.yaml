@@ -23,17 +23,11 @@ steps:
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
-- name: fetch the recovery image
-  release: '15'
-  asset: recovery_macos
-- name: build OpenCore from the recovery image
-  release: '15'
-  recovery: recovery_macos
-  build: opencore
 - name: boot the recovery image
   boot: true
   os: macos
-  recovery: recovery_macos
+  # THE RECOVERY IMAGE IS A PREPARED INPUT, LIKE EVERY ISO HERE.
+  recovery: recovery.dmg
   timeout: 900
 - name: the recovery menu's rows
   ocr:

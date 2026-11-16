@@ -193,6 +193,49 @@ jobs:
             exit 1
           }
 
+      - name: pull the media this leg boots from
+        # EVERY INPUT THE WALK NEEDS IS ALREADY ON DISK BEFORE IT STARTS. A walkstep may not download:
+        # `easyvm run` is a client that drives a machine, and a stage whose duration depends on a
+        # registry is a stage that fails for reasons the file cannot describe.
+        #
+        # MEASURED, WHICH IS WHY THIS STEP EXISTS: `macos-vm-configure` spent 18 minutes inside its
+        # own `fetch the recovery image` step pulling 800 MiB from ghcr, then ran out of the fifteen
+        # minutes `wait for sshd` had budgeted and reported a machine that never answered. The guest
+        # was fine - the same disk booted to a shell in 32 seconds locally. The stage was measuring a
+        # download and calling it a boot.
+        #
+        # `matrix.assets` IS A LIST OF `tag:name` PAIRS, and the name is what the walk's `iso:`,
+        # `recovery:` and `driver_cd:` say. The walk never spells a tag; this step never spells a
+        # filename.
+        if: matrix.assets != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          [ -n "${GITHUB_TOKEN:-}" ] || {
+            echo "::error::GITHUB_TOKEN is empty, so this pull would be anonymous and would answer"
+            echo "::error::401 - which this script reports as a missing tag."
+            exit 1
+          }
+          repo="$(printf '%s' "${{ inputs.disks_repository }}" | tr '[:upper:]' '[:lower:]')"
+          # ONE PAIR PER LINE, `tag|name`, BUILT BY SHELL RATHER THAN BY A PARSER. `toJSON` of a list
+          # of strings is `["a:b","c:d"]`, so stripping the brackets and quotes and turning `","`
+          # into newlines gives one pair per line - no JSON parser, no nested IFS, and no library
+          # this image would have to carry for one line of a workflow.
+          printf '%s\n' '${{ toJSON(matrix.assets) }}' \
+            | sed -e 's/^\[//' -e 's/\]$//' -e 's/","/\n/g' -e 's/"//g' \
+            | while IFS='|' read -r tag name; do
+            [ -n "$tag" ] || continue
+            dest="$GITHUB_WORKSPACE/work/$name"
+            echo "=== pull $tag -> $dest"
+            sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" ghcr.io "$repo" "$tag" "$dest" || {
+              echo "::error::$tag is not in the package. This leg boots from it, so it cannot start."
+              echo "::error::artifacts-publish.yml is what puts it there; read that job's log."
+              exit 1
+            }
+            ls -l "$dest"
+          done
+
       - name: start the daemon
         # ONE PROCESS OWNS THE MACHINE FOR THE WHOLE STAGE. It runs in the background because
         # `easyvm run` is a CLIENT: it sends a request and returns, and the daemon drives the file.

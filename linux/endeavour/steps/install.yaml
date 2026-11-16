@@ -18,13 +18,10 @@ steps:
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
-- name: fetch the installer image
-  release: endeavour
-  asset: linux_iso
 - name: boot the installer
   boot: true
   os: linux
-  iso: installer_iso
+  iso: endeavour.iso
   timeout: 1800
 
 # ENDEAVOUROS BOOTS TO A REAL KDE DESKTOP WITH A PANEL, so `desktop: linux` sees it.

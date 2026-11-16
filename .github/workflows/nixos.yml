@@ -72,6 +72,7 @@ jobs:
             "name": "linux-nixos-install",
             "file": "linux/nixos/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-nixos-graphical:nixos.iso"],
             "out": "linux-nixos.qcow2",
             "publish": "linux-nixos",
             "timeout": 90

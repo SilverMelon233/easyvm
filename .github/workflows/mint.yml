@@ -72,6 +72,7 @@ jobs:
             "name": "linux-mint-install",
             "file": "linux/mint/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-mint-cinnamon:mint.iso"],
             "out": "linux-mint.qcow2",
             "publish": "linux-mint",
             "timeout": 90

@@ -30,13 +30,6 @@ boot_disk: from_caller
 steps:
 - name: start recording
   record: macos15-vm-configure.mp4
-- name: fetch the recovery image
-  release: '15'
-  asset: recovery_macos
-- name: build OpenCore from the recovery image
-  release: '15'
-  recovery: recovery_macos
-  build: opencore
 - name: boot the disk
   boot: true
   os: macos
@@ -44,11 +37,11 @@ steps:
 - name: wait for sshd
   require_ssh: true
   timeout: 900
-- name: fetch the guest agent on the host
-  family: macos
-  timeout: 900
-  asset: guest_agent
 - name: copy the agent into the guest
+  # A PREPARED INPUT: the workflow pulls `macos-asset-mac-guest-agent` before this stage starts.
+  # `mav2287/mac-guest-agent` is a native binary that speaks the same protocol Apple's does not
+  # provide for this guest; it is a few MiB, but a download in the middle of a boot is a download
+  # that can outlast the boot budget.
   scp:
   - mac-guest-agent
   - /tmp/mac-guest-agent

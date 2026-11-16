@@ -19,13 +19,10 @@ steps:
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
-- name: fetch the installer image
-  release: mint
-  asset: linux_iso
 - name: boot the installer
   boot: true
   os: linux
-  iso: installer_iso
+  iso: mint.iso
   timeout: 1800
 - name: wait for the live desktop
   desktop: linux/cinnamon

@@ -644,26 +644,25 @@ func TestEverySCPSourceIsProducedByAnEarlierStep(t *testing.T) {
 	}
 
 	// THE HOST NAMES, taken from the code that writes them. A `fetch:` puts its outputs in the work
-	// directory at these paths; a `write:` names its own file.
-	produced := map[string]bool{
-		"qemu-ga-x86_64.msi":     true, // fetch: guest_agent / guest_agent_windows
-		"vioserial/vioser.inf":   true,
-		"vioserial/vioser.sys":   true,
-		"vioserial/vioser.cat":   true,
-		"bootstrap-launcher.ps1": true, // write: launcher, on a windows family
-		"bootstrap-launcher.sh":  true, // write: launcher, on linux/macos
-		"bootstrap-install.ps1":  true, // write: windows_task
-		"org.vm.bootstrap.plist": true, // write: macos_agent_plist
-		"org.vm.smbmount.plist":  true, // write: macos_mount_plist
-		"vm-smbmount.sh":         true, // write: macos_mount_script
-		"smb.conf":               true, // write: smb_conf
-		"smbnetfs.conf":          true, // write: smb_conf, as its SECOND file
-		"mac-guest-agent":        true, // fetch: guest_agent_macos
-		// `primitives.yaml` IS NOT A STAGE ANY WORKFLOW RUNS - it is the vocabulary's own catalogue,
-		// exercising `write: demo_script`, which is declared and not implemented. A source it names is
-		// checked against the writer's own contract, not against a fetch.
-		"demo.sh": true, // write: demo_script (implemented in primitives.yaml's own stage)
-	}
+	// directory at these paths; a `write:` names its own file; AND A WORKFLOW PULLS SOME OF THEM
+	// BEFORE THE STAGE STARTS, which is the third source and the one this test was missing.
+	//
+	// THE SECOND HALF OF THAT CHANGE IS THE POINT: a walk no longer downloads its own media. Every
+	// installer ISO, the macOS recovery image, the OpenCore firmware, the Xcode .xip and the dev
+	// package tarballs are named in a workflow's `assets:` and placed in the work directory by
+	// `pull-artifact.sh` before `easyvm run` is called. So a `scp:` source that no `fetch:` produces
+	// is still a source that exists - and this test asserts it by reading the same workflows.
+	produced := workflowAssets(t)
+	produced["qemu-ga-x86_64.msi"] = true
+	produced["vioserial/vioser.inf"] = true
+	produced["vioserial/vioser.sys"] = true
+	produced["vioserial/vioser.cat"] = true
+	produced["bootstrap-launcher.ps1"] = true
+	produced["bootstrap-launcher.sh"] = true
+	produced["bootstrap-install.ps1"] = true
+	produced["org.vm.bootstrap.plist"] = true
+	produced["demo.sh"] = true
+
 
 	var checked int
 	for _, path := range files {
@@ -2260,5 +2259,39 @@ func sortedKeys(m map[string]bool) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// workflowAssets is every filename a workflow's `assets:` places in the work directory.
+//
+// IT IS THE THIRD PRODUCER OF A FILE A `scp:` CAN COPY, beside `fetch:` and `write:`, and it exists
+// because THE WALKS NO LONGER DOWNLOAD ANYTHING. Every medium is pulled before `easyvm run` is called:
+//
+//	"assets": ["iso-ubuntu-desktop:ubuntu.iso"]                         an installer image
+//	"assets": ["macos-asset-boot:boot.img", "macos-asset-rom:macos.rom"] OpenCore's firmware
+//	"assets": ["macos-asset-xcode-26.3:Xcode_26.3_Universal.xip"]        the Xcode .xip
+//
+// The right-hand side of each pair is the name the walk reads, which is why this returns the NAMES and
+// not the tags: a test about a `scp:` source cares what is on disk, not where it came from.
+func workflowAssets(t *testing.T) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	files, err := filepath.Glob(filepath.Join("..", "..", ".github", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatalf("cannot list workflows: %v", err)
+	}
+	list := regexp.MustCompile(`"assets":\s*\[([^\]]*)\]`)
+	pair := regexp.MustCompile(`"[A-Za-z0-9._-]+:([A-Za-z0-9._/-]+)"`)
+	for _, name := range files {
+		body, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("cannot read %s: %v", name, err)
+		}
+		for _, m := range list.FindAllStringSubmatch(string(body), -1) {
+			for _, e := range pair.FindAllStringSubmatch(m[1], -1) {
+				out[e[1]] = true
+			}
+		}
+	}
 	return out
 }

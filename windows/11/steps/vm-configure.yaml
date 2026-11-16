@@ -45,9 +45,15 @@ steps:
   require_ssh: true
   ssh_probe: echo ok
   timeout: 900
-- name: fetch the agent and its driver on the host
+- name: unpack the agent and its driver from the prepared ISO
+  # `virtio-win.iso` IS ALREADY ON DISK - the workflow pulls it as this stage's `driver_cd` - so this
+  # step unpacks and downloads nothing: `fetchWindowsAgent` checks the ISO's size and only reaches
+  # for the network when the file is absent or truncated.
+  #
+  # THE MSI AND ITS DRIVER COME FROM THE SAME ISO ON PURPOSE: the driver's .inf names hardware IDs
+  # the MSI's service binds through, and a driver from another release is a device that installs and
+  # never starts.
   family: windows
-  timeout: 1200
   asset: guest_agent
 - name: copy the driver in
   scp:

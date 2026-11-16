@@ -80,6 +80,7 @@ jobs:
             "name": "linux-opensuse-leap-16.1-install",
             "file": "linux/opensuse-leap-16.1/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-opensuse-leap-16.1:opensuse-leap-16.1.iso"],
             "out": "linux-opensuse-leap-16.1.qcow2",
             "publish": "linux-opensuse-leap-16.1",
             "timeout": 90

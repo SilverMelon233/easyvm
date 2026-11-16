@@ -72,6 +72,7 @@ jobs:
             "name": "linux-mx-install",
             "file": "linux/mx/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-mx-xfce:mx.iso"],
             "out": "linux-mx.qcow2",
             "publish": "linux-mx",
             "timeout": 90

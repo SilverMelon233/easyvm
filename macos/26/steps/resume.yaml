@@ -44,4 +44,16 @@ steps:
     # `opencore.Build` extracts Apple's APFS driver out of it, and there is no other source for that
     # driver. `boot:` attaches it only when the step also installs.
     recovery: recovery_macos
+    # EIGHT GIGABYTES, WHICH IS WHAT AN INSTALL NEEDS RATHER THAN WHAT A BOOT NEEDS.
+    #
+    # MEASURED: at 4096 the macOS 26 install wrote 37 GiB and then stopped making progress - the
+    # screen sat on "About 20 minutes remaining" with qemu at 200% CPU and the disk not growing.
+    # macOS is not a guest that fits in the default: the installer keeps an APFS snapshot, a staging
+    # volume and its own caches resident while it writes, and 4 GiB is Apple's stated MINIMUM rather
+    # than a working figure.
+    #
+    # `macos/15/steps/setup.yaml` carries the same default and is left alone here: it is the work
+    # that proved the pipeline and changing it is a separate measurement. This file is the one a
+    # 26 install runs from.
+    memory_mb: 16384
     timeout: 900

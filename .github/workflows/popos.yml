@@ -72,6 +72,7 @@ jobs:
             "name": "linux-popos-install",
             "file": "linux/popos/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-popos-desktop:popos.iso"],
             "out": "linux-popos.qcow2",
             "publish": "linux-popos",
             "timeout": 90

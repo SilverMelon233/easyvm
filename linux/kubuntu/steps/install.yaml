@@ -26,15 +26,10 @@ steps:
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
-- name: fetch the installer image
-  release: kubuntu
-  asset: linux_iso
-
-# THE INSTALLER IS UEFI, because the disk it produces has an ESP the firmware boots from.
 - name: boot the installer
   boot: true
   os: linux
-  iso: installer_iso
+  iso: kubuntu.iso
   timeout: 1800
 
 # THE LAUNCHER IS NOT THE FIRST THING THAT SAYS "KUBUNTU"; THE GRUB MENU IS.

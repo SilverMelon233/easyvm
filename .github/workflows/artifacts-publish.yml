@@ -244,3 +244,119 @@ jobs:
           repository: ${{ inputs.disks_repository }}
           token: ${{ github.token }}
           check-name: recovery-mirror
+
+  # THE FIRMWARE A MACOS GUEST BOOTS THROUGH, BUILT ONCE AND PUBLISHED.
+  #
+  # THIS USED TO BE EVERY STAGE'S OWN JOB. `macos/setup.yaml`, `ssh.yaml`, `vm-configure.yaml` and
+  # `dev.yaml` each carried `fetch: recovery_macos` followed by `build: opencore`, so each of them
+  # re-downloaded 800 MiB and rebuilt 256 MiB of FAT32 before its first boot.
+  #
+  # MEASURED, AND IT IS WHY THIS JOB EXISTS - run 43847000071:
+  #
+  #	10:19:12  status: starting
+  #	10:37:14  status: running step 2/34 "fetch the recovery image"
+  #	10:37:14  status: running step 5/34 "wait for sshd"
+  #	          ... fifteen minutes later: nothing accepted ssh
+  #
+  # Eighteen minutes inside a download, then a fifteen-minute boot budget already spent. The same
+  # disk booted to a shell in 32 SECONDS on a machine that had the files. The stage was measuring a
+  # download and reporting it as a machine that would not answer.
+  #
+  # IT RUNS THE IMAGE RATHER THAN REIMPLEMENTING THE BUILD. `build: opencore` is four pinned
+  # downloads, an APFS driver extracted from a recovery image, a serial and a MAC derived from a
+  # model, a config.plist with every key macOS reads, and a 256 MiB FAT32 image whose geometry is
+  # load-bearing - 200 MiB at -c 8 is an INVALID FAT32 that mtools writes and reads back happily
+  # while OVMF refuses to mount it. That is not a shell script; it is `internal/opencore`, and this
+  # job calls it.
+  #
+  # THE THREE FILES GO OUT AS ONE TAG, because a boot needs all three and half a firmware is a guest
+  # that does not start. `boot.img` is 256 MiB, `macos.rom` 2 MiB, `macos.vars` 128 KiB.
+  #
+  # THE IDENTITY IS FIXED HERE AND TRAVELS WITH THE IMAGE. macOS binds an installation to the serial
+  # it was installed under; a disk that boots with a different one stops at a loop that reads as a
+  # broken disk. Every stage boots the same disk, so every stage must use the same identity.
+  opencore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+      checks: write
+    if: github.event_name != 'workflow_dispatch' || (inputs.which == '' && (inputs.group == 'all' || inputs.group == 'macos'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: run the build in the image that already has the tools
+        # `--entrypoint easyvm` IS NOT NEEDED: the image's ENTRYPOINT is the program, which is what
+        # the Containerfile's own comment says it cost a run to get wrong.
+        #
+        # `--user` IS SET SO THE FILES COME OUT OWNED BY THE RUNNER rather than by root, because the
+        # steps after this one read them without sudo.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p "$GITHUB_WORKSPACE/work"
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e GITHUB_TOKEN \
+            -e DISKS_REPOSITORY="$(printf '%s' "${{ inputs.disks_repository }}" | tr '[:upper:]' '[:lower:]')" \
+            -v "$GITHUB_WORKSPACE/work:/work" \
+            ghcr.io/easydev-org/easyvm:latest \
+            run /src/macos/15/steps/firmware.yaml --work /work
+
+      - name: the three files, and their sizes
+        # A BOOT IMAGE IS 256 MiB AND A TRUNCATED ONE IS NOT DETECTABLE BY qemu UNTIL OVMF REFUSES IT
+        # with `BdsDxe: failed to load ... Not Found`, which names the firmware and not the transfer.
+        # So the floor is checked here, where the failure is one line.
+        run: |
+          set -eu
+          for f in boot.img macos.rom macos.vars; do
+            [ -s "$GITHUB_WORKSPACE/work/$f" ] || {
+              echo "::error::$f was not produced. The build's log above is where it stopped."
+              exit 1
+            }
+          done
+          size=$(stat -c %s "$GITHUB_WORKSPACE/work/boot.img")
+          if [ "$size" -lt $((200 * 1024 * 1024)) ]; then
+            echo "::error::boot.img is $size bytes, below the 200 MiB floor: it is truncated, and a"
+            echo "::error::truncated FAT32 image is one OVMF refuses to mount after the run."
+            exit 1
+          fi
+          ls -l "$GITHUB_WORKSPACE/work/boot.img" \
+                "$GITHUB_WORKSPACE/work/macos.rom" \
+                "$GITHUB_WORKSPACE/work/macos.vars"
+
+      - name: push boot.img
+        # ONE FILE PER TAG, BECAUSE `pull-artifact.sh` READS THE FIRST LAYER. A tag holding three
+        # files yields the first and silently drops the other two - and the two it drops are the ones
+        # qemu's pflash arguments name, so a boot would fail on a path that exists in the registry
+        # and not on disk.
+        #
+        # THE NAMES ON THE WAY OUT ARE THE ONES `internal/run/actions.go` FALLS BACK TO when no
+        # `build: opencore` step ran: `boot.img`, `macos.rom`, `macos.vars` in the work directory.
+        uses: easydev-org/easyactions/oci-push@main
+        with:
+          path: ${{ github.workspace }}/work/boot.img
+          tag: macos-asset-boot
+          repository: ${{ inputs.disks_repository }}
+          token: ${{ github.token }}
+          check-name: opencore-boot
+
+      - name: push macos.rom
+        uses: easydev-org/easyactions/oci-push@main
+        with:
+          path: ${{ github.workspace }}/work/macos.rom
+          tag: macos-asset-rom
+          repository: ${{ inputs.disks_repository }}
+          token: ${{ github.token }}
+          check-name: opencore-rom
+
+      - name: push macos.vars
+        uses: easydev-org/easyactions/oci-push@main
+        with:
+          path: ${{ github.workspace }}/work/macos.vars
+          tag: macos-asset-vars
+          repository: ${{ inputs.disks_repository }}
+          token: ${{ github.token }}
+          check-name: opencore-vars

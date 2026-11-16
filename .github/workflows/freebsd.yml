@@ -75,6 +75,7 @@ jobs:
             "name": "bsd-freebsd-install",
             "file": "bsd/freebsd/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-freebsd:freebsd.iso"],
             "out": "bsd-freebsd-install.qcow2",
             "publish": "bsd-freebsd-install",
             "timeout": 180

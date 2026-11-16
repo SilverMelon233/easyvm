@@ -64,6 +64,7 @@ jobs:
             "name": "windows-install",
             "file": "windows/11/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-windows11:windows.iso", "iso-virtio-win:virtio-win.iso"],
             "out": "windows11.qcow2",
             "publish": "windows11",
             "timeout": 175

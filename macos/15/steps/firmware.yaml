@@ -1,0 +1,36 @@
+name: macos 15 - build the firmware once and publish it
+# THIS FILE NEVER STARTS A GUEST. It exists so the OpenCore build runs ONCE PER RELEASE instead of
+# once per stage, and so that a booting stage RECEIVES `boot.img`, `macos.rom` and `macos.vars` as
+# prepared inputs instead of producing them in the middle of its own run.
+#
+# WHY THIS MOVED OUT OF THE STAGES. MEASURED on run 43847000071: `macos-vm-configure` spent eighteen
+# minutes inside its own recovery-image fetch, then ran out of the fifteen minutes `wait for sshd` had
+# budgeted and reported a machine that never answered. The same disk booted to a shell in thirty-two
+# seconds locally. The stage was measuring a download and calling it a boot.
+#
+# IT IS A WALK BECAUSE THE BUILD IS ALREADY ONE. `build: opencore` is four pinned downloads, an APFS
+# driver extracted from the recovery image, and a 256 MiB FAT32 image written with mtools - all of it
+# measured, including the geometry, which is why it is not reimplemented in a shell script here. The
+# caller is `artifacts-publish.yml`, which runs the image once and publishes the three files.
+#
+# THE IDENTITY IS DELIBERATELY FIXED AND TRAVELS WITH THE IMAGE. `opencore.IdentityFor` writes
+# `identity.json` beside the build and REUSES it, because macOS binds an installation to the serial it
+# was installed under: a disk that boots with a different one stops at a loop that looks like a broken
+# disk. Publishing this image publishes ONE identity, and every stage that boots the same disk uses
+# it - which is correct rather than limiting, because the stages share one disk.
+vars:
+  work:
+    from: args.work
+    default: /work
+steps:
+- name: fetch the recovery image
+  # THE ONE INPUT THE BUILD CANNOT DO WITHOUT, and the reason macOS differs from every other guest
+  # here: Apple's APFS driver lives inside this image, OVMF has no APFS support of its own, and a
+  # boot image built without it starts a firmware that cannot see the installed system - a picker
+  # listing only `Reset NVRAM` and `Toggle SIP`, with nothing in any log to say why.
+  release: '15'
+  asset: recovery_macos
+- name: build the firmware the guest boots through
+  release: '15'
+  recovery: recovery_macos
+  build: opencore

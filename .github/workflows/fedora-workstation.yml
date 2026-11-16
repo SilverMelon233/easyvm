@@ -72,6 +72,7 @@ jobs:
             "name": "linux-fedora-workstation-install",
             "file": "linux/fedora-workstation/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-fedora-workstation:fedora-workstation.iso"],
             "out": "linux-fedora-workstation.qcow2",
             "publish": "linux-fedora-workstation",
             "timeout": 90

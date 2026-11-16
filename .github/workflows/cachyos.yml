@@ -72,6 +72,7 @@ jobs:
             "name": "linux-cachyos-install",
             "file": "linux/cachyos/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-cachyos-desktop:cachyos.iso"],
             "out": "linux-cachyos.qcow2",
             "publish": "linux-cachyos",
             "timeout": 90

@@ -18,13 +18,10 @@ steps:
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
-- name: fetch the installer image
-  release: cachyos
-  asset: linux_iso
 - name: boot the installer
   boot: true
   os: linux
-  iso: installer_iso
+  iso: cachyos.iso
   timeout: 1800
 
 # `desktop: linux/kde`, BECAUSE THIS MEDIUM'S PANEL IS EIGHT ROWS TALL AND THE BAND TEST
@@ -85,11 +82,16 @@ steps:
       name: up
       from: cal
       mode: says_any
+      # THE INSTALLER'S FIRST PAGE IS IN SIMPLIFIED CHINESE AND THIS WAIT RUNS BEFORE THE LANGUAGE
+      # IS CHANGED, so it must accept the CHINESE title as well as the English one. MEASURED: the
+      # page reads `欢迎使用 CachyOS 安装程序`, and a wait for `welcome installer` ran its whole
+      # forty attempts against a page that was already up.
       words:
       - - welcome
         - installer
-      - - welcome
-        - cachyos
+      - - 欢迎
+      - - cachyos
+        - 安装
     until:
       fact: up
 
@@ -153,22 +155,34 @@ steps:
     mode: says
     words: [welcome, cachyos]
 
-# CALAMARES' FOOTER: `Next` IS AT (1356, 791) ON EVERY PAGE OF THIS INSTALLER, MEASURED.
+# CALAMARES' FOOTER: `Next` IS AT (1356, 753) ON EVERY PAGE OF THIS INSTALLER, MEASURED.
+#
+# THE y IS 753 AND NOT 791, AND 38 PIXELS IS THE WHOLE DIFFERENCE. MEASURED off the frame, row by row
+# across the button's own x range:
+#
+#	y=735  35   background above the button
+#	y=739  58   the button's top edge
+#	y=751 172   the word `Next`, at its brightest
+#	y=767  86   the button's bottom edge
+#	y=771  35   background below it
+#
+# A click at 791 lands BELOW the button. The walk then reported every page as visited while the
+# installer stayed on Welcome, which is what the run's own screenshot showed.
 #
 # Welcome -> Location
 - name: next from welcome
-  click: [1356, 791]
+  click: [1356, 753]
   wait_after: 8
 
 # Location IS LEFT AS IT IS: Asia/Hong Kong and English (Hong Kong SAR China) are the defaults and
 # nothing below depends on them. Location -> Keyboard
 - name: next from location
-  click: [1356, 791]
+  click: [1356, 753]
   wait_after: 8
 
 # Keyboard -> Bootloader. The Generic 105-key PC and Default layout are the defaults.
 - name: next from keyboard
-  click: [1356, 791]
+  click: [1356, 753]
   wait_after: 8
 
 - name: the bootloader page
@@ -207,7 +221,7 @@ steps:
 # Bootloader -> Partitions. THIS MEDIUM PRESELECTS NOTHING HERE, so `Erase disk` has to be clicked
 # before it is selected - the opposite of Kubuntu, where it is already on.
 - name: next from bootloader
-  click: [1356, 791]
+  click: [1356, 753]
   wait_after: 10
 
 - name: select erase disk
@@ -255,7 +269,7 @@ steps:
 
 # Partitions -> Desktop, where Plasma Desktop is preselected.
 - name: next from partitions
-  click: [1356, 791]
+  click: [1356, 753]
   wait_after: 10
 
 - name: the desktop page
@@ -268,7 +282,7 @@ steps:
 
 # Desktop -> Packages, where the CachyOS sets are already ticked.
 - name: next from desktop
-  click: [1356, 791]
+  click: [1356, 753]
   wait_after: 12
 
 - name: the packages page
@@ -281,7 +295,7 @@ steps:
 
 # Packages -> Users
 - name: next from packages
-  click: [1356, 791]
+  click: [1356, 753]
   wait_after: 12
 
 - name: the users page
@@ -339,7 +353,7 @@ steps:
 
 # Users -> Summary
 - name: next from users
-  click: [1356, 791]
+  click: [1356, 753]
   wait_after: 10
 
 - name: the summary page

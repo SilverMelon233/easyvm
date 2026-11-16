@@ -41,9 +41,6 @@ steps:
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
-- name: fetch the installer image
-  release: freebsd
-  asset: linux_iso
 - name: boot the installer
   boot: true
   os: bsd
@@ -56,7 +53,7 @@ steps:
   #
   # The earlier BSD walkthrough needed this same line to reach its installer at all; without it the
   # guest falls to the firmware's boot menu and every key press lands on the firmware.
-  iso: installer_iso
+  iso: freebsd.iso
   # EIGHT GIGABYTES, AND THIS IS A REQUIREMENT OF ZFS RATHER THAN A PREFERENCE.
   #
   # MEASURED: the 4 GiB default got the installer through partitioning and the base-system extraction

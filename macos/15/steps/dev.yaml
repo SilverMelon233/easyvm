@@ -21,13 +21,6 @@ boot_disk: from_caller
 steps:
 - name: start recording
   record: macos15-dev.mp4
-- name: fetch the recovery image
-  release: '15'
-  asset: recovery_macos
-- name: build OpenCore from the recovery image
-  release: '15'
-  recovery: recovery_macos
-  build: opencore
 - name: boot the disk
   boot: true
   os: macos
@@ -35,11 +28,12 @@ steps:
 - name: wait for sshd
   require_ssh: true
   timeout: 900
-- name: fetch xcode on the host
-  asset: xcode
 - name: copy xcode into the guest
+  # THE .xip IS A PREPARED INPUT, PULLED BY THE WORKFLOW BEFORE THIS FILE RUNS. It used to be a
+  # `fetch:` step here, which meant a 1.5 GiB download inside a stage whose job has a wall clock -
+  # the same fault that cost run 43847000071 eighteen minutes before its first boot.
   scp:
-  - '{{ work }}/Xcode_26.3_Universal.xip'
+  - Xcode_26.3_Universal.xip
   - /tmp/Xcode.xip
 - name: expand and select xcode
   script: "#!/bin/bash\nset -euo pipefail\n\n# THE PASSWORD IS AN ARGUMENT BECAUSE SUDO OVER SSH HAS NO TTY: `sudo` on this channel answers\n# \"a password is required\" and has nowhere to read it from.\nPASSWORD='{{ password }}'\nXIP=/tmp/Xcode.xip\n\
@@ -65,10 +59,11 @@ steps:
   #	  recovery_macos, opencore, linux_iso
   #
   # - and the error names the right one in the same sentence.
-  asset: packages
 - name: copy the packages into the guest
+  # ALSO A PREPARED INPUT. Two tarballs built from nodejs.org and python.org releases, pulled by the
+  # workflow; nothing here reaches the network.
   scp:
-  - '{{ work }}/packages.tar'
+  - packages.tar
   - /tmp/packages.tar
 - name: install node
   script: "#!/bin/bash\n# NODE FROM nodejs.org, x64 .pkg. The official installer puts it in\n# /usr/local/bin and links node/npm/npx there, which is on the default PATH.\nset -uo pipefail\nif command -v node >/dev/null 2>&1; then\n  echo \"node is already\

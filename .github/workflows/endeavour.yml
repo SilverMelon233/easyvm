@@ -72,6 +72,7 @@ jobs:
             "name": "linux-endeavour-install",
             "file": "linux/endeavour/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-endeavouros:endeavour.iso"],
             "out": "linux-endeavour.qcow2",
             "publish": "linux-endeavour",
             "timeout": 90

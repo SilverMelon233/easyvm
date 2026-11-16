@@ -64,6 +64,7 @@ jobs:
             "name": "linux-ubuntu-install",
             "file": "linux/ubuntu/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-ubuntu-desktop:ubuntu.iso"],
             "out": "linux-ubuntu.qcow2",
             "publish": "linux-ubuntu",
             "timeout": 90

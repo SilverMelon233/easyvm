@@ -72,6 +72,7 @@ jobs:
             "name": "linux-zorin-install",
             "file": "linux/zorin/steps/install.yaml",
             "pull": "",
+            "assets": ["iso-zorin-core:zorin.iso"],
             "out": "linux-zorin.qcow2",
             "publish": "linux-zorin",
             "timeout": 90

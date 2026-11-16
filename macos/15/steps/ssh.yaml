@@ -51,22 +51,6 @@ boot_disk: from_caller
 steps:
 - name: start recording
   record: macos15-ssh.mp4
-# THE OPENCORE PIECES ARE NEEDED BY EVERY MACOS BOOT, NOT ONLY BY AN INSTALL.
-#
-# `boot.img` is OpenCore itself, and the guest cannot start without it - a mac has no firmware that can
-# read the disk on its own. `build: opencore` derives it from the recovery image, and the recovery image
-# is where Apple's APFS driver comes out of. MEASURED the first time this stage ran without them:
-#
-#	boot the disk: boot: no OpenCore's boot image at /work/boot.img
-#
-# SO EVERY macOS STAGE THAT BOOTS A DISK REBUILDS THEM, which is the same two steps `ssh.yaml` has.
-- name: fetch the recovery image
-  release: '15'
-  asset: recovery_macos
-- name: build OpenCore from the recovery image
-  release: '15'
-  recovery: recovery_macos
-  build: opencore
 - name: boot the disk
   boot: true
   os: macos

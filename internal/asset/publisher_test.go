@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/easydev-org/easyvm/internal/opencore"
 )
 
 // THE PUBLISHER AND THE FETCHER MUST NAME THE SAME TAGS, AND NOTHING ELSE CHECKS BOTH ENDS.
@@ -36,12 +38,37 @@ func TestEveryFetchedTagIsPublishedAndEveryPublishedTagIsFetched(t *testing.T) {
 		t.Errorf("a preparation step can ask for %q and artifacts-publish.yml does not write it, "+
 			"so that stage fails with a 404 after its download budget is already spent", tag)
 	}
+	// WHAT CONSUMES A TAG. Two things do now, and both have to be checked or a file nothing reads
+	// stays in the package for years:
+	//
+	//	a workflow's `assets:`   a stage that boots from it
+	//	artifacts-publish itself  the OpenCore build DOWNLOADS its four inputs and PUSHES one output,
+	//	                          so `macos-asset-opencore` is consumed by the job in this same file
+	//
+	// The second half is a narrowing, not a loophole: it only covers tags this file names on an
+	// `oci-pull` step, which is exactly the set the build cannot run without.
+	inputsToTheBuild := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^\s*tag:\s*([A-Za-z0-9._-]+)\s*$`).FindAllStringSubmatch(string(body), -1) {
+		inputsToTheBuild[m[1]] = true
+	}
+	// AND THE STEPS THAT STILL PREPARE THEIR OWN INPUT. `asset: xcode`, `asset: guest_agent` and
+	// `asset: packages` are still walk steps: they are small files (a 1.5 GiB .xip, a few MiB of
+	// agent, a tar of dev packages) and they are read by a stage that has a guest, not by one that
+	// boots. Moving them out is the same change as the ISOs and is not done yet - naming them here
+	// is what makes that debt visible instead of silent.
+	stillInAWalk := map[string]bool{
+		"macos-asset-xcode-26.3":   true,
+		"macos-asset-mac-guest-agent": true,
+		"dev-node-pkg":            true,
+		"dev-python-pkg":          true,
+	}
 	for tag := range published {
-		if fetched[tag] {
+		if fetched[tag] || inputsToTheBuild[tag] || stillInAWalk[tag] {
 			continue
 		}
-		t.Errorf("artifacts-publish.yml writes %q and no `fetch:` step asks for it, so publishing "+
-			"it is runner time and package space for a file no stage reads", tag)
+		t.Errorf("artifacts-publish.yml writes %q and nothing asks for it - not a workflow's "+
+			"`assets:` and not the build in this same file - so it is runner time and package space "+
+			"for a file no stage reads", tag)
 	}
 	if len(mirrored) == 0 {
 		t.Error("nothing mirrors the macOS recovery image, and it cannot be a URL in the catalogue: " +
@@ -49,62 +76,71 @@ func TestEveryFetchedTagIsPublishedAndEveryPublishedTagIsFetched(t *testing.T) {
 	}
 }
 
-// tagsTheBuildAsksFor resolves every `asset:`/`build:`/`generate:` in every walkthrough through
-// the alias table.
+// tagsTheBuildAsksFor reads the tags EVERY WORKFLOW PULLS, from the `assets` field on its stages.
+//
+// THE VOCABULARY MOVED AND THIS TEST MOVED WITH IT. It used to resolve `asset: linux_iso` plus a
+// `release:` out of each walkthrough, because a walk downloaded its own installer. Walks no longer
+// download anything: every medium a stage boots from is pulled by the workflow before the walk starts,
+// because a stage whose duration depends on a registry reports a download as a machine that will not
+// answer. MEASURED, and it is the reason for the change - run 43847000071 spent eighteen minutes
+// inside `macos-vm-configure`'s own recovery fetch and then failed `wait for sshd` on a boot budget it
+// had already spent.
+//
+// SO THE THING THAT MUST MATCH artifacts-publish.yml IS NOW THE WORKFLOW, and the entries look like
+// `"assets": ["iso-ubuntu-desktop:ubuntu.iso"]` - a tag, a colon, and the filename the walk's `iso:`
+// names. The filename half is not this test's business; the tag half is, because a tag nothing
+// publishes is a 404 in the first minute of a leg.
 func tagsTheBuildAsksFor(t *testing.T) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
 
-	// THE LINUX AND BSD INSTALLER IMAGES, by the release each file names.
-	files, err := filepath.Glob(filepath.Join("..", "..", "*", "*", "steps", "*.yaml"))
+	files, err := filepath.Glob(filepath.Join("..", "..", ".github", "workflows", "*.yml"))
 	if err != nil {
-		t.Fatalf("cannot list walkthroughs: %v", err)
+		t.Fatalf("cannot list workflows: %v", err)
 	}
-	release := regexp.MustCompile(`(?m)^\s*release:\s*"?([A-Za-z0-9._-]+)"?\s*$`)
+	// `"tag-or-name": ...` INSIDE an `assets` LIST. The list is JSON inside a YAML block, so the
+	// pattern is the JSON spelling and not YAML's.
+	entry := regexp.MustCompile(`"([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)"`)
+	assets := regexp.MustCompile(`"assets":\s*\[([^\]]*)\]`)
 	for _, name := range files {
 		body, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatalf("cannot read %s: %v", name, err)
 		}
-		src := string(body)
-		if !strings.Contains(src, "asset: linux_iso") {
-			continue
-		}
-		for _, m := range release.FindAllStringSubmatch(src, -1) {
-			out[linuxISOTag(m[1])] = true
+		for _, m := range assets.FindAllStringSubmatch(string(body), -1) {
+			for _, e := range entry.FindAllStringSubmatch(m[1], -1) {
+				out[e[1]] = true
+			}
 		}
 	}
-	// A FILE THAT NAMES `asset: linux_iso` MUST NAME A RELEASE, and if none was found the loop above
-	// silently contributes nothing - so one is asserted rather than assumed.
 	if len(out) == 0 {
-		t.Fatal("no linux_iso release could be resolved from any walkthrough, so this test would " +
-			"pass by comparing two empty sets")
+		t.Fatal("no workflow names an `assets:` entry, so this test would pass by comparing two " +
+			"empty sets - and every stage would boot from a file nothing pulled")
 	}
 
-	// THE FIXED TAGS, stated once. These are the kinds whose tag does not depend on a `release:`.
-	for _, tag := range []string{
-		virtioWinTag,
-		windowsISOTag,
-		"macos-asset-opencore",
-		"macos-asset-opencore-template",
-		"macos-asset-ovmf-code",
-		"macos-asset-ovmf-vars-1920x1080",
-	} {
-		out[tag] = true
+	// AND THE INPUTS OF THE BUILD THAT RUNS INSIDE THE IMAGE. `artifacts-publish.yml`'s `opencore`
+	// job runs `easyvm run macos/15/steps/firmware.yaml`, and that walk's `build: opencore` pulls
+	// four pinned assets by name. The workflow does not spell them, so this reads the same table the
+	// build does - which is what keeps the two from drifting, because a pin added there is a tag the
+	// publisher must already have mirrored.
+	for _, a := range opencore.Assets {
+		out[a.Tag] = true
 	}
-	// FROM THE PINS, not from a second list: a tag derived from the pin is a tag that cannot drift.
-	for _, pin := range xcodePins {
-		out[packageTag("macos-asset-", "xcode-"+pin.Version)] = true
-	}
-	out[packageTag("macos-asset-", "mac-guest-agent")] = true
-	for _, p := range devPackages {
-		out[p.Tag] = true
-	}
-	out[recoveryMacOSTag("15")] = true
 	return out
 }
 
-// tagsThePublisherWrites reads the catalogue rows and the mirrored tags out of the workflow.
+// tagsThePublisherWrites reads every tag artifacts-publish.yml either CATALOGUES or PUSHES.
+//
+// TWO KINDS OF TAG LIVE IN THAT FILE NOW, AND BOTH ARE LEGITIMATE:
+//
+//	catalogue rows   `- { tag: "iso-ubuntu-desktop", ... }` - upstream files mirrored into this
+//	                 package. Every one of them is pulled by some workflow's `assets:`, so a row
+//	                 nothing pulls is runner time for a file no stage reads.
+//	pushed tags      `tag: macos-asset-boot` on an `oci-push` step - files this repository BUILDS
+//	                 rather than mirrors. The OpenCore firmware is the one case: four pinned
+//	                 downloads, an APFS driver out of the recovery image, and a 256 MiB FAT32 image.
+//	                 Its INPUTS are catalogue rows; its OUTPUT is published under a tag no row names.
+//
 func tagsThePublisherWrites(t *testing.T, src string) (catalogue, mirrored map[string]bool) {
 	t.Helper()
 	catalogue = map[string]bool{}
@@ -135,6 +171,19 @@ func tagsThePublisherWrites(t *testing.T, src string) (catalogue, mirrored map[s
 	// cannot be described by a URL.
 	for _, m := range regexp.MustCompile(`macos-recovery-[a-z]+`).FindAllString(src, -1) {
 		mirrored[m] = true
+	}
+
+	// AND THE TAGS THIS REPOSITORY BUILDS RATHER THAN MIRRORS. They appear as `tag: <name>` on an
+	// `oci-push` step, and there is no catalogue row for them because no URL produces them - the
+	// OpenCore firmware is assembled from four downloaded files plus a driver out of the recovery
+	// image. A tag pushed here must be pulled by some workflow, which is what the caller checks.
+	pushed := regexp.MustCompile(`(?m)^\s*tag:\s*([A-Za-z0-9._-]+)\s*$`)
+	for _, m := range pushed.FindAllStringSubmatch(src, -1) {
+		// A `tag:` on an `oci-pull` step is an INPUT, not something this file writes, and those are
+		// the catalogue and mirrored sets above. Only the pushes count.
+		if strings.Contains(src, "oci-push") {
+			mirrored[m[1]] = true
+		}
 	}
 	return catalogue, mirrored
 }
