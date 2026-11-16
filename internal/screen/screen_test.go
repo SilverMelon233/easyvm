@@ -386,3 +386,67 @@ func TestFindColorFindsTheCentreOfABlobInARegion(t *testing.T) {
 		t.Error("a blob 10 away must be refused at tolerance 5")
 	}
 }
+
+// KUBUNTU'S LAUNCHER IS A SATURATED SCREEN, AND ITS INSTALLER IS A GREY ONE.
+//
+// THE NUMBERS BELOW ARE THE IMAGE'S OWN, measured on Kubuntu 26.04's live medium: the launcher reads
+// saturation 96.9 and every Calamares page reads 4.1 to 6.2. The threshold is 40, which is three
+// times the highest installer page and well under the launcher - so this test asserts the gap rather
+// than a comfortable margin around one point.
+func TestKubuntuLauncherIsSaturatedAndItsInstallerIsNot(t *testing.T) {
+	// THE LAUNCHER: the blue radial gradient, which is saturated everywhere.
+	//
+	// The two ends of the gradient are the same HUE at different brightnesses, which is what makes
+	// the panel test see them as equal (`Drop=0.0`) and this one see them as one screen.
+	launcher := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	for y := 0; y < 1080; y++ {
+		// A deep blue that darkens downward, 12..40 in red and 60..110 in blue: saturated throughout.
+		t := float64(y) / 1080.0
+		r := uint8(12 + t*28)
+		g := uint8(30 + t*40)
+		b := uint8(110 - t*50)
+		fill(launcher, image.Rect(0, y, 1920, y+1), color.RGBA{r, g, b, 255})
+	}
+	if ok, st := IsKubuntuLauncher(launcher); !ok {
+		t.Fatalf("a saturated blue launcher must read as the kubuntu launcher: sat=%.1f", st.SaturationRise)
+	}
+
+	// AND THE PANEL TEST CANNOT SEE IT - which is the whole reason this function exists.
+	if ok, st := IsLinuxDesktop(launcher); ok {
+		t.Fatalf("the launcher must NOT read as a Linux desktop; it has no panel, and a "+
+			"`desktop: linux` step would wait out its budget on it: drop=%.1f", st.BrightnessDrop)
+	}
+
+	// THE INSTALLER: Calamares draws grey on grey. This is the page the step after the wait clicks
+	// into, so answering true here would end the wait on the wrong screen.
+	installer := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	fill(installer, installer.Bounds(), color.RGBA{222, 222, 222, 255})
+	if ok, st := IsKubuntuLauncher(installer); ok {
+		t.Fatalf("a grey Calamares page must NOT read as the launcher: sat=%.1f", st.SaturationRise)
+	}
+
+	// GRUB: coloured words on black. Saturation per pixel can be high on the words, so the brightness
+	// floor is what rejects it - there is no desktop behind them.
+	grub := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	fill(grub, grub.Bounds(), color.RGBA{0, 0, 0, 255})
+	fill(grub, image.Rect(300, 400, 1300, 440), color.RGBA{230, 230, 230, 255})
+	if ok, st := IsKubuntuLauncher(grub); ok {
+		t.Fatalf("GRUB's black screen must NOT read as the launcher: mean=%.1f", st.TopMean[0])
+	}
+}
+
+// AND A DISTRIBUTION'S OWN TEST IS REACHABLE BY NAME, so a walk can say `desktop: linux/kubuntu`
+// rather than depending on a family-wide threshold that cannot see its medium.
+func TestEveryNamedDesktopFamilyIsDispatched(t *testing.T) {
+	body, err := os.ReadFile("../run/actions.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(body)
+	for _, name := range []string{"windows", "macos", "linux", "android", "linux/kubuntu"} {
+		if !strings.Contains(src, `case "`+name+`":`) {
+			t.Errorf("no `case %q:` in the desktop dispatch, so `desktop: %s` would fall through "+
+				"to the default and fail on a running guest", name, name)
+		}
+	}
+}

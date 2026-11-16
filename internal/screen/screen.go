@@ -863,3 +863,125 @@ func bandSpread(img image.Image, w, h int, from, to float64) float64 {
 	}
 	return dev / count
 }
+
+// IsKubuntuLauncher reports whether a frame is the KDE launcher a Kubuntu live session boots to.
+//
+// IT IS A SEPARATE TEST BECAUSE THE PANEL TEST CANNOT SEE IT, AND THAT IS A MEASUREMENT.
+//
+// Kubuntu 26.04's live medium opens on a launcher - the word `kubuntu`, a Language combo, a
+// Connection combo, and the two buttons `Try Kubuntu` and `Install Kubuntu` - drawn on a full-bleed
+// blue radial gradient. MEASURED, on this image:
+//
+//	IsLinuxDesktop=false
+//	TopMean == BottomMean == [5.45 27.30 62.01]   TopVar=10.7  BottomVar=3.5   Drop=0.0
+//
+// `IsLinuxDesktop` looks for a FLAT band at an edge whose brightness differs from the body by more
+// than 40 - a panel. This screen is one gradient from top to bottom, so top and bottom are identical
+// and the drop is exactly zero. A `desktop: linux` step would spend its whole budget on a machine
+// sitting on its installer, which is what happened before this test existed.
+//
+// THE MEASUREMENT IS SATURATION, AND THE GAP IS ENORMOUS. Saturation here is `(max-min)/max` per
+// pixel, averaged over three horizontal bands as a percentage. MEASURED on this image:
+//
+//	the launcher                 sat=96.9   mean=29.0
+//	Calamares' welcome page      sat= 5.8   mean=222.2
+//	Calamares' partitions page   sat= 4.1   mean=222.3
+//	Calamares' erase page        sat= 6.2   mean=216.8
+//
+// A threshold of 40 sits in the middle of that gap and is nowhere near either side: every Calamares
+// page is a grey window (saturation under 7) and the launcher is a saturated blue (97). Brightness is
+// checked only to reject a black screen, where a few coloured characters can make the average
+// saturation read high while there is no desktop at all.
+func IsKubuntuLauncher(img image.Image) (bool, Stats) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	st := Stats{Width: w, Height: h}
+	if w == 0 || h == 0 {
+		return false, st
+	}
+
+	// THREE BANDS, because a radial gradient is one colour scheme everywhere and one band could land
+	// on an unrepresentative part of it.
+	var satTotal, meanTotal float64
+	var bands int
+	for _, edge := range []struct{ lo, hi float64 }{
+		{0.10, 0.25},
+		{0.40, 0.60},
+		{0.75, 0.90},
+	} {
+		sat, mean := saturationAndMean(img, w, h, edge.lo, edge.hi)
+		satTotal += sat
+		meanTotal += mean
+		bands++
+	}
+	avgSat := satTotal / float64(bands)
+	avgMean := meanTotal / float64(bands)
+
+	st.TopSat, st.BottomSat = avgSat, avgSat
+	st.TopMean = bandMean(img, w, h, 0.10, 0.25)
+	st.BottomMean = bandMean(img, w, h, 0.75, 0.90)
+	st.SaturationRise = avgSat
+
+	// THE TWO NUMBERS, BOTH FROM THE TABLE ABOVE. `avgSat > 40` is three times every Calamares page
+	// and well under the launcher's 97; `avgMean > 12` rejects GRUB's black, where coloured words on
+	// black can push an average and there is no desktop behind them.
+	if avgSat > 40 && avgMean > 12 {
+		return true, st
+	}
+	return false, st
+}
+
+// saturationAndMean returns the mean HSV saturation in percent and the mean brightness of a band.
+//
+// SATURATION IS `(max-min)/max`, which is the HSV definition: a grey pixel is 0 and a pure hue is
+// 100. It is the measurement that separates this launcher's blue wallpaper from Calamares' grey
+// window, and it is not what `bandStats` returns - that second value is a VARIANCE, and using it here
+// was the first version of this function and it called every Calamares page a launcher.
+func saturationAndMean(img image.Image, w, h int, lo, hi float64) (sat, mean float64) {
+	b := img.Bounds()
+	y0 := b.Min.Y + int(float64(h)*lo)
+	y1 := b.Min.Y + int(float64(h)*hi)
+	if y1 <= y0 {
+		y1 = y0 + 1
+	}
+	if y1 > b.Max.Y {
+		y1 = b.Max.Y
+	}
+	const step = 4
+	var satSum, meanSum float64
+	var count int
+	for y := y0; y < y1; y++ {
+		for x := b.Min.X; x < b.Max.X; x += step {
+			r, g, bl := rgb8(img.At(x, y))
+			mx := r
+			if g > mx {
+				mx = g
+			}
+			if bl > mx {
+				mx = bl
+			}
+			mn := r
+			if g < mn {
+				mn = g
+			}
+			if bl < mn {
+				mn = bl
+			}
+			if mx > 1 {
+				satSum += float64(mx-mn) / float64(mx) * 100
+			}
+			meanSum += float64(r+g+bl) / 3
+			count++
+		}
+	}
+	if count == 0 {
+		return 0, 0
+	}
+	return satSum / float64(count), meanSum / float64(count)
+}
+
+// bandMean is the mean colour of a band, so a caller can report it without walking the image twice.
+func bandMean(img image.Image, w, h int, lo, hi float64) [3]float64 {
+	band, _ := bandStats(img, w, h, lo, hi)
+	return band
+}

@@ -446,9 +446,38 @@ func (e *Executor) doDesktop(s walk.Step) error {
 			// it does not draw. The same measurement serves every distribution here because they all
 			// run a panel - GNOME, KDE, XFCE, MATE, Cinnamon - and the installers they boot do not.
 			ok, lastStats = screen.IsLinuxDesktop(img)
+
+		// THE DISTRIBUTION'S OWN TEST, NAMED `linux/<name>`, FOR A MEDIUM WHOSE FIRST SCREEN IS NOT
+		// A DESKTOP.
+		//
+		// Kubuntu 26.04 boots to a KDE launcher drawn on a full-bleed gradient: no panel, so
+		// `IsLinuxDesktop` answers false with `Drop=0.0`, and a `desktop: linux` step would spend its
+		// fifteen minutes on a machine that is sitting on its installer. MEASURED on that image:
+		//
+		//	the launcher                 sat=96.9
+		//	every Calamares page         sat= 4.1 .. 6.2
+		//
+		// `screen.IsKubuntuLauncher` is that measurement, and naming it in the file as
+		// `desktop: linux/kubuntu` is what makes the choice visible where the walk is read rather
+		// than implicit in a family-wide threshold.
+		case "linux/kubuntu":
+			ok, lastStats = screen.IsKubuntuLauncher(img)
+		case "android":
+			// ANDROID DRAWS A PANEL TOO, AND THE SAME MEASUREMENT FIND IT.
+			//
+			// BlissOS's launcher puts Taskbar or Smart Dock along an edge, exactly like a Linux
+			// desktop - and the screens this stage has to tell apart draw none: the boot splash is a
+			// centered logo, the live system's "Select a Home app" chooser is a dialog in the middle
+			// of an otherwise empty frame, and a locked screen is one full-bleed wallpaper.
+			//
+			// MEASURED, on this stage's own runs: the launcher and the chooser both have a strip and
+			// a body, and `IsLinuxDesktop` answers true for the launcher and false for the chooser.
+			// That is the distinction that matters, and a second detector written for Android would
+			// be a second set of thresholds to keep in step with the first.
+			ok, lastStats = screen.IsLinuxDesktop(img)
 		default:
-			return fail(s.Name, "the %q desktop test is not implemented in this build; the three "+
-				"are windows, macos and linux", family)
+			return fail(s.Name, "the %q desktop test is not implemented in this build; the four "+
+				"are windows, macos, linux and android", family)
 		}
 		if ok {
 			// A DESKTOP AT THE WRONG SIZE IS NOT A DESKTOP, BECAUSE EVERY COORDINATE IN THE FILE WAS

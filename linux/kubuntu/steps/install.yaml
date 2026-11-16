@@ -1,4 +1,4 @@
-name: kubuntu - the Calamares walk
+name: kubuntu 26.04 - install to ext4, then the power button
 resolution:
 - 1920
 - 1080
@@ -6,12 +6,14 @@ vars:
   user:
     from: args.user
     default: vmuser
+  # EIGHT CHARACTERS AND NOT A DICTIONARY WORD: Calamares refuses `admin` as too short and
+  # `admin123` as based on a dictionary word, and the password box shows the refusal in place.
   password:
     from: args.password
-    default: admin
+    default: Vm2026xKubuntu
   out:
     from: args.out
-    default: out/distro.qcow2
+    default: out/kubuntu.qcow2
 steps:
 - name: start recording
   record: kubuntu-install.mp4
@@ -21,240 +23,314 @@ steps:
 - name: fetch the installer image
   release: kubuntu
   asset: linux_iso
+
+# THE INSTALLER IS UEFI, because the disk it produces has an ESP the firmware boots from.
 - name: boot the installer
   boot: true
   os: linux
   iso: installer_iso
   timeout: 1800
-- name: wait for the live desktop
-  desktop: linux
+
+# THE LAUNCHER IS NOT THE FIRST THING THAT SAYS "KUBUNTU"; THE GRUB MENU IS.
+#
+# `Try or Install Kubuntu` is the first boot entry's label, so a check for those words passes while
+# the screen is still GRUB. `language` is the discriminator: the launcher has `Language` and
+# `Connection`, GRUB has neither. `without: [grub]` says so in the same reading.
+# `desktop: linux/kubuntu` IS THE DISTRIBUTION'S OWN TEST, AND IT IS NEEDED HERE.
+#
+# Kubuntu 26.04 boots to a KDE launcher on a full-bleed gradient. `IsLinuxDesktop` looks for a panel
+# - a flat band at an edge whose brightness differs from the body - and this screen has none:
+#
+#	TopMean == BottomMean == [5.45 27.30 62.01]   Drop=0.0
+#
+# so `desktop: linux` would wait its whole budget on a machine sitting on its own installer.
+# `IsKubuntuLauncher` measures SATURATION instead, where the gap is enormous:
+#
+#	the launcher               sat=96.9
+#	every Calamares page       sat= 4.1 .. 6.2
+#
+# The budget and `keep_alive` are the repository's own for a live medium, because the image unpacks
+# itself before its launcher exists and a session left alone will lock its screen.
+- name: wait for the installer's launcher
+  desktop: linux/kubuntu
   timeout: 5400
   poll: 5
   keep_alive: true
-- name: wait for the calamares window
-  loop:
-    max: 120
-    do:
-    - click:
-      - 420
-      - 300
-      wait_after: 5
-    ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
-      scale: 1
-      wait: 0
-    check:
-      name: done
-      from: screen
-      mode: says_any
-      words:
-      - - welcome
-        - to
-        - kubuntu
-      - - choose
-        - your
-        - language
-      - - erase
-        - disk
-    until:
-      fact: done
-- name: install kubuntu on the live desktop
-  wait_after: 25
-  do:
-  - click:
-    - 1326
-    - 841
-    wait_after: 0.8
-  - click:
-    - 1326
-    - 841
-    wait_after: 0.8
-- name: welcome
-  repeat_until:
-    attempts: 3
-    actions:
-    - click:
-      - 1757
-      - 1058
-      wait_after: 12
-    - click:
-      - 1757
-      - 1058
-      wait_after: 12
-    - key: alt+n
-      wait_after: 12
-    until_any:
-    - changed: true
-    wait_after: 12
-- name: location
-  repeat_until:
-    attempts: 3
-    actions:
-    - click:
-      - 1757
-      - 1058
-      wait_after: 12
-    - click:
-      - 1757
-      - 1058
-      wait_after: 12
-    - key: alt+n
-      wait_after: 12
-    until_any:
-    - changed: true
-    wait_after: 12
-- name: keyboard
-  repeat_until:
-    attempts: 3
-    actions:
-    - click:
-      - 1757
-      - 1058
-      wait_after: 12
-    - click:
-      - 1757
-      - 1058
-      wait_after: 12
-    - key: alt+n
-      wait_after: 12
-    until_any:
-    - changed: true
-    wait_after: 12
-- name: customize
-  repeat_until:
-    attempts: 3
-    actions:
-    - click:
-      - 1757
-      - 1058
-      wait_after: 12
-    - click:
-      - 1757
-      - 1058
-      wait_after: 12
-    - key: alt+n
-      wait_after: 12
-    until_any:
-    - changed: true
-    wait_after: 12
-- name: partitions - erase the disk
+
+# THE TWO BUTTONS, MEASURED OFF THE FRAME by scanning row y=844 for runs of brighter pixels:
+#
+#	(398 .. 732)     Try Kubuntu
+#	(1140 .. 1524)   Install Kubuntu
+#
+# SO THE CENTRE OF `Install Kubuntu` IS (1332, 844). The launcher's Language combo box sits at y=552
+# and a click there opens a dropdown that then swallows the NEXT click while it closes, which reads
+# as a dead button - so the coordinate has to be the button's, not near it.
+- name: open the installer
   click:
-  - 208
-  - 73
-  wait_after: 4
-- name: partitions
-  repeat_until:
-    attempts: 3
-    actions:
-    - click:
-      - 1757
-      - 1058
-      wait_after: 15
-    - click:
-      - 1757
-      - 1058
-      wait_after: 15
-    - key: alt+n
-      wait_after: 15
-    until_any:
-    - changed: true
-    wait_after: 15
-- name: users - full name
+  - 1332
+  - 844
+  wait_after: 20
+
+- name: calamares is open
+  ocr:
+    name: cal
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 5
+
+# CALAMARES' OWN FOOTER IS THE PROOF OF A PAGE, AND THE SIDEBAR IS NOT CLICKABLE.
+#
+# Measured: clicking `Partitions` in the sidebar does nothing on the Welcome page, and the button
+# that works is `Next` at the bottom right. So each page is reached by pressing Next, and each press
+# is its own step so a failure names the page it stopped on.
+- name: the installer's first page
+  check:
+    name: opened
+    from: cal
+    mode: says
+    words: [welcome, partitions, next]
+
+# (1777, 1059) is `Next`, measured from the footer strip: three buttons, `Back`, `Next`, `Cancel`.
+#
+# Welcome -> Location
+- name: next from welcome
   click:
-  - 296
-  - 52
+  - 1777
+  - 1059
+  wait_after: 8
+
+# Location -> Keyboard
+- name: next from location
+  click:
+  - 1777
+  - 1059
+  wait_after: 8
+
+# Keyboard -> Customize, where the installation mode is chosen
+- name: next from keyboard
+  click:
+  - 1777
+  - 1059
+  wait_after: 8
+
+- name: the installation mode page
+  ocr:
+    name: mode
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+# Customize -> Partitions
+- name: next from customize
+  click:
+  - 1777
+  - 1059
+  wait_after: 8
+
+- name: the partitions page
+  ocr:
+    name: parts
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+# THE PARTITIONS PAGE OFFERS `Erase disk` AND `Manual partitioning`, AND `Erase disk` IS THE ONE
+# THAT MATTERS HERE: ITS DEFAULT FILESYSTEM IS ext4, MEASURED.
+#
+# Reading of the page after selecting it:
+#
+#	Swap to file  [ext4]                      <- the filesystem combo, ext4 by default
+#	EFI system        300.00 MiB  FAT32
+#	kubuntu_2604      127.71 GiB  ext4        <- the root partition, ext4
+#
+# and the Summary page repeats it in words: `Install Kubuntu on new ext4 system partition`.
+#
+# SO KUBUNTU NEEDS NO FILESYSTEM CHANGE, and that is a measurement rather than an assumption - the
+# assumption that it defaulted to btrfs was wrong, and it was wrong about this image.
+- name: select erase disk
+  click:
+  - 250
+  - 76
+  wait_after: 6
+
+- name: the erase page shows ext4
+  ocr:
+    name: fs
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+- name: the default filesystem is ext4
+  check:
+    name: ext4
+    from: fs
+    mode: says
+    words: [ext4]
+
+# Partitions -> Users
+- name: next from partitions
+  click:
+  - 1777
+  - 1059
+  wait_after: 8
+
+- name: the users page
+  ocr:
+    name: users
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+# THE FIVE FIELDS, MEASURED FROM THE PAGE. Each box is wide and the click is in its left third where
+# the caret lands after existing text, so `ctrl+a` then `backspace` is a reliable clear.
+- name: the full name
+  click: [293, 51]
   type: '{{ user }}'
   wait_after: 2
-- name: users - login name
-  click:
-  - 296
-  - 120
+- name: the login name
+  click: [293, 119]
+  clear: true
   type: '{{ user }}'
   wait_after: 2
-- name: users - password
-  click:
-  - 296
-  - 254
+- name: the computer name
+  click: [293, 187]
+  clear: true
+  type: kubuntu
+  wait_after: 2
+- name: the password
+  click: [293, 255]
+  clear: true
   type: '{{ password }}'
   wait_after: 2
-- name: users - confirm password
-  click:
-  - 500
-  - 254
+- name: the password again
+  click: [500, 255]
+  clear: true
   type: '{{ password }}'
-  wait_after: 3
+  wait_after: 2
+
+# THE ACCOUNT LOGS ITSELF IN, because an unattended client cannot type at a login screen.
 - name: log in automatically
-  click:
-  - 203
-  - 297
+  click: [205, 295]
   wait_after: 3
-- name: users
-  repeat_until:
-    attempts: 3
-    actions:
-    - click:
-      - 1757
-      - 1058
-      wait_after: 15
-    - click:
-      - 1757
-      - 1058
-      wait_after: 15
-    - key: alt+n
-      wait_after: 15
-    until_any:
-    - changed: true
-    wait_after: 15
-- name: summary - install
+
+- name: the users page is filled in
+  ocr:
+    name: filled
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+- name: the password was accepted
+  check:
+    name: ok
+    from: filled
+    mode: says_without
+    # `too short` AND `dictionary check` ARE THE TWO REFUSALS the page shows in place. Neither may
+    # be on screen when the form is complete, and the user name has to be there.
+    words: [vmuser]
+    without: [short]
+    
+# Users -> Summary
+- name: next from users
   click:
-  - 1757
-  - 1058
-  wait_after: 12
-- name: the confirmation dialog's install now
+  - 1777
+  - 1059
+  wait_after: 8
+
+- name: the summary page
+  ocr:
+    name: summary
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+# THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM.
+- name: the summary names ext4
+  check:
+    name: ext4
+    from: summary
+    mode: says
+    words: [ext4]
+
+# Summary -> the confirmation dialog
+- name: start the install
   click:
-  - 1058
-  - 535
-  wait_after: 25
-- name: the installer finishes
+  - 1777
+  - 1059
+  wait_after: 8
+
+- name: the confirmation dialog
+  ocr:
+    name: confirm
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+# `Install Now`, MEASURED AT (1071, 535) INSIDE THE DIALOG. The dialog's own title is the check, so a
+# click that missed it is visible as a page with no dialog rather than as a silent no-op.
+- name: install now
+  click: [1071, 535]
+  wait_after: 15
+
+# THE INSTALL WRITES FOR TWENTY MINUTES AND THE PROGRESS BARS ARE THE ONLY SIGNAL. `disk_settle`
+# waits for the DISK to stop changing rather than for a clock, which is the difference between "the
+# installer has stopped writing" and "twenty minutes have passed".
+- name: the install writes the disk
+  disk_settle: 300
+  disk_min_mb: 4000
+  timeout: 3600
+  poll: 20
+  keep_alive: true
+
+- name: the install is done
   loop:
-    max: 270
+    max: 60
     do:
-    - wait: 20
+    - wait: 15
     ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
+      name: done
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
       scale: 1
       wait: 0
     check:
-      name: done
-      from: screen
-      mode: says_any
-      words:
-      - - all
-        - done
-      - - reboot
-        - now
-      - - restart
+      name: finished
+      from: done
+      mode: says
+      words: [installed]
     until:
-      fact: done
+      fact: finished
+
+# `kill`, AND THE RULE IS MEASURED RATHER THAN PREFERRED.
+#
+# A LIVE INSTALLER DOES NOT ANSWER THE POWER BUTTON. `TestAnInstallStopsTheMachineBeforePublishing
+# TheDisk` carries the run that proved it:
+#
+#	stopping with method "acpi"
+#	pressing the power button
+#	the guest did not power off within 5m0s; killing it
+#	compressing with zstd
+#	linux-zorin.qcow2: 0 MiB
+#
+# FIVE MINUTES WAITING FOR A BUTTON NOTHING PRESSES, THEN THE SAME KILL - and by then `qemu-img
+# convert` raced a qemu that was still releasing the disk and wrote ZERO BYTES.
+#
+# `kill` IS NOT A COMPROMISE HERE. The step above waits for the install to complete, so the installer
+# has already finished and its writes are on the medium; the journal replay it costs is paid by the
+# FIRST BOOT OF THE NEXT STAGE, which is `ssh.yaml`. That is the trade the repository chose, and the
+# reason `acpi` belongs to the stages that reach a running system over ssh instead.
 - name: stop the machine
   shutdown: kill
-  timeout: 120
+  timeout: 600
+
 - name: publish the disk
   compress: '{{ out }}'
 - name: stop recording

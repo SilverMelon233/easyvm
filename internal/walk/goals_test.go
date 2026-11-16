@@ -834,10 +834,27 @@ func TestAnInstallerIsWaitedForTheWayItAppears(t *testing.T) {
 		// DESKTOP ONES NOW - `iso-ubuntu-desktop` is 6,182 MiB, Desktop 26.04.1 exactly - so the panel
 		// is the honest measurement again, and the same correction applied to nixos (minimal has no
 		// desktop at all), popos, manjaro and zorin.
-		if wait.Get("desktop") != "linux" {
-			t.Errorf("%s: %s waits on %q rather than `desktop: linux`. These are desktop images and "+
-				"the next step clicks a control on the session, so the wait must ask whether a session "+
-				"is up", rel, wait.Name, wait.Get("desktop"))
+		// `linux` OR A DISTRIBUTION'S OWN `linux/<name>`, AND THE SECOND FORM EXISTS BECAUSE ONE
+		// MEDIUM'S FIRST SCREEN IS NOT A PANEL.
+		//
+		// Kubuntu 26.04 boots to a KDE launcher drawn on a full-bleed gradient. MEASURED on that image:
+		//
+		//	TopMean == BottomMean == [5.45 27.30 62.01]   Drop=0.0
+		//
+		// `IsLinuxDesktop` answers false, and correctly: there is no panel to find. The launcher is
+		// still a live session, and the measurement that separates it from every Calamares page is
+		// saturation (96.9 against 4.1 .. 6.2). `screen.IsKubuntuLauncher` is that measurement, and
+		// `desktop: linux/kubuntu` names it in the file where the reader can see the choice.
+		//
+		// WHAT THIS TEST STILL REFUSES: a wait on words instead of a session. `desktop: linux` and
+		// `linux/<name>` both answer "is a session up"; an OCR loop does not, and that is the mistake
+		// this assertion was written for.
+		family := wait.Get("desktop")
+		if family != "linux" && !strings.HasPrefix(family, "linux/") {
+			t.Errorf("%s: %s waits on %q rather than `desktop: linux` or a distribution's own "+
+				"`desktop: linux/<name>`. These are desktop images and the next step clicks a "+
+				"control on the session, so the wait must ask whether a session is up",
+				rel, wait.Name, family)
 		}
 		// AND THE SESSION IS KEPT AWAKE. This wait can run for ninety minutes, and a live session's
 		// idle timer puts a lock screen up well before that - after which nothing below can match.
