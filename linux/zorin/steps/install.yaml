@@ -207,6 +207,39 @@ steps:
         - tables
     until:
       fact: done
+# THE DIALOG THAT ASKS FOR PERMISSION ALSO NAMES THE FILESYSTEM, AND THAT IS THE ONLY PLACE Ubiquity
+# SAYS IT ON SCREEN. MEASURED, verbatim:
+#
+#	The following partitions are going to be formatted:
+#	partition #1 of Virtual disk 1 (vda) as ESP
+#	partition #2 of Virtual disk 1 (vda) as ext4
+#
+# SO THE ext4 CHECK IS A READING OF THIS DIALOG rather than a combo the walk has to set: Ubiquity has
+# no filesystem selector at all, and `Advanced features... None selected` is the default that means
+# ext4. A walk that accepted the default without reading this could publish a btrfs disk and nothing
+# above would have noticed - the pages before this one do not mention a filesystem.
+- name: the dialog names the filesystem it will create
+  ocr:
+    name: format
+    region:
+    - 0
+    - 0
+    - 1920
+    - 1080
+    region_at:
+    - 1920
+    - 1080
+    scale: 1
+    wait: 0
+
+- name: the root partition will be ext4
+  check:
+    name: ext4
+    from: format
+    mode: says
+    words:
+    - ext4
+
 - name: write the changes to disks
   click:
   - 1293
