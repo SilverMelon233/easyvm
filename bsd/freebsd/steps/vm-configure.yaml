@@ -106,12 +106,21 @@ steps:
     scale: 1
     wait: 0
 - name: check there is no login prompt
+  # `words:` IS WHAT MUST BE THERE AND `without:` IS WHAT MUST NOT, so this asks for both halves of
+  # the verdict at once: the panel that only a session draws, and the absence of the greeter's own
+  # words. MEASURED on run 43779389910, where the reading was
+  #
+  #	% Applications = 20 ee L° User Vmuser Home File System Trash ...
+  #
+  # and this step returned false because it had been written the other way round - it demanded the
+  # word `freebsd`, which is the CONSOLE's banner and is not on the desktop at all. A check that is
+  # false on a correct screen is worse than no check: it teaches the next reader to ignore the line.
   check:
     name: no_prompt
     from: greeter
     mode: says_without
     words:
-    - freebsd
+    - applications
     without:
     - login
     - password

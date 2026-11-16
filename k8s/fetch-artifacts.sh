@@ -36,7 +36,7 @@ fetch() {
 fetch iso-ubuntu-desktop   ubuntu.iso
 fetch iso-windows11        windows11.iso
 fetch iso-virtio-win       virtio-win.iso
-fetch iso-ghostbsd-mate    ghostbsd-mate.iso
+fetch iso-freebsd          freebsd.iso
 
 # AND THE REST, so a later dispatch of any other OS does not have to fetch again.
 for pair in \

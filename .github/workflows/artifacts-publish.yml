@@ -100,7 +100,6 @@ jobs:
           - { tag: "iso-mx-xfce", group: "linux", url: "https://netix.dl.sourceforge.net/project/mx-linux/Final/Xfce/MX-25.3_Xfce_x64.iso", sha: "25b5ce20caeee1b0e50507291df5ac8a8211b1b9999d8dd7416da9b66ed9fbf9", size: "2927624192" }
           - { tag: "iso-popos-desktop", group: "linux", url: "https://iso.pop-os.org/24.04/amd64/intel/10/pop-os_24.04_amd64_intel_10.iso", sha: "a5b7321babdef75d86c688d3429fbd5525689d80a1a8b94bc393eea84f372b62", size: "2583691264" }
           - { tag: "iso-nixos-graphical", group: "linux", url: "https://releases.nixos.org/nixos/26.05/nixos-26.05.13627.c56a87d8e41c/nixos-graphical-26.05.13627.c56a87d8e41c-x86_64-linux.iso", sha: "62900e47b6bea0917c491ac0a8e18dd4e3b7579d9b60ee8e0bbbd8945162256d", size: "3888513024" }
-          - { tag: "iso-ghostbsd-mate", group: "linux", url: "https://download.ghostbsd.org/releases/amd64/26.3.R15.1p6/GhostBSD-26.3.R15.1p6.iso", sha: "2d1b46e7d0d9339ef04d2ee386783a2431f43eecb873b8f11b7109a43c577f7f", size: "4122404864" }
           # FREEBDS 15.1, THE MEDIUM `bsd/freebsd/steps/install.yaml` FETCHES AS `release: freebsd`.
           #
           # THIS ROW IS NOT OPTIONAL, AND `TestEveryFetchedTagIsPublishedAndEveryPublishedTagIsFetched`

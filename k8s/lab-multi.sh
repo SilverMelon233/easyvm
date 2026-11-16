@@ -1,7 +1,7 @@
 #!/bin/sh
 # RUN SEVERAL OPERATING SYSTEMS AT ONCE, ONE POD EACH.
 #
-#   k8s/lab-multi.sh windows:install macos:setup ghostbsd:gbi ubuntu:install
+#   k8s/lab-multi.sh windows:install macos:setup freebsd:install ubuntu:install
 #
 # WHY ONE POD PER OS RATHER THAN ONE POD RUNNING FOUR
 #

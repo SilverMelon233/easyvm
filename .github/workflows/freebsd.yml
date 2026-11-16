@@ -2,9 +2,9 @@ name: freebsd
 
 # freebsd, AS A CHAIN OF JOBS THAT DEPEND ON EACH OTHER.
 #
-# THE SHAPE IS `ghostbsd.yml`'S, AND THE REASON IS THE SAME ONE: the legs used to run as a parallel
-# matrix, and a leg that asks for the tag the leg before it publishes gets a 404 while that leg is
-# still running. It then falls back to the INSTALL disk - which has no desktop - and burns its whole
+# THE SHAPE IS THE ONE THE OTHER DISTRIBUTIONS USE, AND THE REASON IS THE SAME ONE: the legs used to
+# run as a parallel matrix, and a leg that asks for the tag the leg before it publishes gets a 404
+# while that leg is still running. It then falls back to the INSTALL disk - which has no desktop - and burns its whole
 # budget on a machine that could never answer.
 #
 # `needs:` IS THE FIX. A leg cannot start before the artifact it pulls exists, because it is not

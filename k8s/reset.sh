@@ -2,7 +2,7 @@
 # RESET ONE POD TO A KNOWN STATE AND OPTIONALLY START A LEG.
 #
 #   k8s/reset.sh <os> [leg]
-#   k8s/reset.sh ghostbsd install
+#   k8s/reset.sh freebsd install
 #
 # WHY A FULL POD RECREATE RATHER THAN A CLEANUP
 #

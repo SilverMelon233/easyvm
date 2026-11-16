@@ -32,21 +32,14 @@ case "$leg" in
     *)                 prev="" ;;
 esac
 
-# THE WALKTHROUGH NAME IS NOT THE LEG NAME for three of the four: ghostbsd installs through `gbi`,
-# macOS through `setup`, and the rest through `install`.
+# THE WALKTHROUGH NAME IS NOT THE LEG NAME FOR macOS: it installs through `setup`, and the rest
+# through `install`.
 # THE FILE THE WORKFLOW USES, BY ITS OWN MAPPING.
 #
-# `ghostbsd-install` IS NOT THE INSTALLER. It is a legacy file that boots an ALREADY-BUILT disk, while
-# the workflow's install leg runs `gbi` - which is the one with `create the empty disk` and `fetch:`.
-# Picking by name took the wrong file and the failure was
-#
-#	boot: no the target disk at .../disk.qcow2: no such file or directory
-#
-# SO THE MAPPING IS WRITTEN DOWN HERE, matching each workflow's `file:` entry. A leg that is not
-# listed falls back to its own name, which is right for ubuntu, windows and the rest.
+# This mapping is written down here so it matches each workflow's `file:` entry. A leg that is not
+# listed falls back to its own name, which is right for ubuntu, windows, freebsd and the rest.
 case "$leg" in
     install) case "$os" in
-                 ghostbsd) walk=/walks/ghostbsd-gbi.yaml ;;
                  macos)    walk=/walks/macos-setup.yaml ;;
                  *)        walk="/walks/$os-install.yaml" ;;
              esac ;;

@@ -54,15 +54,15 @@ steps:
   #
   #	BdsDxe: No bootable option or device was found.
   #
-  # `bsd/ghostbsd/steps/gbi.yaml` has this line and that is why the GhostBSD installer ever started.
+  # The earlier BSD walkthrough needed this same line to reach its installer at all; without it the
+  # guest falls to the firmware's boot menu and every key press lands on the firmware.
   iso: installer_iso
   # EIGHT GIGABYTES, AND THIS IS A REQUIREMENT OF ZFS RATHER THAN A PREFERENCE.
   #
   # MEASURED: the 4 GiB default got the installer through partitioning and the base-system extraction
   # and then left the machine to swap against itself; ZFS allocates its ARC out of the same memory and
   # the install is the worst case for it - a whole pool being written while the installer's own
-  # processes run. `bsd/ghostbsd` states the same number for the same reason ("26.3's 1909 MiB uzip
-  # image cannot fit in a 4 GiB memdisk").
+  # processes run.
   memory_mb: 8192
   timeout: 1800
 

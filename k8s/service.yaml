@@ -50,10 +50,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: easyvm-ghostbsd
+  name: easyvm-freebsd
 spec:
   selector:
-    app: easyvm-ghostbsd
+    app: easyvm-freebsd
   ports:
     - name: http
       port: 80

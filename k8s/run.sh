@@ -2,7 +2,7 @@
 # RUN ONE WALKTHROUGH FROM A CLEAN SLATE, ON THE POD'S PVC.
 #
 #   k8s/run.sh ubuntu install
-#   k8s/run.sh ghostbsd install
+#   k8s/run.sh freebsd install
 #   k8s/run.sh windows install
 #   k8s/run.sh macos setup
 #
