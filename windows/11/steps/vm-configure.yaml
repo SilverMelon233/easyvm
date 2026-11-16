@@ -218,9 +218,9 @@ steps:
     '
   timeout: 60
 - name: name the machine's own domain for winlogon, or the auto-logon half-applies
-  # `AutoLogon` IN THE ANSWER FILE ALREADY SETS `AutoAdminLogon`, `DefaultUserName` and
-  # `DefaultPassword`. THIS IS THE FOURTH VALUE AND IT CANNOT GO IN THE ANSWER FILE: it is the
-  # COMPUTER NAME, which Windows assigns during setup and which the answer file does not know.
+  # `AutoLogon` IN THE ANSWER FILE IS SUPPOSED TO SET `AutoAdminLogon`, `DefaultUserName` and
+  # `DefaultPassword`. THE FOURTH VALUE CANNOT GO IN THE ANSWER FILE AT ALL: it is the COMPUTER NAME,
+  # which Windows assigns during setup and which the answer file does not know.
   #
   # MEASURED, and it is in issue easydev-org/easyvm#1's own words: with an empty domain the machine
   # "half-applies the setting and still stops at the login screen". `WORKGROUP` is not the answer
@@ -232,7 +232,21 @@ steps:
   # `-Type String` MATTERS AS MUCH AS THE VALUE: `Set-ItemProperty` with no type stores a REG_SZ for
   # this name, but a `$true` written for `AutoAdminLogon` becomes `True` and Winlogon does not read
   # that as a boolean. That is the second trap in the same issue.
-  ssh: 'powershell -NoProfile -Command "Set-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'' -Name DefaultDomainName -Value $env:COMPUTERNAME -Type String; Set-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'' -Name AutoAdminLogon -Value ''1'' -Type String; Write-Output AUTOLOGON_DOMAIN_SET"
+  #
+  # AND THE PASSWORD IS WRITTEN HERE TOO, BECAUSE THE ANSWER FILE DID NOT LEAVE ONE BEHIND. MEASURED
+  # on run 43955342754, step 28 of 30, on a machine whose answer file had `AutoLogon` with
+  # `<Password><Value>admin</Value><PlainText>true</PlainText>`:
+  #
+  #	AutoAdminLogon    : 1
+  #	DefaultUserName   : vmuser
+  #	DefaultDomainName : SANDBOX          (correct - the rename has not restarted yet)
+  #	PASSWORD_MISSING
+  #
+  # SETUP CONSUMED `AutoLogon` FOR ITS OWN UNATTENDED RUN and did not carry `DefaultPassword` into
+  # the logon key, so Winlogon has three of the four values and stops at the login screen. The three
+  # this step can write, it writes; the password is one of them, and it is the same one the answer
+  # file put on the account.
+  ssh: 'powershell -NoProfile -Command "Set-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'' -Name DefaultDomainName -Value $env:COMPUTERNAME -Type String; Set-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'' -Name AutoAdminLogon -Value ''1'' -Type String; Set-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'' -Name DefaultPassword -Value ''{{ password }}'' -Type String; Write-Output AUTOLOGON_DOMAIN_SET"
 
     '
   timeout: 120
@@ -244,7 +258,11 @@ steps:
   #	DefaultUserName         the account
   #	DefaultDomainName       the COMPUTER NAME, not WORKGROUP and not empty
   #	DefaultPassword         present at all, which is what makes this a local-account logon
-  ssh: 'powershell -NoProfile -Command "Get-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'' | Select-Object AutoAdminLogon, DefaultUserName, DefaultDomainName | Format-List; if ((Get-ItemProperty -Path ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'').DefaultPassword) { Write-Output PASSWORD_PRESENT } else { Write-Output PASSWORD_MISSING; exit 1 }"
+  #
+  # THE PROOF READS ALL FOUR BY NAME rather than printing three and asking the key for the fourth: a
+  # `Format-List` of a SELECTED set cannot show the value it was not asked for, and the failure this
+  # replaces printed three correct values above the one that was missing.
+  ssh: 'powershell -NoProfile -Command "$k = ''HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon''; $w = Get-ItemProperty -Path $k; Write-Output (''AutoAdminLogon    = '' + $w.AutoAdminLogon); Write-Output (''DefaultUserName   = '' + $w.DefaultUserName); Write-Output (''DefaultDomainName = '' + $w.DefaultDomainName); if ($w.DefaultPassword) { Write-Output ''DefaultPassword   = present''; Write-Output PASSWORD_PRESENT } else { Write-Output ''DefaultPassword   = MISSING''; Write-Output PASSWORD_MISSING; exit 1 }"
 
     '
   timeout: 120
