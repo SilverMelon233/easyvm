@@ -310,33 +310,45 @@ jobs:
           ls -l "$GITHUB_WORKSPACE/work/recovery.dmg"
 
       - name: run the build in the image that already has the tools
-        # `--entrypoint easyvm` IS NOT NEEDED: the image's ENTRYPOINT is the program, which is what
-        # the Containerfile's own comment says it cost a run to get wrong.
+        # `easyvm run` IS A CLIENT. It posts to a daemon on :8080 and exits; the daemon is what drives
+        # the walk. MEASURED on run 43888766306, whose only step was the client:
         #
-        # `--user` IS SET SO THE FILES COME OUT OWNED BY THE RUNNER rather than by root, because the
-        # steps after this one read them without sudo.
+        #	FAILED: POST http://127.0.0.1:8080/api/command:
+        #	        dial tcp 127.0.0.1:8080: connect: connection refused
+        #
+        # `stage.yml` has a `start the daemon` step for exactly this reason and this job did not.
+        #
+        # ONE `docker run` FOR BOTH, because the daemon has to be in the same container as the client
+        # that talks to it over loopback - and because the walk mounts the checkout, which is how the
+        # image gets a YAML file it has never carried.
+        #
+        # `--user` SO THE OUTPUT IS OWNED BY THE RUNNER: the push steps read these files without sudo.
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -eu
           mkdir -p "$GITHUB_WORKSPACE/work"
-          # THE WALKTHROUGH IS MOUNTED, NOT READ FROM THE IMAGE. The image carries the PROGRAM and
-          # its tools; the YAML files are the repository's, and they have never been inside it -
-          # `/src` there is a build context that contains Go sources only. MEASURED on run
-          # 43887449771:
-          #
-          #	FAILED: read /src/macos/15/steps/firmware.yaml: no such file or directory
-          #
-          # which is also why every stage leg passes `$GITHUB_WORKSPACE/<file>` to `easyvm run`: the
-          # caller owns the file, the image owns the interpreter.
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -e GITHUB_TOKEN \
             -e DISKS_REPOSITORY="$(printf '%s' "${{ inputs.disks_repository }}" | tr '[:upper:]' '[:lower:]')" \
             -v "$GITHUB_WORKSPACE/work:/work" \
             -v "$GITHUB_WORKSPACE:/repo:ro" \
-            ghcr.io/easydev-org/easyvm:latest \
-            run /repo/macos/15/steps/firmware.yaml --work /work
+            --entrypoint /bin/sh \
+            ghcr.io/easydev-org/easyvm:latest -c '
+              set -eu
+              easyvm serve --work /work --http :8080 > /tmp/daemon.log 2>&1 &
+              i=0
+              while [ $i -lt 30 ]; do
+                i=$((i + 1))
+                grep -q "listening on" /tmp/daemon.log 2>/dev/null && break
+                sleep 1
+              done
+              grep -q "listening on" /tmp/daemon.log || {
+                echo "=== THE DAEMON DID NOT COME UP ==="; cat /tmp/daemon.log; exit 1; }
+              easyvm run /repo/macos/15/steps/firmware.yaml --work /work || {
+                echo "=== THE BUILD FAILED ==="; cat /tmp/daemon.log; exit 1; }
+            '
 
       - name: the three files, and their sizes
         # A BOOT IMAGE IS 256 MiB AND A TRUNCATED ONE IS NOT DETECTABLE BY qemu UNTIL OVMF REFUSES IT
