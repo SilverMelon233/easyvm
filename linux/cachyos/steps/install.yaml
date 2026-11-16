@@ -1,4 +1,4 @@
-name: cachyos - the Calamares walk
+name: cachyos - install to ext4, then the power button
 resolution:
 - 1920
 - 1080
@@ -8,10 +8,10 @@ vars:
     default: vmuser
   password:
     from: args.password
-    default: admin
+    default: Vm2026xKubuntu
   out:
     from: args.out
-    default: out/distro.qcow2
+    default: out/cachyos.qcow2
 steps:
 - name: start recording
   record: cachyos-install.mp4
@@ -26,170 +26,355 @@ steps:
   os: linux
   iso: installer_iso
   timeout: 1800
+
+# CACHYOS BOOTS TO A REAL KDE DESKTOP WITH A PANEL, so `desktop: linux` sees it - unlike Kubuntu,
+# whose first screen is a launcher with no panel. MEASURED: the bottom panel is there from the first
+# frame, and `IsLinuxDesktop` answers true.
 - name: wait for the live desktop
   desktop: linux
   timeout: 5400
   poll: 5
   keep_alive: true
+
 - name: let the desktop settle
   wait: 15
   keep_alive: true
+
+# CACHYOS HELLO IS THE FIRST WINDOW, AND `Launch installer` IS A BUTTON INSIDE IT - ONCE, NOT TWICE.
+#
+# MEASURED on this image: one click at (960, 743) does nothing visible, and TWO clicks 0.8s apart open
+# Calamares. The button is a Qt push button, so the first click takes focus and the second activates.
 - name: open the installer
-  expect_any:
-  - - welcome
-  - - location
-  wait_after: 35
-  do:
-  - click:
-    - 960
-    - 743
-    wait_after: 0.8
-  - click:
-    - 960
-    - 743
-    wait_after: 0.8
-- name: open the installer (once more, if it did not)
-  unless:
-  - welcome
-  wait_after: 40
-  do:
-  - click:
-    - 960
-    - 743
-    wait_after: 0.8
-  - click:
-    - 960
-    - 743
-    wait_after: 0.8
-- name: welcome
-  click:
-  - 1352
-  - 747
-  wait_after: 20
-- name: location
-  click:
-  - 1352
-  - 796
-  wait_after: 20
-- name: keyboard
-  click:
-  - 1352
-  - 796
-  wait_after: 22
-- name: bootloader
-  click:
-  - 1352
-  - 796
-  wait_after: 22
-- name: partitions - erase the disk
-  click:
-  - 465
-  - 367
-  wait_after: 10
-- name: partitions
-  click:
-  - 1352
-  - 796
-  wait_after: 20
-- name: the erase confirmation's continue (if it is shown)
-  click:
-  - 1010
-  - 640
-  wait_after: 3
-- name: desktop
-  click:
-  - 1352
-  - 796
-  wait_after: 22
-- name: packages
-  click:
-  - 1352
-  - 796
+  click: [960, 743]
+  wait_after: 1
+
+- name: open the installer, second click
+  click: [960, 743]
   wait_after: 25
-- name: users - full name
-  click:
-  - 516
-  - 348
-  type: '{{ user }}'
-  wait_after: 2
-- name: users - login name
-  click:
-  - 516
-  - 413
-  type: '{{ user }}'
-  wait_after: 2
-- name: users - password
-  click:
-  - 516
-  - 546
-  type: '{{ password }}'
-  wait_after: 2
-- name: users - confirm password
-  click:
-  - 729
-  - 546
-  type: '{{ password }}'
-  wait_after: 3
-- name: users
-  click:
-  - 1352
-  - 796
-  wait_after: 25
-- name: summary - install
-  click:
-  - 1365
-  - 902
-  wait_after: 18
-- name: the install confirmation's install now
-  click:
-  - 1018
-  - 620
-  wait_after: 30
-- name: the installer finishes
+
+- name: the installer is on screen
   loop:
-    max: 180
+    max: 40
     do:
-    - click:
-      - 420
-      - 300
-      wait_after: 20
+    - wait: 5
     ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
+      name: cal
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
       scale: 1
       wait: 0
     check:
-      name: done
-      from: screen
+      name: up
+      from: cal
       mode: says_any
       words:
-      - - all
-        - done
-      - - you
-        - may
-        - now
-      - - installation
-        - complete
-      - - reboot
-        - now
-      - - restart
-        - now
-      - - todo
-        - listo
-      - - instalación
-        - completada
+      - - welcome
+        - installer
+      - - welcome
+        - cachyos
     until:
-      fact: done
+      fact: up
+
+# THE MEDIUM OPENS IN SIMPLIFIED CHINESE, AND EVERY LATER OCR STEP READS ENGLISH.
+#
+# MEASURED: the first page's title was `欢迎使用 CachyOS 安装程序` and the sidebar read `简体中文`, so a
+# walk written against English labels cannot see this page at all. The language combo is a Qt
+# ComboBox under the title, and it accepts TYPED text: `eng` scrolls to Esperanto, and the entry
+# above Esperanto is `American English`.
+#
+# SO THE LANGUAGE IS SET BY POSITION FROM A KNOWN ANCHOR rather than by clicking a row whose offset
+# depends on the scroll position: type `eng`, press `up` once, press `ret`.
+- name: open the language list
+  click: [980, 661]
+  wait_after: 4
+
+- name: type to reach the e-entries
+  type: eng
+  wait_after: 3
+
+- name: step up to American English
+  key: up
+  wait_after: 2
+
+- name: choose it
+  key: ret
+  wait_after: 6
+
+- name: the installer speaks English now
+  ocr:
+    name: english
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+- name: the page is in English
+  check:
+    name: ok
+    from: english
+    mode: says
+    words: [welcome, cachyos]
+
+# CALAMARES' FOOTER: `Next` IS AT (1356, 791) ON EVERY PAGE OF THIS INSTALLER, MEASURED.
+#
+# Welcome -> Location
+- name: next from welcome
+  click: [1356, 791]
+  wait_after: 8
+
+# Location IS LEFT AS IT IS: Asia/Hong Kong and English (Hong Kong SAR China) are the defaults and
+# nothing below depends on them. Location -> Keyboard
+- name: next from location
+  click: [1356, 791]
+  wait_after: 8
+
+# Keyboard -> Bootloader. The Generic 105-key PC and Default layout are the defaults.
+- name: next from keyboard
+  click: [1356, 791]
+  wait_after: 8
+
+- name: the bootloader page
+  ocr:
+    name: boot
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+# GRUB, NOT THE DEFAULT LIMINE, AND THE REASON IS THE FILESYSTEM THIS WALK INSTALLS.
+#
+# Limine's own description on this page advertises "Btrfs snapshot integration out of the box" - it is
+# the choice for a btrfs system. This walk installs ext4, where GRUB is the bootloader that needs no
+# btrfs-specific machinery. MEASURED: the list is GRUB / rEFInd / rEFInd + AI SDK / systemd-boot /
+# Limine, Limine preselected, and GRUB is at (440, 313).
+- name: choose grub
+  click: [440, 313]
+  wait_after: 5
+
+- name: grub is selected
+  ocr:
+    name: grub
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+- name: the bootloader is grub
+  check:
+    name: ok
+    from: grub
+    mode: says
+    words: [grub]
+
+# Bootloader -> Partitions. THIS MEDIUM PRESELECTS NOTHING HERE, so `Erase disk` has to be clicked
+# before it is selected - the opposite of Kubuntu, where it is already on.
+- name: next from bootloader
+  click: [1356, 791]
+  wait_after: 10
+
+- name: select erase disk
+  click: [533, 364]
+  wait_after: 8
+
+- name: the partitions page with erase selected
+  ocr:
+    name: parts
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+# THE FILESYSTEM COMBO DEFAULTS TO btrfs AND THIS WALK REQUIRES ext4.
+#
+# MEASURED, and this is the reason the step exists at all: with `Erase disk` selected the page shows
+#
+#	512.00 MiB FAT32    127.50 GiB btrfs
+#
+# so accepting the default produces a COW filesystem on a COW disk image. The combo is at (532, 423)
+# and its list is btrfs / xfs / ext4 / f2fs / zfs, with ext4 the third entry at (526, 516).
+- name: open the filesystem list
+  click: [532, 423]
+  wait_after: 5
+
+- name: choose ext4
+  click: [526, 516]
+  wait_after: 6
+
+- name: the page after choosing ext4
+  ocr:
+    name: fs
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+- name: the root partition is ext4
+  check:
+    name: ext4
+    from: fs
+    mode: says
+    words: [ext4]
+
+# Partitions -> Desktop, where Plasma Desktop is preselected.
+- name: next from partitions
+  click: [1356, 791]
+  wait_after: 10
+
+- name: the desktop page
+  ocr:
+    name: desk
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+# Desktop -> Packages, where the CachyOS sets are already ticked.
+- name: next from desktop
+  click: [1356, 791]
+  wait_after: 12
+
+- name: the packages page
+  ocr:
+    name: pkgs
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+# Packages -> Users
+- name: next from packages
+  click: [1356, 791]
+  wait_after: 12
+
+- name: the users page
+  ocr:
+    name: users
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+# THE FIVE FIELDS, MEASURED FROM THE PAGE. `Computer Name` IS NOT FILLED BY HAND: this installer
+# derives `cachyos-x8664` from the live host name once the full name is typed, and overwriting it is a
+# step that can only go wrong.
+- name: the full name
+  click: [515, 341]
+  type: '{{ user }}'
+  wait_after: 3
+
+- name: the login name
+  click: [515, 412]
+  clear: true
+  type: '{{ user }}'
+  wait_after: 3
+
+- name: the password
+  click: [515, 550]
+  type: '{{ password }}'
+  wait_after: 2
+
+- name: the password again
+  click: [720, 552]
+  type: '{{ password }}'
+  wait_after: 3
+
+- name: the users page is filled in
+  ocr:
+    name: filled
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+# `Password is too short` AND `Your passwords do not match!` ARE THE TWO IN-PLACE REFUSALS. Neither
+# may be on screen when the form is complete.
+- name: the password was accepted
+  check:
+    name: ok
+    from: filled
+    mode: says_without
+    words: [vmuser]
+    without: [short, match]
+
+# Users -> Summary
+- name: next from users
+  click: [1356, 791]
+  wait_after: 10
+
+- name: the summary page
+  ocr:
+    name: summary
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+# THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM - the
+# first being the partitions page after the combo was changed.
+- name: the summary names ext4
+  check:
+    name: ext4
+    from: summary
+    mode: says
+    words: [ext4]
+
+# Summary -> the confirmation dialog. `Install` IS LOWER THAN `Next`: on the summary page the buttons
+# sit at y=887 rather than y=791, measured - which is why a shared coordinate for both pages clicks
+# the summary's progress text and nothing happens.
+- name: start the install
+  click: [1356, 887]
+  wait_after: 10
+
+- name: the confirmation dialog
+  ocr:
+    name: confirm
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+# `Install Now` INSIDE THE DIALOG, AT (1055, 616). The dialog's title is the check, so a click that
+# missed it is visible as a page with no dialog rather than as a silent no-op.
+- name: install now
+  click: [1055, 616]
+  wait_after: 25
+
+# THE INSTALL WRITES FOR TWENTY MINUTES AND THE PROGRESS BAR IS THE ONLY SIGNAL. `disk_settle` waits
+# for the DISK to stop changing rather than for a clock.
+- name: the install writes the disk
+  disk_settle: 300
+  disk_min_mb: 4000
+  timeout: 3600
+  poll: 20
+  keep_alive: true
+
+- name: the install is done
+  loop:
+    max: 80
+    do:
+    - wait: 15
+    ocr:
+      name: done
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: finished
+      from: done
+      mode: says
+      words: [installed]
+    until:
+      fact: finished
+
+# `kill`, AND THE RULE IS MEASURED RATHER THAN PREFERRED: a live installer does not answer the power
+# button, and `TestAnInstallStopsTheMachineBeforePublishingTheDisk` carries the zorin run where five
+# minutes of ACPI ended in the same kill - after which `qemu-img convert` read a disk qemu was still
+# releasing and wrote ZERO BYTES.
 - name: stop the machine
   shutdown: kill
-  timeout: 120
+  timeout: 600
+
 - name: publish the disk
   compress: '{{ out }}'
 - name: stop recording
