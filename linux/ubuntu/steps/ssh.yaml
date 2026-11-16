@@ -48,6 +48,22 @@ steps:
   # logged as a scaled read - loud, and then the loop asks again - and the loop stops on the reading
   # a settled greeter gives. THE READ IS THE POINT: it is done at 1920x1080 or it says in the log that
   # it was not.
+  #
+  # THE DISK THIS STAGE PULLS LOGS ITSELF IN, SO THERE MAY BE NO GREETER AT ALL. MEASURED on run
+  # 43978005620, step 3 of 21, whose every attempt read
+  #
+  #	SA SS Welcome to Ubuntu 26.04.1 L Complete your setup ...
+  #
+  # - the FIRST-LOGIN WIZARD, already open, because the account this install created is the only one
+  # and it auto-logs-in. A wait that accepted only `password` and `log in` therefore failed on a
+  # machine that was exactly where the walk wants it, and the three greeter steps after it (a click, a
+  # password, a Return) are already written to be harmless on a session that is ALREADY OPEN - their
+  # own comment says so: "a click at the password field is a click on the wallpaper when the session is
+  # already open".
+  #
+  # SO THE CONDITION IS "A SESSION IS DRAWN", the same reading the wizard step below already takes:
+  # a wizard page, a greeter and a desktop all report words, and a black framebuffer or a boot menu
+  # reports none.
   loop:
     max: 24
     do:
@@ -55,14 +71,14 @@ steps:
     ocr:
       name: greeter
       region:
-      - 760
-      - 500
-      - 1160
-      - 760
+      - 0
+      - 0
+      - 1920
+      - 1080
       region_at:
       - 1920
       - 1080
-      scale: 3
+      scale: 1
       wait: 0
     check:
       name: settled
@@ -71,6 +87,12 @@ steps:
       words:
       - - password
       - - log in
+      - - complete
+        - your
+        - setup
+      - - welcome
+        - to
+        - ubuntu
     until:
       fact: settled
 - name: greeter - the password box
