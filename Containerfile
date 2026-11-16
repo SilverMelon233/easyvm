@@ -15,7 +15,7 @@
 # WHAT IS KEPT FROM IT: the qemu VERSION. 11.1.0 is what every measurement in easydiskbake was
 # taken with, including `-cpu Skylake-Client-v4`. Debian's own trixie package is older. The next
 # section pins it the same way and for the same reason.
-FROM debian:trixie-slim
+FROM debian:trixie-slim AS easyvm-runtime
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBCONF_NOWARNINGS=yes
@@ -261,3 +261,59 @@ VOLUME ["/work"]
 ENTRYPOINT ["/usr/local/bin/easyvm"]
 CMD []
 WORKDIR /work
+
+
+# ==============================================================================
+# THE TEST IMAGE: THE SAME MACHINE, WITH A GO TOOLCHAIN.
+#
+# `go test ./...` USED TO RUN ON THE RUNNER, AND THE RUNNER IS NOT THE MACHINE A WALKTHROUGH USES.
+# That difference is not academic: on 2026-11-16 a test that needs `qemu-img` failed the `binary` job
+# with
+#
+#	qemu-img create: exec: "qemu-img": executable file not found in $PATH
+#
+# and the wrong fix was to skip it. A test that cannot run is not a test, and `qemu-img` is in THIS
+# image for the reason this image exists - so the honest answer is to run the tests WHERE THE TOOL IS.
+#
+# WHAT THIS STAGE IS FOR, BEYOND HAVING THE TOOLS:
+#
+#	qemu-img, qemu-system-x86_64   the package under test spawns both by name
+#	tesseract                      the OCR steps read real screens; the vocabulary tests load the
+#	                               real walkthrough files and the screen package runs on real images
+#	smbd, swtpm, OVMF              `share_serve:`, the Windows install and every UEFI guest
+#	/dev/net/tun, /dev/kvm         only at RUN time, and `behaviour` asks for them explicitly
+#
+# IT IS A SEPARATE STAGE SO THE SHIPPED IMAGE DOES NOT CARRY 400 MB OF TOOLCHAIN. `docker build
+# --target tester` produces it; the default target is still the runtime image above.
+# FROM THIS SAME IMAGE, so the tools are the ones that were just asserted. A test image built from
+# a different base would be a second environment to keep in step, and the point is that the tests
+# run against the machine the walkthroughs get.
+FROM easyvm-runtime AS tester
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG GO_VERSION="1.26.0"
+
+# THE TOOLCHAIN, VIA A TARBALL RATHER THAN THE DISTRO'S `golang` PACKAGE, because the pin has to be
+# the version in `go.mod` - a sid snapshot's Go can be older than a directive the code uses, and that
+# failure reads as a compile error in a file nobody changed.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl; \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz; \
+    tar -C /usr/local -xzf /tmp/go.tgz; \
+    rm -f /tmp/go.tgz; \
+    /usr/local/go/bin/go version; \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/usr/local/go/bin:${PATH}"
+# THE BUILD CACHE IS IN THE IMAGE RATHER THAN IN A MOUNT, so a `docker run` with no volumes still
+# compiles in a reasonable time. It is not shipped: this stage is not the default target.
+ENV GOCACHE=/tmp/go-cache
+ENV GOFLAGS=-buildvcs=false
+
+WORKDIR /src
+# THE SOURCE IS ADDED WHEN THE TESTS RUN, NOT HERE: `docker build --target tester` is cached on the
+# toolchain alone, and a change to one Go file does not rebuild qemu's apt layer above.
+ENTRYPOINT ["/usr/local/go/bin/go"]
+CMD ["test", "./...", "-count=1"]
+WORKDIR /src

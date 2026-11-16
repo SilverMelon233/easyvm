@@ -57,9 +57,9 @@ jobs:
   # ===========================================================================
   # BUILD THE BINARY, AND PROVE IT RUNS.
   #
-  # `go test` FIRST, because a binary that passes its own tests is the only thing worth putting in
-  # an image. The tests include the vocabulary check against the real walkthrough files, so a
-  # bundle that cannot read them fails here rather than inside a VM.
+  # `go vet` FIRST, because a program that does not type-check has no business being built. THE TESTS
+  # RUN IN THE TESTING IMAGE (`docker build --target tester`), in the `behaviour` job - see the note
+  # there for the measured reason.
   # ===========================================================================
   binary:
     runs-on: ubuntu-24.04
@@ -72,13 +72,26 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # VET STAYS ON THE RUNNER, BECAUSE IT NEEDS NOTHING BUT THE COMPILER. It is the cheap gate: a
+      # program that does not type-check has no business being built into an image.
       - name: vet
         run: go vet ./...
 
-      - name: test
-        # -timeout bounds a hung step. One test deliberately waits on a socket that never answers,
-        # so a generous ceiling is still a real one.
-        run: go test ./... -count=1 -timeout 300s
+      # `go test` DOES NOT RUN HERE ANY MORE, AND THE REASON IS MEASURED.
+      #
+      # On 2026-11-16 this job failed with
+      #
+      #	gpt_test.go:32: qemu-img create: exec: "qemu-img": executable file not found in $PATH
+      #
+      # and the tempting fix - skip the test when the tool is missing - is the wrong one. A test that
+      # cannot run is not a test, and `qemu-img` is in the image for the reason the image exists. So
+      # the tests run in the TESTING IMAGE (`docker build --target tester`), which is this same image
+      # plus a Go toolchain: it has qemu, qemu-img, tesseract, smbd and the UEFI firmware because
+      # walkthroughs need them, and a unit test of this program is a claim about those very things.
+      #
+      # IT IS THE `behaviour` JOB'S FIRST STEP RATHER THAN A FOURTH JOB, because the tester image
+      # depends on the RUNTIME image and the runtime image is built there. Queueing it earlier would
+      # mean building the 900 MB apt layer twice.
 
       - name: build
         run: |
@@ -245,11 +258,21 @@ jobs:
   # ===========================================================================
   # THE IMAGE'S BEHAVIOUR, ASKED OF THE IMAGE.
   #
-  # `go test ./...` RUNS ON THE RUNNER, NOT IN THE CONTAINER, so it cannot see what the container
-  # decides: whether a kernel file lock is honoured on the filesystem the pod actually mounts,
-  # whether a socket qemu made can be told apart from a leftover, and whether the daemon refuses a
-  # second owner by name. Those are exactly the properties the walkthroughs depend on, and they are
-  # the ones a unit test reaches only by construction.
+  # THIS JOB IS WHERE `go test ./...` RUNS NOW, AND IT RUNS IN THE IMAGE.
+  #
+  # ON 2026-11-16 the `binary` job failed with
+  #
+  #	gpt_test.go:32: qemu-img create: exec: "qemu-img": executable file not found in $PATH
+  #
+  # because that job ran the tests on a bare runner. Skipping the test was the wrong answer: a test
+  # that cannot run is not a test. The tests moved HERE, into `docker build --target tester`, which is
+  # the runtime image plus a Go toolchain - qemu, qemu-img, tesseract, smbd and the UEFI firmware are
+  # present because the walkthroughs need them, and this program's tests are claims about exactly
+  # those things.
+  #
+  # AND THE PROPERTIES `go test` CANNOT SEE ARE ASKED OF THE BUILT IMAGE BELOW: whether a kernel file
+  # lock is honoured on the filesystem the pod actually mounts, whether a socket qemu made can be
+  # told apart from a leftover, and whether the daemon refuses a second owner by name.
   #
   # WHAT THIS JOB EXISTS FOR, MEASURED ON THE LAB POD AND NOT REPRODUCIBLE IN `go test`:
   #
@@ -271,12 +294,39 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
       - name: log in to ghcr
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: the unit tests, in the machine they describe
+        # THE WHOLE POINT OF THIS STEP IS WHERE IT RUNS. A test that spawns `qemu-img` needs
+        # `qemu-img`, and the image has it because every walkthrough needs it. On a bare runner the
+        # same test failed with `executable file not found in $PATH`, and the fix for that was never
+        # to skip it.
+        #
+        # `--target tester` is this same image plus a Go toolchain, so the tools a test reaches for
+        # are the ones the walkthroughs get. The source is a bind mount, so a change to one Go file
+        # does not rebuild the qemu layer.
+        #
+        # THE RUNTIME IMAGE IS TAGGED FROM THE SAME BUILD, so the steps below drive exactly what
+        # these tests passed against - not a second pull of `:latest` that could be another commit.
+        run: |
+          set -euo pipefail
+          docker build -f ./Containerfile --target easyvm-runtime -t easyvm-ci:local .
+          docker build -f ./Containerfile --target tester -t easyvm-tester:ci .
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            -e GOCACHE=/tmp/go-cache \
+            easyvm-tester:ci \
+            go test ./... -count=1 -timeout 600s
 
       - name: a second daemon on the same work directory is refused, by name
         # THE OUTERMOST LOCK. Everything a machine owns lives in one `--work` directory - the qmp
@@ -296,7 +346,7 @@ jobs:
             --cap-add NET_ADMIN \
             --device /dev/net/tun:/dev/net/tun \
             -v "$work:/work" \
-            "${{ env.IMAGE }}:latest" serve --work /work --http :8080
+            "easyvm-ci:local" serve --work /work --http :8080
 
           # AND IT IS RUNNING BEFORE THE SECOND ASKS. `serve` prints its listen line once it has the
           # lock, so waiting for that line is waiting for the lock rather than guessing at a sleep.
@@ -318,7 +368,7 @@ jobs:
             --cap-add NET_ADMIN \
             --device /dev/net/tun:/dev/net/tun \
             -v "$work:/work" \
-            "${{ env.IMAGE }}:latest" serve --work /work --http :8081 > /tmp/second.log 2>&1
+            "easyvm-ci:local" serve --work /work --http :8081 > /tmp/second.log 2>&1
           status=$?
           set -e
 
@@ -366,7 +416,7 @@ jobs:
             --cap-add NET_ADMIN \
             --device /dev/net/tun:/dev/net/tun \
             -v "$work:/work" \
-            "${{ env.IMAGE }}:latest" serve --work /work --http :8080
+            "easyvm-ci:local" serve --work /work --http :8080
 
           for i in $(seq 1 60); do
             logs=$(docker logs lock-b 2>&1 || true)
@@ -390,7 +440,7 @@ jobs:
             --cap-add NET_ADMIN \
             --device /dev/net/tun:/dev/net/tun \
             -v "$work:/work" \
-            "${{ env.IMAGE }}:latest" serve --work /work --http :8080 > /tmp/after.log 2>&1
+            "easyvm-ci:local" serve --work /work --http :8080 > /tmp/after.log 2>&1
           status=$?
           set -e
           cat /tmp/after.log
@@ -428,14 +478,14 @@ jobs:
           docker run -d --name probe-holder \
             -v "$work:/work" \
             --entrypoint qemu-system-x86_64 \
-            "${{ env.IMAGE }}:latest" \
+            "easyvm-ci:local" \
             -machine none -display none -qmp "unix:/work/drive.sock.qmp,server=on,wait=off"
 
           # WAIT FOR THE SOCKET TO EXIST, which is qemu's own signal that it bound the path.
           ok=""
           for i in $(seq 1 60); do
             if docker run --rm -v "$work:/work" --entrypoint test \
-                 "${{ env.IMAGE }}:latest" -S /work/drive.sock.qmp 2>/dev/null; then ok=yes; break; fi
+                 "easyvm-ci:local" -S /work/drive.sock.qmp 2>/dev/null; then ok=yes; break; fi
             sleep 1
           done
           [ "$ok" = yes ] || { echo "=== qemu DID NOT BIND THE SOCKET ==="; docker logs probe-holder; exit 1; }
@@ -452,12 +502,12 @@ jobs:
             --cap-add NET_ADMIN \
             --device /dev/net/tun:/dev/net/tun \
             -v "$work:/work" \
-            "${{ env.IMAGE }}:latest" run /walks/does-not-exist.yaml --work /work > /tmp/live.log 2>&1
+            "easyvm-ci:local" run /walks/does-not-exist.yaml --work /work > /tmp/live.log 2>&1
           set -e
           cat /tmp/live.log
 
           before=$(docker run --rm -v "$work:/work" --entrypoint test \
-                     "${{ env.IMAGE }}:latest" -S /work/drive.sock.qmp 2>&1 || echo gone)
+                     "easyvm-ci:local" -S /work/drive.sock.qmp 2>&1 || echo gone)
           if [ "$before" = "gone" ]; then
             echo "=== THE LIVE QMP SOCKET WAS DELETED, WHICH IS THE DEFECT THIS JOB EXISTS FOR ==="
             docker rm -f probe-holder
@@ -475,18 +525,18 @@ jobs:
           docker run -d --name probe-dead \
             -v "$work2:/work" \
             --entrypoint qemu-system-x86_64 \
-            "${{ env.IMAGE }}:latest" \
+            "easyvm-ci:local" \
             -machine none -display none -qmp "unix:/work/drive.sock.qmp,server=on,wait=off"
           for i in $(seq 1 60); do
             if docker run --rm -v "$work2:/work" --entrypoint test \
-                 "${{ env.IMAGE }}:latest" -S /work2/drive.sock.qmp 2>/dev/null; then break; fi
+                 "easyvm-ci:local" -S /work2/drive.sock.qmp 2>/dev/null; then break; fi
             sleep 1
           done
           docker kill -s KILL probe-dead >/dev/null 2>&1 || true
           docker rm -f probe-dead >/dev/null 2>&1 || true
 
           if docker run --rm -v "$work2:/work" --entrypoint test \
-               "${{ env.IMAGE }}:latest" -S /work2/drive.sock.qmp 2>/dev/null; then
+               "easyvm-ci:local" -S /work2/drive.sock.qmp 2>/dev/null; then
             echo "a leftover socket is present; the next boot must remove it rather than refuse"
             # A DAEMON ON THIS DIRECTORY MUST GET PAST THE PROBE. Its failure, if any, has to be about
             # the walkthrough file and not about the socket.
@@ -495,7 +545,7 @@ jobs:
               --cap-add NET_ADMIN \
               --device /dev/net/tun:/dev/net/tun \
               -v "$work2:/work" \
-              "${{ env.IMAGE }}:latest" run /walks/does-not-exist.yaml --work /work > /tmp/dead.log 2>&1
+              "easyvm-ci:local" run /walks/does-not-exist.yaml --work /work > /tmp/dead.log 2>&1
             set -e
             cat /tmp/dead.log
             case "$(cat /tmp/dead.log)" in
