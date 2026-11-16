@@ -71,27 +71,46 @@ steps:
     - - welcome
     - - 歡迎
 
-# THE MEDIUM OPENS IN TRADITIONAL CHINESE, AND EVERY LATER OCR STEP READS ENGLISH.
+# THE LANGUAGE COMBO IS DRIVEN BY ONE LETTER AND TWO STEPS, MEASURED AND REPRODUCIBLE.
 #
-# THE WHOLE LOCALE NAME IS TYPED, AND A PREFIX IS NOT ENOUGH - MEASURED, TWICE, ON THIS INSTALLER:
+# A PREFIX IS NOT ENOUGH. Typing `eng` or `american english` does NOT reach the row, because this
+# combo's keyboard search matches ONE KEYSTROKE at a time: each letter jumps to its own entry, so a
+# typed string lands wherever the LAST letter's match happens to be. MEASURED, twice:
 #
-#	typed `eng`                 highlights `Esperanto`. `eng` is not a prefix of `American English`,
-#	                            which is the row Qt shows, so the search falls elsewhere and the
-#	                            target is only reachable by pressing `up` a fixed number of times -
-#	                            which depends on where the list happens to be scrolled. THAT IS NOT
-#	                            REPRODUCIBLE and it was the first version of this step.
-#	typed `american english`    highlights `American English` directly, on a list that has never been
-#	                            touched. Measured: the row came up highlighted at the bottom of the
-#	                            visible list with no scrolling at all.
+#	typed `eng`                 -> ended on some unrelated row, and the installer came up in Hungarian
+#	typed `american english`    -> ended on `euskara` (the last letter's match)
 #
-# So the whole name is typed and `ret` accepts it, and there is no positional assumption left.
+# WHAT DOES WORK is one letter that puts the list at the ENGLISH GROUP, then two steps up:
+#
+#	key `e`      the list jumps to `Esperanto`, and American English is TWO ROWS ABOVE it
+#	key `up`     -> British English (United Kingdom)
+#	key `up`     -> American English
+#	key `ret`    accepts it
+#
+# THE MEASURED ROWS, in the order they appear:
+#
+#	Ελληνικά                          Greek
+#	American English                  English        <- the target
+#	British English (United Kingdom)  English (UK)
+#	Esperanto                         Esperanto      <- where `e` lands
+#
+# SO THE STEPS ARE THREE KEYS, not a typed word, and the reason is the combo's search rather than the
+# locale list's order.
 - name: open the language list
-  click: [1080, 792]
+  click: [980, 661]
   wait_after: 4
 
-- name: type the locale's own name, which is what the list shows
-  type: american english
-  wait_after: 4
+- name: jump to the English group
+  key: e
+  wait_after: 2
+
+- name: step up to British English
+  key: up
+  wait_after: 1
+
+- name: step up to American English
+  key: up
+  wait_after: 1
 
 - name: choose it
   key: ret

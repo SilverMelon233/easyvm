@@ -93,35 +93,46 @@ steps:
     until:
       fact: up
 
-# THE MEDIUM OPENS IN SIMPLIFIED CHINESE, AND EVERY LATER OCR STEP READS ENGLISH.
+# THE LANGUAGE COMBO IS DRIVEN BY ONE LETTER AND TWO STEPS, MEASURED AND REPRODUCIBLE.
 #
-# MEASURED: the first page's title was `欢迎使用 CachyOS 安装程序` and the sidebar read `简体中文`, so a
-# walk written against English labels cannot see this page at all.
+# A PREFIX IS NOT ENOUGH. Typing `eng` or `american english` does NOT reach the row, because this
+# combo's keyboard search matches ONE KEYSTROKE at a time: each letter jumps to its own entry, so a
+# typed string lands wherever the LAST letter's match happens to be. MEASURED, twice:
 #
-# THE LANGUAGE IS TYPED IN FULL, AND A PREFIX IS NOT ENOUGH - MEASURED, TWICE.
+#	typed `eng`                 -> ended on some unrelated row, and the installer came up in Hungarian
+#	typed `american english`    -> ended on `euskara` (the last letter's match)
 #
-# The combo is a Qt ComboBox over Calamares' own locale list, and the row it shows for this locale is
-# the NATIVE name: `American English`. Qt's keyboard search matches that displayed text, so
+# WHAT DOES WORK is one letter that puts the list at the ENGLISH GROUP, then two steps up:
 #
-#	typed `eng`                 highlights `Esperanto` - `eng` is not a prefix of `American English`,
-#	                            so the search falls back to something else entirely and the target is
-#	                            only reachable by pressing `up` a fixed number of times, which
-#	                            depends on where the list happens to be scrolled. THAT IS NOT
-#	                            REPRODUCIBLE, and it was the first version of this step.
-#	typed `american english`    highlights `American English` directly, on a list that has never been
-#	                            touched. Measured on endeavouros' identical Calamares, where the
-#	                            highlighted row after typing was `American English` at the bottom of
-#	                            the visible list with no scrolling at all.
+#	key `e`      the list jumps to `Esperanto`, and American English is TWO ROWS ABOVE it
+#	key `up`     -> British English (United Kingdom)
+#	key `up`     -> American English
+#	key `ret`    accepts it
 #
-# SO THE WHOLE NAME IS TYPED and `ret` accepts it. There is no positional assumption left: the list
-# may open scrolled anywhere and the search still lands on the same row.
+# THE MEASURED ROWS, in the order they appear:
+#
+#	Ελληνικά                          Greek
+#	American English                  English        <- the target
+#	British English (United Kingdom)  English (UK)
+#	Esperanto                         Esperanto      <- where `e` lands
+#
+# SO THE STEPS ARE THREE KEYS, not a typed word, and the reason is the combo's search rather than the
+# locale list's order.
 - name: open the language list
   click: [980, 661]
   wait_after: 4
 
-- name: type the locale's own name, which is what the list shows
-  type: american english
-  wait_after: 4
+- name: jump to the English group
+  key: e
+  wait_after: 2
+
+- name: step up to British English
+  key: up
+  wait_after: 1
+
+- name: step up to American English
+  key: up
+  wait_after: 1
 
 - name: choose it
   key: ret
