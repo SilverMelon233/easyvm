@@ -353,16 +353,22 @@ jobs:
               easyvm run /repo/macos/15/steps/firmware.yaml --work /work || {
                 echo "=== THE CLIENT REFUSED TO QUEUE THE BUILD ==="; cat /tmp/daemon.log; exit 1; }
 
-              # \`status\` EXITS 0 WHEN FINISHED AND 2 WHEN FAILED, so this loop is the wait and its
-              # message is the state rather than an exit code.
+              # THE EXIT CODE IS NOT THE ANSWER. \`status\` returns 0 for BOTH "finished" and
+              # "running" - measured on run 43935733275, where the loop read
+              #
+              #	status: running step 2/2 "build the firmware the guest boots through"
+              #	=== THE BUILD FINISHED ===
+              #
+              # and the step after it found no boot.img. The STATE WORD is what changes, so the loop
+              # matches on that.
               i=0
               while [ $i -lt 120 ]; do
                 i=$((i + 1))
-                rc=0
-                easyvm status --work /work || rc=$?
-                case $rc in
-                  0) echo "=== THE BUILD FINISHED ==="; exit 0 ;;
-                  2) echo "=== THE BUILD FAILED ==="; cat /tmp/daemon.log; exit 1 ;;
+                out=$(easyvm status --work /work 2>&1) || true
+                printf '%s\n' "$out"
+                case "$out" in
+                  *"status: finished"*) echo "=== THE BUILD FINISHED ==="; exit 0 ;;
+                  *"status: failed"*)   echo "=== THE BUILD FAILED ==="; cat /tmp/daemon.log; exit 1 ;;
                 esac
                 sleep 5
               done
