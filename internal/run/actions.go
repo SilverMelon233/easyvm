@@ -415,9 +415,6 @@ func (e *Executor) doDesktop(s walk.Step) error {
 	start := time.Now()
 	deadline := start.Add(timeout)
 	var lastStats screen.Stats
-	// androidWhy carries the android detector's own sentence, because its numbers are not the
-	// ones `screen.Stats` prints for a panel.
-	var androidWhy string
 	for time.Now().Before(deadline) {
 		f, err := e.Driver.Frame()
 		if err != nil {
@@ -502,21 +499,34 @@ func (e *Executor) doDesktop(s walk.Step) error {
 			ok, lastStats = screen.IsXFCEDesktop(img)
 
 		case "android":
-			// ANDROID DRAWS A PANEL TOO, AND A LINUX PANEL'S TEST CANNOT SEE IT.
+			// ANDROID IS NOT A PANEL TEST, AND SAYING SO IS MORE USEFUL THAN A DETECTOR THAT ALMOST
+			// WORKS.
 			//
-			// MEASURED on a frame that is unambiguously this guest's desktop: `IsLinuxDesktop`
-			// answers FALSE, because it wants `margin > 40 && spread < 42` in the lowest 4.5% and
-			// Android's Taskbar is a 40 px translucent bar over a dark wallpaper - contrast 9,
-			// spread 121, saturation 0. Its own detector is in `internal/screen/android.go`, and
-			// the two conditions there are the desktop's: an edge that DIFFERS from the body and
-			// that is BUSY with icons.
-			var and screen.AndroidStats
-			ok, and = screen.IsAndroidDesktop(img)
-			lastStats = screen.Stats{
-				Width: and.Width, Height: and.Height,
-				TopVar: and.EdgeSpread, BrightnessDrop: and.EdgeContrast,
-			}
-			androidWhy = and.Describe()
+			// `IsLinuxDesktop` ANSWERS FALSE ON ANDROID'S DESKTOP, and that is correct of it: it
+			// wants `margin > 40 && spread < 42` in the lowest 4.5%, and Taskbar is a 40 px
+			// translucent bar over a dark wallpaper - contrast 9, spread 121, saturation 0.
+			//
+			// A DETECTOR WAS WRITTEN FOR ANDROID'S SHAPE AND IT WAS WITHDRAWN, BECAUSE IT DEPENDS ON
+			// THE FRAMEBUFFER'S SIZE. Measured on one frame, at two sizes:
+			//
+			//	1920x1080   desktop step 1.17 -> true    splash step 0.61 -> false
+			//	 640x360    desktop step 2.36 -> true    splash step 1.71 -> TRUE   <- wrong
+			//
+			// A verdict that changes when the same picture is scaled is not a verdict, and both
+			// thresholds that were tried moved the failure rather than removing it.
+			//
+			// THE QUESTION HAS A BETTER ANSWER. adbd reports what the window manager thinks is in
+			// front, which is the fact a person reading the frame is trying to infer:
+			//
+			//	adb: dumpsys window | grep mCurrentFocus | grep com.farmerbb.taskbar
+			//
+			// and `android/blissos16/steps/vm-configure.yaml` asks it three ways - `mCurrentFocus`,
+			// `ResumedActivity`, and a window count - each of which a boot splash, the home-app
+			// chooser and a lock screen all fail.
+			return fail(s.Name, "`desktop: android` is not implemented, and the pixel test it used "+
+				"to run was withdrawn because its verdict changed with the framebuffer's size. Ask "+
+				"the system instead: `adb: dumpsys window | grep mCurrentFocus | grep "+
+				"com.farmerbb.taskbar`, or `dumpsys activity activities | grep ResumedActivity`")
 		default:
 			return fail(s.Name, "the %q desktop test is not implemented in this build; the four "+
 				"are windows, macos, linux and android", family)
@@ -578,15 +588,8 @@ func (e *Executor) doDesktop(s walk.Step) error {
 		}
 		time.Sleep(poll)
 	}
-	why := lastStats.Explain()
-	if androidWhy != "" {
-		// THE ANDROID DETECTOR'S NUMBERS ARE NOT THE ONES `screen.Stats` PRINTS - it measures the
-		// bottom edge against the body rather than a panel against a wallpaper - so its own sentence
-		// is what a reader needs.
-		why = androidWhy
-	}
 	return failWithScreen(s.Name, e.Driver,
-		"no %s desktop within %s; %s", family, timeout, why)
+		"no %s desktop within %s; %s", family, timeout, lastStats.Explain())
 }
 
 // --- host commands --------------------------------------------------------------------
