@@ -19,17 +19,43 @@ steps:
   boot: true
   os: linux
   timeout: 900
-- name: greeter - the password box
-  click:
-  - 936
-  - 628
-  wait_after: 3
-- name: greeter - log in
-  type: '{{ password }}'
-  wait_after: 3
-- name: greeter - submit
-  key: ret
-  wait_after: 12
+# THE INSTALL STAGE TURNS AUTOLOGIN ON, SO THERE IS NO GREETER TO TYPE AT.
+#
+# MEASURED on a disk this repository's own install walk produced: the machine boots straight to the
+# KDE desktop at 1920x1080, with `Welcome Center` up and the panel drawn. THERE IS NO LOGIN PROMPT.
+#
+# THIS FILE USED TO CLICK ONE, AND THAT IS WHY THE LEG FAILED ON CI IN TWO DIFFERENT WAYS:
+#
+#	on a disk WITHOUT autologin   the greeter draws at 640x480 while the session that follows is
+#	                              1920x1080, so every coordinate below was refused -
+#	                              `click (936, 628) is a coordinate measured at 1920x1080 but the
+#	                              framebuffer is 640x480`
+#	on a disk WITH autologin      there is no greeter, so the clicks landed on the Welcome Center
+#	                              and the terminal never opened
+#
+# SO THE STEPS ARE GONE rather than made conditional: the phase this file exists for starts at a
+# logged-in desktop, and the install stage is what puts it there.
+- name: the session is up, which is what autologin is for
+  loop:
+    max: 40
+    do:
+    - wait: 10
+    ocr:
+      name: desk
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: up
+      from: desk
+      mode: says_any
+      words:
+      - - applications
+      - - welcome
+      - - kubuntu
+    until:
+      fact: up
 - name: open the terminal
   key: ctrl+alt+t
   wait_after: 20
