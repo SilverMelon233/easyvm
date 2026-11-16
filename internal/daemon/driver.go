@@ -3,6 +3,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,6 +69,9 @@ type Driver struct {
 	daemon *Daemon
 	file   *walk.File
 	work   string
+	// qmpWait bounds `waitForQMP`. Zero means `qmpHandshakeWait`, which is what production uses; a
+	// test sets it smaller so it does not pay ten seconds to reach the code after the wait.
+	qmpWait time.Duration
 	// guestOS is the family the machine was actually STARTED as, remembered at boot.
 	//
 	// IT IS NOT READ FROM THE FILE, because a sandbox runs several files against one machine and the
@@ -554,6 +558,35 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	boot.Disk = running
 
 	qmpPath := filepath.Join(d.work, "drive.sock.qmp")
+
+	// A SOCKET THAT ANSWERS IS A MACHINE THAT IS ALIVE, AND DELETING IT IS NOT A CLEANUP.
+	//
+	// This line used to be `_ = os.Remove(qmpPath)` and nothing more, and the underscore is what
+	// made the defect invisible: removing a leftover socket and destroying a running machine's only
+	// control channel were the same statement.
+	//
+	// MEASURED, on a work directory that already held a live `create` sandbox:
+	//
+	//	REFUSED: a machine is already running on this daemon: a `create` sandbox, up 3m49s
+	//
+	// which is right - but then the operator killed the process without a `destroy`, the slot's
+	// machine was gone while its qemu was not, and the next Boot deleted the socket file of a qemu
+	// that was still running. From that moment the daemon could not reach its own guest:
+	//
+	//	could not read the screen: qmp /work/drive.sock.qmp: connect: no such file or directory
+	//	(waited 30s; is another process already holding this socket? qemu permits one client)
+	//
+	// and every `/api/click` returned `{"ok":true}` while nothing reached the guest, so the pointer
+	// on the screen never moved and a walk looked like it was clicking a dead widget.
+	//
+	// THE PROBE IS THE WHOLE FIX. A unix socket that completes a connect has a listener behind it,
+	// so "connects" means a qemu owns this work directory and this boot must not proceed. Only a
+	// socket nobody answers is a leftover, and removing a leftover is honest.
+	if err := probeUnixSocket(qmpPath, 250*time.Millisecond); err == nil {
+		return fmt.Errorf("a qemu is already listening on %s: another machine owns this work "+
+			"directory (find it with `ps -eo pid,args | grep %s`). One work directory holds one "+
+			"machine; destroy it, or pass a different --work", qmpPath, filepath.Dir(qmpPath))
+	}
 	_ = os.Remove(qmpPath)
 
 	args := []string{
@@ -1299,11 +1332,32 @@ func (d *Driver) qmpSocket() (*qmp.Conn, error) {
 // QMP socket within a second of each other, and only one of them can hold it. The loser waits here for
 // the winner's connection rather than reporting `ErrBusy` about a machine that is running.
 //
-// THE WAIT IS BOUNDED AND IT NAMES THE REAL PROBLEM WHEN IT EXPIRES: a connection that never appears is
-// either a qemu that died or a caller that took one and threw it away, and both are worth a sentence
-// rather than a hang.
+// THE WAIT IS BOUNDED, AND WHEN IT EXPIRES THE ENTRY IS CLEANED UP RATHER THAN ONLY DESCRIBED.
+//
+// MEASURED, on a work directory whose previous machine was killed without a `destroy`:
+//
+//	boot: another caller has held the qmp socket for 10s and never published a connection;
+//	that caller is stuck, and it has to be found rather than waited for
+//
+// THE SENTENCE WAS TRUE AND THE RUN WAS NOT DEAD. `Boot` releases the registry entry before it starts
+// qemu; the recorder's sampler then won the `Acquire`, and that sampler exited - on the killed
+// machine's step boundary - without ever publishing `d.qmp`. The registry went on claiming the path,
+// so every later `Acquire` returned `ErrBusy` naming an owner that no longer existed, and the next run
+// could not boot at all. The message asked a person to go and find the caller; in that state there was
+// nothing left to find.
+//
+// SO THE GHOST IS REMOVED HERE. `Release` is idempotent and closes whatever the map holds, which is
+// exactly "find it" without leaving the process. Only then is it worth one more `Acquire` - if the map
+// was lying, this recovers; if it was not, the error below still names the real problem.
 func (d *Driver) waitForQMP() (*qmp.Conn, error) {
-	deadline := time.Now().Add(qmpHandshakeWait)
+	// THE BOUND IS A FIELD SO A TEST DOES NOT HAVE TO SPEND IT. Ten seconds is right in production -
+	// it is a hundred times the handshake it covers - and wrong in a unit test, which would pay ten
+	// seconds per case for a wait it is about to demonstrate the far side of.
+	wait := qmpHandshakeWait
+	if d.qmpWait > 0 {
+		wait = d.qmpWait
+	}
+	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 		d.mu.Lock()
@@ -1313,9 +1367,43 @@ func (d *Driver) waitForQMP() (*qmp.Conn, error) {
 			return conn, nil
 		}
 	}
-	return nil, fmt.Errorf("another caller has held the qmp socket for %s and never published a "+
-		"connection; that caller is stuck, and it has to be found rather than waited for",
-		qmpHandshakeWait)
+
+	// THE WINNER IS A GHOST: DROP THE DEAD CLAIM AND TRY ONCE.
+	//
+	// THE PATH COMES FROM THE SAME PLACE `qmpSocket` GOT IT. A second spelling of the same join is a
+	// second chance to disagree, and a relative path here silently probed `drive.sock.qmp` in the
+	// process's own directory while the machine's socket lived nowhere near it.
+	path := filepath.Join(d.work, "drive.sock.qmp")
+	_ = d.qmpRegistry().Release(path)
+	conn, acquireErr := d.qmpRegistry().Acquire(path, "easyvm", wait)
+	if acquireErr == nil {
+		d.mu.Lock()
+		if d.qmp != nil {
+			// a third caller published while this one was acquiring; keep theirs and give this
+			// one back, because qemu has one client slot and two would poison it.
+			other := d.qmp
+			d.mu.Unlock()
+			_ = conn.Close()
+			return other, nil
+		}
+		d.qmp = conn
+		d.mu.Unlock()
+		return conn, nil
+	}
+
+	// THE SECOND ATTEMPT'S REASON IS CARRIED, AND THAT IS NOT TIDINESS.
+	//
+	// Without it the message says "the socket itself does not answer either", which is a CLAIM this
+	// function cannot make: `Acquire` fails for several reasons and only one of them is a socket with
+	// no listener. MEASURED while writing the test for this path - the real cause was a test listener
+	// whose handshake did not complete, and the sentence pointed at the socket:
+	//
+	//	and the socket itself does not answer either; that caller is stuck
+	//
+	// A reader with that message redeploys a container. A reader with the wrapped error has the
+	// handshake failure in front of them.
+	return nil, fmt.Errorf("another caller held the qmp socket for %s and never published a "+
+		"connection, and releasing that claim did not help: %w", wait, acquireErr)
 }
 
 // qmpHandshakeWait is how long a loser of the QMP race waits for the winner's connection.
@@ -1335,6 +1423,29 @@ const qmpHandshakeWait = 10 * time.Second
 // THE QMP CONNECTION IS CLOSED THROUGH THE REGISTRY'S `Release`, NOT THROUGH ITS OWN `Close`, so the
 // registry's map stops claiming the path. That is what lets the NEXT machine acquire the same socket
 // - the failure mode of "closed but still held" is `ErrBusy` naming an owner that no longer exists.
+
+// probeUnixSocket reports whether anything is LISTENING on path.
+//
+// IT CONNECTS AND HANGS UP WITHOUT SPEAKING, which is enough and is deliberately not QMP. The
+// question this answers is "is there a process behind this path", not "is that process healthy":
+// a qemu mid-boot answers the connect and has not yet greeted a client, and that is exactly one of
+// the cases where the socket must NOT be removed. Sending a QMP handshake would make this probe
+// consume qemu's single client slot, which is the bug `qmp.Registry` exists to prevent.
+//
+// THE TIMEOUT IS SHORT AND BOUNDED. A unix socket's connect is a scheduler operation, not a network
+// round trip, so 250ms is generous; the point of a bound here is that a wedged listener must not
+// turn a boot into a hang.
+func probeUnixSocket(path string, wait time.Duration) error {
+	if path == "" {
+		return fmt.Errorf("no path")
+	}
+	conn, err := net.DialTimeout("unix", path, wait)
+	if err != nil {
+		return err
+	}
+	return conn.Close()
+}
+
 func (d *Driver) shutdown() {
 	d.mu.Lock()
 	sess := d.ssh

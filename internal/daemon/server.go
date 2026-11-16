@@ -387,6 +387,23 @@ func (d *Daemon) Serve(opts ServeOptions) error {
 	}
 	d.work = opts.Work
 
+	// THE DIRECTORY IS CLAIMED BEFORE ANYTHING WRITES TO IT, and the claim is the KERNEL's.
+	//
+	// Everything a machine owns lives in this one directory - the qmp socket, the tap, the overlay,
+	// the frames, the disk - and each is a singleton that `internal/qmp.Registry` can only enforce
+	// within one process. A second `easyvm` on the same `--work` therefore agrees with the first
+	// about nothing, and the first symptom used to be a socket file deleted out from under a running
+	// qemu. `LockWork` makes that state unreachable rather than diagnosable.
+	//
+	// IT IS RELEASED ON EVERY EXIT PATH, which `syscall.Flock` makes automatic: the kernel drops the
+	// lock when the file descriptor closes, and it drops it when the process dies, including on
+	// SIGKILL. The deferred Release is for tidiness; the guarantee does not depend on it.
+	lock, err := LockWork(opts.Work)
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
 	// SIGTERM STOPS THE MACHINE AND THE DAEMON, in that order, so a container stop does not leave
 	// qemu behind holding /dev/kvm.
 	sigs := make(chan os.Signal, 1)

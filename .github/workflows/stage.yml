@@ -325,6 +325,46 @@ jobs:
             printf '%s: %s MiB\n' "$f" "$(( $(stat -c %s "$f") >> 20 ))"
           done
 
+      # THE ONE FAILURE THAT LEAVES NO FAILURE BEHIND.
+      #
+      # A LEG WHOSE QMP SOCKET WAS DELETED OUT FROM UNDER IT DOES NOT REPORT AN ERROR AT THE MOMENT OF
+      # DAMAGE. The guest keeps running, the daemon keeps answering, and every `/api/click` returns
+      # {"ok":true} while the pointer on the screen never moves:
+      #
+      #	could not read the screen: qmp /work/drive.sock.qmp: connect: no such file or directory
+      #	(waited 30s; is another process already holding this socket? qemu permits one client)
+      #
+      # MEASURED on the lab pod, where it cost forty minutes of a walk that looked like a dead widget.
+      # The cause was `_ = os.Remove(qmpPath)` running unconditionally in `Boot`, and the fix is the
+      # live-socket probe in front of it. THIS STEP IS WHAT NOTICES A REGRESSION OF THAT FIX, and it
+      # is here rather than in one workflow because the mechanism is not OS-specific: a socket that
+      # vanished is a machine nothing could drive, whatever the guest was.
+      - name: the machine was never orphaned from its own socket
+        if: always()
+        run: |
+          set -u
+          log="$GITHUB_WORKSPACE/work/daemon.log"
+          if [ ! -f "$log" ]; then
+            echo "no daemon log at $log; nothing to check"
+            exit 0
+          fi
+
+          # A MISSING SOCKET, AS THE DAEMON ITSELF WORDED IT. Every mid-run occurrence is counted
+          # because one is enough: the step that hit it is the step that silently did nothing.
+          missing=$(grep -c "connect: no such file or directory" "$log" 2>/dev/null || true)
+          missing=${missing:-0}
+          if [ "$missing" != "0" ]; then
+            echo "=== THE MACHINE LOST ITS QMP SOCKET $missing TIME(S) ==="
+            grep -n "no such file or directory" "$log" | head -10
+            echo
+            echo "A walk in this state reports success on steps that did nothing, so its disk and its"
+            echo "screenshots cannot be trusted. `Boot` must probe a live socket and REFUSE to delete"
+            echo "it - see probeUnixSocket in internal/daemon/driver.go."
+            exit 1
+          fi
+
+          echo "the machine kept its qmp socket for the whole leg"
+
       - name: stop the daemon
         if: always()
         run: |
