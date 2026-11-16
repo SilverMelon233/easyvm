@@ -39,6 +39,12 @@ type Executor struct {
 
 	// BootDisk is the disk a `boot:` starts when no `disk:` step named one - the --boot-disk flag.
 	BootDisk string
+	// adb is the Android Debug Bridge connection, when a step asked for one.
+	//
+	// IT IS A FIELD BESIDE THE ssh ONE AND NOT A Driver METHOD: adb is one family's transport, not
+	// a property of every machine, so a `Driver.ADB()` would be a method that five of six
+	// implementations answer with nil.
+	adb *adbGuest
 	// assets is what `fetch:` produced, by kind, so a later step can name a file it did not compute.
 	//
 	// IT EXISTS BECAUSE THE PATHS ARE NOT THE FILE'S BUSINESS. An answer CD's name is decided by
@@ -306,6 +312,17 @@ func (e *Executor) runOne(s walk.Step) error {
 	// a qcow2 at byte offsets, which is what `esp_fallback:` exists for.
 	case s.Has("esp_fallback"):
 		return e.doESPFallback(s)
+	// THE THREE ADB KEYS, FOR A GUEST WHOSE REMOTE ACCESS IS adbd RATHER THAN sshd.
+	//
+	// `adb_connect:` FIRST AND BEFORE `adb:` FOR THE REASON `require_ssh:` COMES BEFORE `ssh:`: a
+	// walk whose first command fails spends its budget on a machine that was never reachable, and
+	// the failure names the command instead of the connection.
+	case s.Has("adb_connect"):
+		return e.doADBConnect(s)
+	case s.Has("adb_privileged"):
+		return e.doADBPrivileged(s)
+	case s.Has("adb"):
+		return e.doADB(s)
 	// AND SO IS EVERY OTHER ACTION THAT CARRIES ITS OWN CHECK.
 	//
 	// `at_window` AND `at_button` ARE CLICKS WITH A `expect_any:` AFTER THEM, and dispatching them below
@@ -392,6 +409,25 @@ func (e *Executor) doClick(s walk.Step) error {
 	if err != nil {
 		return err
 	}
+	// EVERY COORDINATE IN THIS REPOSITORY WAS MEASURED ON A 1920x1080 FRAME, AND A CLICK AT ANOTHER
+	// SIZE LANDS SOMEWHERE ELSE - SILENTLY.
+	//
+	// The `ocr:` steps already report this and scale, because a reading can be rescaled and still be
+	// the right reading. A CLICK CANNOT: (510, 557) is the middle of Android's home-app chooser at
+	// 1920x1080 and is past the bottom edge at 1280x800, where the same dialog sits at (510, 557) of
+	// a SMALLER frame - so the click lands on whatever is there. Nothing reports it; the walk just
+	// fails a step later with "did not advance".
+	//
+	// MEASURED, on the first attempt at driving this guest: a hand-started qemu with
+	// `virtio-vga,xres=1280,yres=800` photographed the chooser correctly and the click did nothing,
+	// and the frame size was the reason.
+	if f, ferr := e.Driver.Frame(); ferr == nil {
+		if w, h := f.Size(); w != 0 && h != 0 && (w != 1920 || h != 1080) {
+			return fail(s.Name, "click (%d, %d) is a coordinate measured at 1920x1080 but the "+
+				"framebuffer is %dx%d. A click cannot be rescaled the way a reading can - set the "+
+				"machine's resolution to 1920x1080 rather than moving this coordinate", x, y, w, h)
+		}
+	}
 	if err := e.Driver.Click(x, y); err != nil {
 		return fail(s.Name, "click (%d, %d): %v", x, y, err)
 	}
@@ -403,6 +439,13 @@ func (e *Executor) doDoubleClick(s walk.Step) error {
 	x, y, err := pair(s, "double")
 	if err != nil {
 		return err
+	}
+	// THE SAME GUARD AS `click:`, FOR THE SAME REASON.
+	if f, ferr := e.Driver.Frame(); ferr == nil {
+		if w, h := f.Size(); w != 0 && h != 0 && (w != 1920 || h != 1080) {
+			return fail(s.Name, "double-click (%d, %d) is a coordinate measured at 1920x1080 but "+
+				"the framebuffer is %dx%d", x, y, w, h)
+		}
 	}
 	if err := e.Driver.DoubleClick(x, y); err != nil {
 		return fail(s.Name, "double-click (%d, %d): %v", x, y, err)

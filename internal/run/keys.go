@@ -29,6 +29,8 @@ func ExecutableKeys() []string {
 		// A DISK EDIT, NOT A GUEST ACTION. It has its own branch because the guest it belongs to has
 		// usually just been shut down - qemu holds the qcow2's write lock while it runs.
 		"esp_fallback",
+		// ANDROID'S TRANSPORT: adbd on 5555, no sshd and no password.
+		"adb", "adb_connect", "adb_privileged",
 		"wait",
 	}
 }

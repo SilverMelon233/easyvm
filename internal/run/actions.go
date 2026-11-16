@@ -415,6 +415,9 @@ func (e *Executor) doDesktop(s walk.Step) error {
 	start := time.Now()
 	deadline := start.Add(timeout)
 	var lastStats screen.Stats
+	// androidWhy carries the android detector's own sentence, because its numbers are not the
+	// ones `screen.Stats` prints for a panel.
+	var androidWhy string
 	for time.Now().Before(deadline) {
 		f, err := e.Driver.Frame()
 		if err != nil {
@@ -463,18 +466,21 @@ func (e *Executor) doDesktop(s walk.Step) error {
 		case "linux/kubuntu":
 			ok, lastStats = screen.IsKubuntuLauncher(img)
 		case "android":
-			// ANDROID DRAWS A PANEL TOO, AND THE SAME MEASUREMENT FIND IT.
+			// ANDROID DRAWS A PANEL TOO, AND A LINUX PANEL'S TEST CANNOT SEE IT.
 			//
-			// BlissOS's launcher puts Taskbar or Smart Dock along an edge, exactly like a Linux
-			// desktop - and the screens this stage has to tell apart draw none: the boot splash is a
-			// centered logo, the live system's "Select a Home app" chooser is a dialog in the middle
-			// of an otherwise empty frame, and a locked screen is one full-bleed wallpaper.
-			//
-			// MEASURED, on this stage's own runs: the launcher and the chooser both have a strip and
-			// a body, and `IsLinuxDesktop` answers true for the launcher and false for the chooser.
-			// That is the distinction that matters, and a second detector written for Android would
-			// be a second set of thresholds to keep in step with the first.
-			ok, lastStats = screen.IsLinuxDesktop(img)
+			// MEASURED on a frame that is unambiguously this guest's desktop: `IsLinuxDesktop`
+			// answers FALSE, because it wants `margin > 40 && spread < 42` in the lowest 4.5% and
+			// Android's Taskbar is a 40 px translucent bar over a dark wallpaper - contrast 9,
+			// spread 121, saturation 0. Its own detector is in `internal/screen/android.go`, and
+			// the two conditions there are the desktop's: an edge that DIFFERS from the body and
+			// that is BUSY with icons.
+			var and screen.AndroidStats
+			ok, and = screen.IsAndroidDesktop(img)
+			lastStats = screen.Stats{
+				Width: and.Width, Height: and.Height,
+				TopVar: and.EdgeSpread, BrightnessDrop: and.EdgeContrast,
+			}
+			androidWhy = and.Describe()
 		default:
 			return fail(s.Name, "the %q desktop test is not implemented in this build; the four "+
 				"are windows, macos, linux and android", family)
@@ -536,8 +542,15 @@ func (e *Executor) doDesktop(s walk.Step) error {
 		}
 		time.Sleep(poll)
 	}
+	why := lastStats.Explain()
+	if androidWhy != "" {
+		// THE ANDROID DETECTOR'S NUMBERS ARE NOT THE ONES `screen.Stats` PRINTS - it measures the
+		// bottom edge against the body rather than a panel against a wallpaper - so its own sentence
+		// is what a reader needs.
+		why = androidWhy
+	}
 	return failWithScreen(s.Name, e.Driver,
-		"no %s desktop within %s; %s", family, timeout, lastStats.Explain())
+		"no %s desktop within %s; %s", family, timeout, why)
 }
 
 // --- host commands --------------------------------------------------------------------

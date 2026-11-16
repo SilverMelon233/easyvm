@@ -351,8 +351,10 @@ var Keys = map[string]Key{
 	"adb": {Name: "adb", Kind: KindScript,
 		Summary: "a command run over adb IN the guest; Android's remote access is adbd and " +
 			"there is no sshd until a stage installs one"},
-	"adb_root": {Name: "adb_root", Kind: KindBool,
-		Summary: "adb root, then wait for adbd to come back - uid 0 with no `su`"},
+	"adb_privileged": {Name: "adb_privileged", Kind: KindBool,
+		Summary: "prove the adb shell can change system state - a write that reads back. NOT " +
+			"`adb root`: this guest is a `user` build with ro.debuggable=0 and no `su`, and the " +
+			"shell it already has owns appops, settings, cmd and setprop"},
 	"adb_connect": {Name: "adb_connect", Kind: KindBool,
 		Summary: "attach to the guest's adbd on its forwarded port and prove it answers"},
 	"adb_serial": {Name: "adb_serial", Kind: KindString,
