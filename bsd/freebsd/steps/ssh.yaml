@@ -14,9 +14,21 @@ vars:
   out:
     from: args.out
     default: out/freebsd-ssh.qcow2
+  # `acpi`, AND NOT `ssh`, BECAUSE THE DISK THIS STAGE PUBLISHES HAS TO BOOT.
+  #
+  # MEASURED, on two disks published with `shutdown: ssh`:
+  #
+  #	/dev/vtbd0p2: UNEXPECTED SOFT UPDATE INCONSISTENCY; RUN fsck MANUALLY.
+  #	Automatic file system check failed; help!
+  #	ERROR: ABORTING BOOT ... Enter full pathname of shell or RETURN for /bin/sh:
+  #
+  # `poweroff` over ssh asks init to stop, and on this guest init reaches power-off before UFS's clean
+  # flag is written - that flag belongs to the unmount, not to `sync`, and remounting read-only is
+  # refused because lightdm and Xorg hold the filesystem (`Device busy`). The ACPI power button is the
+  # orderly shutdown the installer itself produces. The step below reads this variable.
   shutdown:
     from: args.shutdown
-    default: ssh
+    default: acpi
 steps:
 - name: start recording
   record: freebsd-ssh.mp4
@@ -235,25 +247,13 @@ steps:
 - name: stop the machine
   # `acpi`, NOT `ssh`, AND THE REASON IS THE FILESYSTEM THE NEXT STAGE HAS TO MOUNT.
   #
-  # MEASURED, on two disks this stage published with `shutdown: ssh`:
+  # THE VARIABLE'S DEFAULT IS `acpi` AND THE REASON IS WRITTEN WHERE IT IS DECLARED, because it is a
+  # statement about what this stage's OUTPUT is: a disk the next stage has to mount.
   #
-  #	/dev/vtbd0p2: CYLINDER GROUP 123: INTEGRITY CHECK FAILED
-  #	/dev/vtbd0p2: UNEXPECTED SOFT UPDATE INCONSISTENCY; RUN fsck MANUALLY.
-  #	Automatic file system check failed; help!
-  #	ERROR: ABORTING BOOT ... Enter full pathname of shell or RETURN for /bin/sh:
-  #
-  # `ssh` runs `poweroff`, which asks init to stop - and on this guest init reaches the power-off
-  # before UFS's clean flag is written. `sync` does not write it either: that flag belongs to the
-  # UNMOUNT. Remounting read-only was tried and refused (`Device busy`, because lightdm and Xorg hold
-  # the filesystem), which leaves the ACPI power button: it is the same orderly shutdown the
-  # installer's own `bsdinstall umount` produces, and `windows/11/steps/install.yaml` uses it for the
-  # same reason.
-  # A STAGE WHOSE OUTPUT IS THE DISK MAY NOT BE KILLED: xfce's install writes thousands of files and a
-  # kill leaves a pool that needs a replay. `ssh` asks the guest's own init to power off.
   # TEN MINUTES RATHER THAN FIVE, because this guest has just written xfce and a display manager and
   # its shutdown path touches every one of those files. The five-minute default ran out on a machine
   # that was shutting down correctly, only slowly.
-  shutdown: acpi
+  shutdown: '{{ shutdown }}'
   timeout: 600
 - name: publish the disk
   compress: '{{ out }}'
