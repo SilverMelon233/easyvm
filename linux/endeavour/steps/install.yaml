@@ -263,7 +263,7 @@ steps:
 
 # AND THE ACCOUNT LOGS ITSELF IN: an unattended client cannot type at a login screen.
 - name: log in automatically
-  click: [585, 695]
+  click: [585, 697]
   wait_after: 3
 
 - name: the users page is filled in
@@ -311,7 +311,7 @@ steps:
 # Summary -> the confirmation dialog. `Install` IS AT (1392, 881) - the same strip as `Next` but the
 # button itself sits further right, and clicking (1456, 886) landed on its edge and did nothing.
 - name: start the install
-  click: [1392, 881]
+  click: [1412, 868]
   wait_after: 10
 
 - name: the confirmation dialog
@@ -324,7 +324,7 @@ steps:
 
 # `Install Now` INSIDE THE DIALOG, AT (1067, 539).
 - name: install now
-  click: [1067, 539]
+  click: [1057, 527]
   wait_after: 25
 
 - name: the install writes the disk
