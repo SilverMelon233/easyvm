@@ -26,6 +26,22 @@ func TestGPTGUIDBytes(t *testing.T) {
 // A GUID that converts and a table that a real firmware accepts are different claims, and the second
 // one is what the installer tests. This reads the written disk the same way a partition tool does.
 func TestWriteGPTProducesATableTheInstallerAccepts(t *testing.T) {
+	// A TEST THAT NEEDS A TOOL MUST SAY SO WHEN THE TOOL IS MISSING, OR IT FAILS THE BUILD OF EVERY
+	// JOB THAT DOES NOT CARRY ONE.
+	//
+	// MEASURED on image.yml's `binary` job, which runs `go test ./...` on a bare runner to decide
+	// whether the binary is fit to put in an image - a runner with a Go toolchain and nothing else:
+	//
+	//	gpt_test.go:32: qemu-img create: exec: "qemu-img": executable file not found in $PATH
+	//
+	// The GPT writer has nothing to do with that job, and the failure stopped the IMAGE job that
+	// gates every walkthrough. The claim this test makes is about a table a firmware accepts, and a
+	// qcow2 is how it gets bytes to read - without `qemu-img` there is no honest way to make that
+	// claim, so the case is skipped and says why. `image.yml`'s `behaviour` job runs the same package
+	// in the image, where `qemu-img` exists, so the coverage is not lost.
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		t.Skipf("qemu-img is not on PATH, so a qcow2 cannot be written and read back here")
+	}
 	dir := t.TempDir()
 	disk := filepath.Join(dir, "disk.qcow2")
 	if out, err := exec.Command("qemu-img", "create", "-f", "qcow2", disk, "2G").CombinedOutput(); err != nil {
