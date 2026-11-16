@@ -246,7 +246,28 @@ func WriteConfig(efiDir, templateDir string, ident Identity, release string) err
 		output.set("Resolution", newString(fmt.Sprintf("%dx%d@32", GuestWidth, GuestHeight)))
 	}
 
-	target := filepath.Join(efiDir, "OC", "config.plist")
+	// THE TREE LIVES UNDER `efiDir/EFI`, NOT `efiDir`, AND WRITING TO THE WRONG ONE COST EVERY macOS
+	// STAGE ITS SCREEN SIZE.
+	//
+	// `MergeTemplate` copies the template to `filepath.Join(efiDir, "EFI")` and its own comment
+	// explains why - `UnpackOpencore` writes `EFI/BOOT` and `EFI/OC`, while the template ships `BOOT`
+	// and `OC` at its root. So the file that boots is `efiDir/EFI/OC/config.plist`.
+	//
+	// THIS WROTE `efiDir/OC/config.plist`. Before the merge was fixed the two paths were the same
+	// file and this was right by accident; once the merge gained the `EFI/` segment, this became a
+	// SECOND config.plist that nothing reads.
+	//
+	// MEASURED, on a boot.img this repository published in run 43937150096, read back with
+	// `mcopy -i boot.img@@1048576 ::/EFI/OC/config.plist`:
+	//
+	//	efi/OC/config.plist       Resolution = 1920x1080@32   (written, used by nothing)
+	//	efi/EFI/OC/config.plist   Resolution = (empty)        (packaged, used by the firmware)
+	//
+	// and the guest came up at 1280x800, which is what OpenCore does with an empty Resolution -
+	// so every click measured at 1920x1080 in macos/15/steps landed off-screen and the recovery
+	// stage failed at `select disk utility` with "is a coordinate measured at 1920x1080 but the
+	// framebuffer is 1280x800".
+	target := filepath.Join(efiDir, "EFI", "OC", "config.plist")
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}

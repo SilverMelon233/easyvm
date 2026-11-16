@@ -175,7 +175,11 @@ func TestWriteConfigPutsTheIdentityWhereOpencoreReadsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root, err := readPlist(filepath.Join(efi, "OC", "config.plist"))
+	// `efi/EFI/OC`, NOT `efi/OC`: the template merges into `EFI/`, and that is the file the
+	// firmware opens. MEASURED on a published boot.img, where the two paths held two different
+	// config.plist files - the one written here had Resolution=1920x1080@32 and the one PACKAGED had
+	// it empty, so the guest came up at 1280x800 and every click measured for 1920x1080 missed.
+	root, err := readPlist(filepath.Join(efi, "EFI", "OC", "config.plist"))
 	if err != nil {
 		t.Fatal(err)
 	}
