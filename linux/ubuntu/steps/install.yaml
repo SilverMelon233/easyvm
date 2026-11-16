@@ -273,16 +273,30 @@ steps:
     words:
     - update
     - available
-- name: close the update dialog
+- name: leave the update page by the same Next every other page uses
   if: update_offered
   then:
-  - name: click the dialog's own close box
-    # THE X IS AT (1418, 236) IN THE FRAME THIS DIALOG WAS MEASURED IN, and it is the only control on
-    # the dialog that does not change the installer.
+  - name: next, past the update offer
+    # NOT THE X. THE X AT (1418, 236) IS THE *WINDOW'S* CLOSE BOX - the same box every page of this
+    # installer carries - and clicking it QUITS THE INSTALLER.
+    #
+    # MEASURED on run 43976334558, the first run with the close step: `update_offered` was true, the
+    # click landed, and every reading after it was
+    #
+    #	page: 0 word(s):
+    #
+    # twenty-four times, because the frame at the end of that run's recording is the BARE UBUNTU
+    # DESKTOP with the "Install Ubuntu 26.04.1 LTS" icon on it. The dialog was a PAGE OF THE WIZARD,
+    # not a floating box: it has the same title bar and the same X as `Disk setup` and `Encryption and
+    # file system`, and "Update available" is its page heading.
+    #
+    # SO IT LEAVES THE WAY EVERY OTHER PAGE DOES - the Next at (1355, 848), which is the button this
+    # file already clicks eight times above - and the installer continues WITHOUT updating, which is
+    # what the rest of these coordinates were measured against.
     click:
-    - 1418
-    - 236
-    wait_after: 5
+    - 1355
+    - 848
+    wait_after: 8
 - name: wait for the what do you want to do with ubuntu page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
