@@ -114,11 +114,20 @@ steps:
     systemsetup -settimezone {{ timezone }}
   timeout: 180
 - name: prove the time zone
+  # `systemsetup -gettimezone` NEEDS ROOT - "You need administrator access to run this tool" - and an
+  # ssh session as the unprivileged account is not root. MEASURED on run 43938667507, where the zone
+  # WAS set correctly and this step failed anyway:
+  #
+  #	systemsetup = You need administrator access to run this tool... exiting!
+  #	localtime   = /private/var/db/timezone/tz/2026f.1.0/zoneinfo/America/Los_Angeles
+  #	date        = Mon Nov 16 11:42:04 PST 2026
+  #
+  # SO THE PROOF IS THE TWO FACTS THAT NEED NO PRIVILEGE: the symlink target, which is what the
+  # system reads, and `date`, which prints the zone abbreviation. A check that fails on a correct
+  # machine teaches the next reader to ignore it.
   ssh: >-
-    sh -c 'echo "systemsetup = $(systemsetup -gettimezone 2>&1)";
-    echo "localtime = $(readlink -f /etc/localtime)";
-    echo "date = $(date)";
-    systemsetup -gettimezone 2>&1 | grep -q "{{ timezone }}" && echo TIMEZONE_OK'
+    sh -c 'local=$(readlink -f /etc/localtime); echo "localtime = $local"; echo "date = $(date)";
+    printf "%s" "$local" | grep -q "{{ timezone }}" && echo TIMEZONE_OK'
   timeout: 60
 - name: set the locale to American English with a UTF-8 terminal
   # macOS DOES NOT HAVE `locale-gen`: its locales are compiled in, and a guest asks for one by NAME in
