@@ -82,9 +82,6 @@ func (e *Executor) doBoot(s walk.Step) error {
 		AnswerCD:     e.assetPath(s.Get("answer_cd")),
 		DriverCD:     e.assetPath(s.Get("driver_cd")),
 		Recovery:     e.assetPath(s.Get("recovery")),
-		Kernel:       e.assetPath(s.Get("kernel")),
-		Initrd:       e.assetPath(s.Get("initrd")),
-		KernelAppend: s.Get("append"),
 		Incoming:     resumeFrom,
 	}
 	// THE SIZE COMES OFF THE STEP, WHICH IS WHERE `MachineSteps` PUT IT.
@@ -362,22 +359,6 @@ func (e *Executor) createDisk(s walk.Step) error {
 	e.Driver.Log(fmt.Sprintf("  %s: %d KiB (a qcow2 grows as it is written)", filepath.Base(path),
 		fi.Size()>>10))
 
-	// A GPT IS WRITTEN HERE RATHER THAN BY THE INSTALLER, AND THAT IS A MEASURED REQUIREMENT.
-	//
-	// Android-x86's first pane lists the partitions IT FINDS. Given a blank disk it offers
-	// "Create/Modify partitions" and the walkthrough has to drive a partitioner before it can install
-	// anything; given a disk whose table is already right it shows `vda1 0.25GB` selected and the ten
-	// measured key presses answer it. The ESP must also be 1 MiB aligned and typed EF00 - measured,
-	// twice: a table whose first partition starts at LBA 34 makes the installer report "No ESP is
-	// selected", and one whose ESP type GUID is not C12A7328-F81F-11D2-BA4B-00A0C93EC93B makes it
-	// answer "This is not an EFI System Partition, please check again".
-	if s.Has("disk_gpt") {
-		espMiB, _ := s.Float("disk_esp_mib", 260)
-		if err := writeGPT(path, gb, int(espMiB)); err != nil {
-			return fail(s.Name, "%v", err)
-		}
-		e.Driver.Log(fmt.Sprintf("  GPT: ESP %d MiB at LBA 2048 (type EF00), the rest Linux", int(espMiB)))
-	}
 	if setter, ok := e.Driver.Machine().(interface{ SetDisk(string) }); ok {
 		setter.SetDisk(path)
 	}

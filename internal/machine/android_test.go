@@ -1,47 +1,47 @@
 package machine
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
-func TestAndroidBootPutsTheKernelBeforeTheDrives(t *testing.T) {
-	b := Boot{OS: Android, Disk: "/tmp/d.qcow2", ISO: "/tmp/i.iso",
-		Kernel: "/tmp/kernel", Initrd: "/tmp/initrd.img", KernelAppend: "root=/dev/ram0 INSTALL=1"}
-	args := b.StorageArgs()
-	first := map[string]int{}
-	for i, a := range args {
-		if _, seen := first[a]; !seen {
-			first[a] = i
+// THE ADAPTER IS A PLATFORM FACT AND IT IS THE ONE THAT DECIDES WHETHER ANDROID DRAWS AT ALL.
+func TestAndroidGetsVirtioVGA(t *testing.T) {
+	b := Boot{OS: Android}
+	if got := b.VGA("std"); got != "virtio" {
+		t.Errorf("android got %q; HWC=drm_minigbm needs /dev/dri/card0 and a std VGA has no DRM "+
+			"device, so the guest draws nothing and the screen stops on initrd's last line", got)
+	}
+	for _, os := range []OS{Windows, Linux, BSD} {
+		if got := (Boot{OS: os}).VGA("std"); got != "std" {
+			t.Errorf("%s got %q, want the default", os, got)
 		}
 	}
-	ki, di := first["-kernel"], first["-drive"]
-	if ki == 0 && args[0] != "-kernel" {
-		t.Fatalf("-kernel is not first: %v", args)
-	}
-	if ki > di {
-		t.Errorf("-kernel at %d is AFTER the first -drive at %d; qemu accepts it and boots the firmware", ki, di)
-	}
-	for _, want := range []string{"-initrd", "-append"} {
-		if _, ok := first[want]; !ok {
-			t.Errorf("%s is missing from %v", want, args)
-		}
+	if got := (Boot{OS: MacOS}).VGA("std"); got != "none" {
+		t.Errorf("macOS got %q, want none: OpenCore supplies vmware-svga", got)
 	}
 }
 
-func TestAnInstalledAndroidDiskHasNoKernel(t *testing.T) {
-	b := Boot{OS: Android, Disk: "/tmp/d.qcow2"}
+// AND THE ISO IS THE MEDIUM, NOT A KERNEL. A boot with `iso:` and no kernel is the shape that runs
+// the installer's own boot chain, which is the only one that proves anything about the disk.
+func TestAnAndroidInstallBootsItsISO(t *testing.T) {
+	dir := t.TempDir()
+	disk := filepath.Join(dir, "d.qcow2")
+	iso := filepath.Join(dir, "i.iso")
+	for _, f := range []string{disk, iso} {
+		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b := Boot{OS: Android, Disk: disk, ISO: iso}
+	if err := b.Validate(); err != nil {
+		t.Fatalf("an android ISO boot was refused: %v", err)
+	}
 	for _, a := range b.StorageArgs() {
-		if a == "-kernel" || a == "-initrd" {
-			t.Fatalf("an installed Android disk must not be handed a kernel: %v", b.StorageArgs())
-		}
-	}
-}
-
-func TestKernelIsRefusedForOtherFamilies(t *testing.T) {
-	for _, os := range []OS{Windows, Linux, MacOS, BSD} {
-		b := Boot{OS: os, Disk: "/tmp/d", Kernel: "/tmp/k", Initrd: "/tmp/i"}
-		if b.Kernel != "" && os != Android {
-			if err := b.Validate(); err == nil {
-				t.Errorf("%s accepted a kernel; a guest handed a kernel cannot prove its disk boots", os)
-			}
+		if a == "-kernel" || a == "-initrd" || a == "-append" {
+			t.Fatalf("an android install must boot its own ISO, not a host-supplied kernel: %v",
+				b.StorageArgs())
 		}
 	}
 }

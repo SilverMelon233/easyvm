@@ -153,12 +153,6 @@ type BootSpec struct {
 	DriverCD string
 	// Recovery is macOS's recovery image, attached as removable media.
 	Recovery string
-	// Kernel, Initrd and KernelAppend are Android-x86's install path: qemu loads the kernel from
-	// the ISO's extracted set rather than letting firmware find a bootloader. All three are empty
-	// on an installed Android disk, which is what makes that boot a proof.
-	Kernel       string
-	Initrd       string
-	KernelAppend string
 	// Incoming is a `snapshot:` file to restore from instead of booting.
 	//
 	// IT IS A SEPARATE FIELD FROM Disk BECAUSE THE TWO ANSWER DIFFERENT QUESTIONS. Disk says what

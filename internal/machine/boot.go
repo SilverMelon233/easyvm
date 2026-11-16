@@ -109,19 +109,22 @@ type Boot struct {
 	// Boot.StorageArgs' caller: it is not a device, it is the machine's starting state.
 	Incoming string
 
-	// Kernel and Initrd are the two files qemu loads INSTEAD of letting firmware find a bootloader.
+	// THERE IS NO `-kernel` HERE, AND ITS ABSENCE IS A DECISION RATHER THAN AN OMISSION.
 	//
-	// ONLY ANDROID-X86 USES THEM, AND ONLY WHILE IT IS BEING INSTALLED. Measured, and it is the
-	// single fact that decides whether the installer ever draws a pane: the published ISO is not a
-	// partitioned disk with a bootloader, it is a set of files, so firmware booting it gets nowhere.
-	// `-kernel` with the ISO's own kernel and initrd starts the installer; the INSTALLED disk boots
-	// through UEFI and GRUB with both fields empty, which is what makes that boot a proof.
-	Kernel string
-	Initrd string
-	// KernelAppend is the kernel command line, and it is a platform fact rather than a caller's
-	// choice: Android-x86's init reads INSTALL=1 to install, and `HWC=drm_minigbm` to pick the
-	// hardware composer that a plain qemu VGA supports.
-	KernelAppend string
+	// Android-x86 CAN be started by handing qemu its kernel and initrd, and this build did for a
+	// while. Two things make that the wrong way to install it:
+	//
+	//	THE ISO IS ALREADY A BOOTABLE MEDIUM UNDER BOTH FIRMWARES. Measured from its own El Torito
+	//	catalog: a `0x00` entry for the x86 BIOS image and a `0xEF` entry for `boot/grub/efi.img`.
+	//	Firmware finds both by itself, which is what every other installer in this repository relies
+	//	on - and a guest handed a kernel by the host is a guest whose own boot chain was never run.
+	//
+	//	THE INSTALLER DOES ITS OWN PARTITIONING. It offers cfdisk and cgdisk, and cgdisk writes the
+	//	GPT and the ESP the installed system needs. Driving that from the host means reproducing a
+	//	partition table that the installer was going to make anyway.
+	//
+	// So `os: android` boots the ISO the way Windows and Linux boot theirs, and the only platform
+	// fact it adds is the video adapter - see Boot.VGA.
 }
 
 // Validate refuses a boot that cannot work, before qemu is started.
@@ -165,38 +168,6 @@ func (b Boot) Validate() error {
 		return fmt.Errorf("`recovery:` is macOS's install medium; this guest is %s", b.OS)
 	}
 
-	// AN ANDROID GUEST IS THE ONE THAT MAY BE HANDED A KERNEL, AND THE TWO FILES TRAVEL TOGETHER.
-	//
-	// MEASURED, in that order: `-kernel` without `-initrd` gets as far as the kernel's own panic about
-	// a missing root, and `-initrd` without `-kernel` is ignored entirely - qemu accepts the argument
-	// and boots the firmware instead, which looks like a disk that will not start.
-	//
-	// AND `-kernel` IS REFUSED FOR EVERY OTHER FAMILY, because a guest whose kernel comes from the host
-	// is not a guest that can prove its own disk boots. Windows, Linux, macOS and the BSDs all install
-	// by their own bootloader writing their own disk.
-	if b.Kernel != "" || b.Initrd != "" {
-		if b.OS != Android {
-			return fmt.Errorf("`kernel:`/`initrd:` are android's install path only; this guest is "+
-				"%s and boots its own bootloader", b.OS)
-		}
-		if b.Kernel == "" || b.Initrd == "" {
-			return fmt.Errorf("`kernel:` and `initrd:` are both needed: qemu accepts one without " +
-				"the other and then boots the wrong thing")
-		}
-		for why, path := range map[string]string{
-			"the kernel": b.Kernel,
-			"the initrd": b.Initrd,
-		} {
-			if err := requireFile(path, why); err != nil {
-				return err
-			}
-		}
-	}
-	if b.OS == Android && b.ISO != "" && b.Kernel == "" {
-		return fmt.Errorf("an android install needs `kernel:` and `initrd:` as well as `iso:`: " +
-			"the ISO is not a partitioned disk with a bootloader, so firmware booting it gets " +
-			"nowhere, and the installer never draws a pane")
-	}
 	if b.OS.IsMacOS() {
 		// OPENCORE IS NOT OPTIONAL FOR macOS, EVEN FROM AN INSTALLED DISK. Those three files are
 		// what the firmware boots: without them qemu starts, the firmware finds no loader, and the
@@ -277,25 +248,8 @@ func requireFile(path, why string) error {
 func (b Boot) StorageArgs() []string {
 	args := []string{}
 
-	// THE KERNEL AND INITRD COME FIRST, BEFORE ANY DRIVE, BECAUSE THAT IS THE ORDER qemu READS THEM.
-	//
-	// Measured: with `-kernel` after the drives qemu starts and the guest never loads the installer -
-	// the argument is accepted and the boot does not happen, which is indistinguishable from an
-	// installer that hung. There is no error to read.
-	//
-	// AND THEY ARE ONLY FOR AN ANDROID INSTALL. An installed Android disk has neither, and that is
-	// what makes its boot a proof rather than a re-run of the host's kernel.
-	if b.Kernel != "" {
-		args = append(args, "-kernel", b.Kernel)
-	}
-	if b.Initrd != "" {
-		args = append(args, "-initrd", b.Initrd)
-	}
-	if b.KernelAppend != "" {
-		args = append(args, "-append", b.KernelAppend)
-	}
-
-	if b.OS.IsMacOS() {		// OPENCORE'S OWN DISK, FIRST AND WITH bootindex=0. "A disk with no bootindex is not in the
+	if b.OS.IsMacOS() {
+		// OPENCORE'S OWN DISK, FIRST AND WITH bootindex=0. "A disk with no bootindex is not in the
 		// boot order at all" - the firmware then reports it could not load Boot0001, six runs in a
 		// row.
 		args = append(args,
@@ -726,6 +680,23 @@ func (b Boot) SMP(cpus int) string {
 func (b Boot) VGA(defaultVGA string) string {
 	if b.OS.IsMacOS() {
 		return "none"
+	}
+	// ANDROID NEEDS A DRM NODE, AND `std` VGA DOES NOT PROVIDE ONE.
+	//
+	// MEASURED, and it is the difference between a desktop and what looks like a hang. The installed
+	// system runs Android's HWC with `HWC=drm_minigbm`, which opens /dev/dri/card0:
+	//
+	//	-device VGA          a framebuffer and NO DRM device. Android brings up no display at all,
+	//	                     and the screen STOPS ON INITRD'S LAST LINE for as long as you wait -
+	//	                     measured at 240 s, 600 s and 600 s again before the cause was found.
+	//	                     Nothing in the console says what is wrong.
+	//	-device virtio-vga   the real KMS driver, so /dev/dri/card0 exists and the launcher draws.
+	//
+	// It applies to the INSTALLER too: the same kernel runs in both, with the same HWC argument out
+	// of the same grub.cfg. And `virtio` reaches the daemon as `-device virtio-vga,xres=...`, which
+	// is the one form that can carry the resolution the panes were measured at.
+	if b.OS == Android {
+		return "virtio"
 	}
 	return defaultVGA
 }

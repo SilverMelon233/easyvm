@@ -521,9 +521,6 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		OpenCoreVars: spec.OpenCoreVars,
 		BootImage:    spec.BootImage,
 		Incoming:     spec.Incoming,
-		Kernel:       spec.Kernel,
-		Initrd:       spec.Initrd,
-		KernelAppend: spec.KernelAppend,
 	}
 	if err := boot.Validate(); err != nil {
 		return err
@@ -699,9 +696,17 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	//
 	// MACOS IS UNCHANGED: it passes `vga: none` because OpenCore's guest has `vmware-svga` as a PCIe
 	// -device from `machine.ExtraArgs`, and a second adapter would give the guest two.
-	if boot.VGA(opts.VGA) == "none" {
+	// THE ADAPTER THE FAMILY NEEDS, AND FOR ANDROID THAT IS NOT THE DEFAULT.
+	//
+	// `Boot.VGA` answers `none` for macOS (OpenCore supplies `vmware-svga`), `virtio` for Android
+	// (its HWC opens /dev/dri/card0 and a std VGA has no DRM node), and the default otherwise. The
+	// resolution rides on the `-device` form because `-vga` cannot carry one.
+	switch boot.VGA(opts.VGA) {
+	case "none":
 		args = append(args, "-vga", "none")
-	} else {
+	case "virtio":
+		args = append(args, "-device", "virtio-vga,xres=1920,yres=1080")
+	default:
 		args = append(args, "-device", DefaultVideoDevice)
 	}
 	args = append(args, boot.StorageArgs()...)
