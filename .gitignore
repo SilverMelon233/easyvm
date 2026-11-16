@@ -15,3 +15,4 @@
 .vscode/
 *.swp
 easyvm
+__pycache__/

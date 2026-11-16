@@ -45,3 +45,22 @@ func TestAnAndroidInstallBootsItsISO(t *testing.T) {
 		}
 	}
 }
+
+// THE ADAPTER IS NOT A PREFERENCE, AND THE REFUSAL LIVES BESIDE THE CHOICE.
+//
+// A std VGA on an Android guest gives it a framebuffer with no DRM node; HWC=drm_minigbm opens
+// /dev/dri/card0, finds nothing, and Android draws nothing at all. The screen stops on initrd's last
+// line and the console says nothing, which is why this was chased at 240 s, 600 s and 600 s again
+// before the cause was found.
+func TestAndroidRefusesAnyOtherAdapter(t *testing.T) {
+	for _, asked := range []string{"std", "cirrus", "qxl", "vmware"} {
+		if got := (Boot{OS: Android}).VGA(asked); got != AndroidVGA {
+			t.Errorf("VGA(%q) = %q on android; it must be %q whatever the caller asked for",
+				asked, got, AndroidVGA)
+		}
+	}
+	// And the value the daemon turns into `-device virtio-vga,xres=...` is the short name.
+	if AndroidVGA != "virtio" {
+		t.Errorf("AndroidVGA = %q; the daemon's switch keys on `virtio`", AndroidVGA)
+	}
+}

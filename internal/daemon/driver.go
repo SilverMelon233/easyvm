@@ -701,10 +701,22 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	// `Boot.VGA` answers `none` for macOS (OpenCore supplies `vmware-svga`), `virtio` for Android
 	// (its HWC opens /dev/dri/card0 and a std VGA has no DRM node), and the default otherwise. The
 	// resolution rides on the `-device` form because `-vga` cannot carry one.
+	//
+	// AN ANDROID GUEST REFUSES EVERY OTHER VALUE OF `--vga` RATHER THAN IGNORING IT, because the
+	// failure is invisible: a std VGA gives Android no DRM node, it brings up no display, and the
+	// screen stops on initrd's last line with nothing in the console - which reads as a hang and was
+	// chased at 240 s, 600 s and 600 s again. A run that asked for `--vga std` would look like a
+	// machine that will not boot, so the request is refused by name here.
+	if boot.OS == machine.Android && opts.VGA != "" && opts.VGA != machine.AndroidVGA {
+		return fmt.Errorf("`os: android` needs `--vga %s`, not %q: its HWC opens /dev/dri/card0, "+
+			"and any other adapter gives it a framebuffer with no DRM device - Android then draws "+
+			"nothing and the screen stops on initrd's last line with no error", machine.AndroidVGA,
+			opts.VGA)
+	}
 	switch boot.VGA(opts.VGA) {
 	case "none":
 		args = append(args, "-vga", "none")
-	case "virtio":
+	case machine.AndroidVGA:
 		args = append(args, "-device", "virtio-vga,xres=1920,yres=1080")
 	default:
 		args = append(args, "-device", DefaultVideoDevice)

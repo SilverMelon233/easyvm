@@ -695,8 +695,30 @@ func (b Boot) VGA(defaultVGA string) string {
 	// It applies to the INSTALLER too: the same kernel runs in both, with the same HWC argument out
 	// of the same grub.cfg. And `virtio` reaches the daemon as `-device virtio-vga,xres=...`, which
 	// is the one form that can carry the resolution the panes were measured at.
+	//
+	// IT IS NOT OVERRIDABLE, AND THE REFUSAL IS IN THE DAEMON'S ARGUMENT LIST.
+	//
+	// A caller that asks for `std` on an android guest would get a black screen that reports
+	// nothing - the failure this whole section exists to prevent - so the daemon refuses `--vga`
+	// values other than `virtio` BY NAME rather than building arguments for a guest that cannot
+	// draw. See the android branch where the video arguments are assembled.
+	return b.VGAFor(defaultVGA)
+}
+
+// AndroidVGA is the one adapter Android may be given, spelled as the daemon's `-device` value.
+//
+// `virtio` rather than `virtio-vga`: the daemon turns the short name into
+// `-device virtio-vga,xres=...,yres=...`, which is the only form that can carry a resolution.
+const AndroidVGA = "virtio"
+
+// VGAFor is `VGA` without the prose, so the argument-building code and the refusal in `Validate`
+// answer the same question from the same place and cannot disagree.
+func (b Boot) VGAFor(defaultVGA string) string {
+	if b.OS.IsMacOS() {
+		return "none"
+	}
 	if b.OS == Android {
-		return "virtio"
+		return AndroidVGA
 	}
 	return defaultVGA
 }
