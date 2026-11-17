@@ -433,7 +433,10 @@ jobs:
         uses: easydev-org/easyactions/log-stream@main
         with:
           token: ${{ github.token }}
-          name: ${{ inputs.distro }}-live
+          # THE CHECK RUN IS NAMED FROM THE FILE, because `distro` is a placeholder when `walk:` names
+          # it - and three parallel OS legs all publishing to `ubuntu-live` is one name for three
+          # different runs, which is worse than no name at all.
+          name: ${{ inputs.walk != '' && inputs.walk || format('linux/{0}/steps/install', inputs.distro) }}-live
           interval: "10"
           max_bytes: "60000"
           command: |
