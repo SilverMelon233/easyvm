@@ -700,7 +700,7 @@ steps:
 - name: create the ESP
   click:
   - 1132
-  - 405
+  - 449
   wait_after: 8
 
 - name: the ESP dialog is up
