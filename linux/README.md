@@ -9,10 +9,14 @@ done because a file exists; each claim below names its evidence.
 
 | stage | distributions |
 |---|---|
-| ext4 read back off the disk AND a green CI install leg | kubuntu, ubuntu, cachyos, endeavouros, manjaro, mint, zorin |
-| ext4 read back off the disk (walk still being brought to a full pass) | fedora-workstation |
-| ext4 read back by hand, walk never run to a pass | popOS |
-| not walked at all | opensuse-leap-16.1 |
+| ext4 read back off the disk AND a green CI install leg | kubuntu, ubuntu, cachyos, endeavouros, manjaro, mint, zorin, mx, opensuse-leap-16.1 |
+| ext4 read back off the disk; its walk reaches the storage editor and creates `vda1 ext4 /`, and is being brought to a full pass | fedora-workstation |
+| ext4 read back off the disk; its walk is being brought to a full pass | popOS |
+|  | nixos |
+
+**NINE OF TWELVE HAVE A GREEN CI INSTALL LEG.** The three that do not are all in the same place: a walk
+that works on this workstation and a runner that draws the same wizard differently. Each of those
+three has its own section below with the measurement behind its last change.
 
 ## The rule every file follows
 
