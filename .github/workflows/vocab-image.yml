@@ -6,8 +6,10 @@ name: vocab image
 # one image. A change under `internal/` therefore cannot be tested by a stage until it is IN `latest`
 # - and building `latest` from a branch would hand every other session's CI this branch's binary.
 #
-# SO THIS BUILDS THE SAME CONTAINERFILE UNDER ITS OWN TAG, `:vocab-<branch>`. The tag is the branch
-# name, so two branches cannot overwrite each other and a log line names where its binary came from.
+# SO THIS BUILDS THE SAME CONTAINERFILE UNDER ITS OWN TAG, `:vocab-<branch>`. THE BRANCH NAME IS
+# SLUGGED, because a tag may not contain `/` and a branch name may: `vocabulary/three-verbs` produced
+# `vocab-vocabulary/three-verbs`, which the registry refused with `invalid reference format` (run
+# 44011305435) - after the tests had passed, which is the expensive place to learn it.
 #
 # `concurrency` IS PER BRANCH, unlike `image.yml`'s single `image` group: these builds are not
 # competing to be the one truth, so cancelling across branches would throw away a result somebody
@@ -142,15 +144,25 @@ jobs:
           docker run --rm -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache easyvm-tester:ci \
             test ./internal/screen/ -run 'TestTheMeasurementsReproduce' -v -count=1
 
+      - name: the tag, slugged from the branch
+        id: tag
+        run: |
+          set -euo pipefail
+          # EVERY CHARACTER A TAG MAY NOT CARRY BECOMES A DASH: `/` separates a branch from its
+          # namespace but is ILLEGAL in a tag, and `ref_name` is the branch verbatim.
+          slug=$(printf '%s' "${{ github.ref_name }}" | tr '/_' '--' | tr -cd 'a-zA-Z0-9.-')
+          echo "name=vocab-${slug}" >> "$GITHUB_OUTPUT"
+          echo "tag=${IMAGE}:vocab-${slug}" >> "$GITHUB_OUTPUT"
+
       - name: metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
-          # ONE TAG AND IT IS THE BRANCH. No `latest`, no sha: a branch image is identified by the
-          # branch it came from.
+          # ONE TAG AND IT IS THE SLUGGED BRANCH. No `latest`, no sha: a branch image is identified by
+          # the branch it came from.
           tags: |
-            type=raw,value=vocab-${{ github.ref_name }}
+            type=raw,value=${{ steps.tag.outputs.name }}
 
       - name: build and push the branch image
         uses: docker/build-push-action@v6
@@ -167,8 +179,9 @@ jobs:
       - name: the branch image runs, and its binary does
         run: |
           set -euo pipefail
-          tag="${{ env.IMAGE }}:vocab-${{ github.ref_name }}"
+          tag="${{ steps.tag.outputs.tag }}"
           # A PULL RATHER THAN A LOCAL LOAD, because that is how a run uses it - an image that
           # cannot be pulled is an image no stage can start.
           docker pull "$tag"
+          echo "the branch image is $tag"
           docker run --rm --entrypoint "" "$tag" easyvm versions
