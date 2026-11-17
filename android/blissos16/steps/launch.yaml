@@ -62,7 +62,8 @@ steps:
       max: 60
       do:
       - settle: 5
-      ocr:
+      see:
+        of: [text]
         name: boot
         rect:
         - 0
@@ -72,7 +73,6 @@ steps:
         rect_at:
         - 1920
         - 1080
-        scale: 1
         wait: 0
       check:
         name: reached
@@ -146,7 +146,8 @@ steps:
       max: 20
       do:
       - settle: 5
-      ocr:
+      see:
+        of: [text]
         name: chooser
         rect:
         - 600
@@ -156,7 +157,6 @@ steps:
         rect_at:
         - 1920
         - 1080
-        scale: 1
         wait: 0
       # THE DIALOG'S OWN TITLE. `home app` is the line the sheet is named after, and it is the one
       # string on this frame that a boot splash, a lock screen and a launcher all lack.

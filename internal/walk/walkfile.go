@@ -54,14 +54,30 @@ func WalkToYAML(src string) (map[string]any, error) {
 	var recording string
 
 	i := 1
-	// ---- the header: everything before the first step verb --------------------------------
-	for i < len(lines) {
+	// ---- the header -------------------------------------------------------------------------
+	//
+	// A HEADER LINE MAY APPEAR ANYWHERE BEFORE THE FIRST STEP, and that is a correction: the first
+	// version stopped at the first line that was not a header word, so a file that wrote
+	// `needs mint.iso` and then `recording "x.mp4"` emitted a step whose KEY was `recording:` -
+	// a key the vocabulary does not have, in a document that then failed to load. MEASURED on a
+	// real conversion.
+	//
+	// SO THE LOOP CONTINUES UNTIL A LINE THAT IS DEFINITELY A STEP, and a header word written after
+	// a step has begun is caught by the vocabulary rather than by this loop.
+	//
+	// A HEADER WORD IS RECOGNISED WHEREVER IT APPEARS, not only in a leading run: a file that writes
+	// `needs mint.iso` and then `recording "x.mp4"` has not started a step called "recording", it has
+	// declared a recording. So the scan TAKES the header lines it finds and leaves the rest for the
+	// step parser, which is why this is a filtered pass rather than a prefix.
+	var stepLines []line
+	for ; i < len(lines); i++ {
 		key, value, isHeader, err := parseHeader(lines[i])
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", lines[i].no, err)
 		}
 		if !isHeader {
-			break
+			stepLines = append(stepLines, lines[i])
+			continue
 		}
 		switch key {
 		case "recording":
@@ -71,7 +87,6 @@ func WalkToYAML(src string) (map[string]any, error) {
 		default:
 			doc[key] = value
 		}
-		i++
 	}
 	if len(vars) > 0 {
 		doc["vars"] = vars
@@ -84,8 +99,16 @@ func WalkToYAML(src string) (map[string]any, error) {
 	}
 
 	// ---- the steps ------------------------------------------------------------------------
-	for i < len(lines) {
-		step, next, err := parseStep(lines, i)
+	//
+	// THE RESOLUTION IS HANDED TO EACH STEP, because a reading of "the whole frame" has to be a real
+	// rectangle and the size it is measured at lives in the header. Carrying it on the step is the
+	// smallest way to get it there without a global.
+	res := []any{1920, 1080}
+	if r, ok := doc["resolution"].([]any); ok {
+		res = r
+	}
+	for i := 0; i < len(stepLines); {
+		step, next, err := parseStepWith(stepLines, i, res)
 		if err != nil {
 			return nil, err
 		}
@@ -173,6 +196,29 @@ func parseHeader(l line) (key string, value any, isHeader bool, err error) {
 
 // parseStep reads one step and everything indented under it. It returns the step and the index of the
 // first line that is not part of it.
+func parseStepWith(lines []line, i int, res []any) (map[string]any, int, error) {
+	step, next, err := parseStep(lines, i)
+	if err != nil {
+		return nil, 0, err
+	}
+	// A READING OF "THE WHOLE FRAME" IS A REAL RECTANGLE AT THE FILE'S OWN SIZE, so a `read` step is
+	// given the header's resolution before it is parsed. Anything else is unchanged.
+	if ocr, ok := step["see"].(map[string]any); ok && ocr["rect"] == nil {
+		w, h := 1920, 1080
+		if len(res) == 2 {
+			if v, ok := res[0].(int); ok {
+				w = v
+			}
+			if v, ok := res[1].(int); ok {
+				h = v
+			}
+		}
+		ocr["rect"] = []any{0, 0, w, h}
+		ocr["rect_at"] = []any{w, h}
+	}
+	return step, next, err
+}
+
 func parseStep(lines []line, i int) (map[string]any, int, error) {
 	head := lines[i]
 	verb, rest := cutVerb(head.text)
@@ -192,12 +238,16 @@ func parseStep(lines []line, i int) (map[string]any, int, error) {
 		step, err = parseGate(head, rest, children)
 	case verb == "repeat":
 		step, err = parseRepeat(head, rest, children)
+	case verb == "decide":
+		step, err = parseDecideBlock(head, rest, children)
+	case verb == "read":
+		step, err = parseReadBlock(head, rest, children)
 	case len(children) > 0:
 		// A STEP THAT OWNS CHILDREN IS A GATE OR A LOOP; anything else with an indented block is a
 		// file whose author expected something this format does not do, and saying so is better than
 		// silently running the head and dropping the block.
-		return nil, 0, fmt.Errorf("line %d: %q opens a block, and only `when`, `unless` and "+
-			"`repeat` take one", head.no, head.text)
+		return nil, 0, fmt.Errorf("line %d: %q opens a block, and only `when`, `unless`, "+
+			"`read`, `decide` and `repeat` take one", head.no, head.text)
 	default:
 		step, err = parseStatement(head)
 	}
@@ -343,6 +393,23 @@ func parseStatement(l line) (map[string]any, error) {
 
 	// ---- the serial console, which is all a microvm has --------------------------------
 	case "wait":
+		// `wait for a desktop, waiting up to 5400s`
+		if strings.Contains(rest, "desktop") {
+			step["desktop"] = "linux"
+			for _, fam := range []string{"linux/", "windows", "macos", "android"} {
+				if i := strings.Index(rest, fam); i >= 0 {
+					word := strings.FieldsFunc(rest[i:], func(r rune) bool {
+						return r == ',' || r == ' ' || r == '.'
+					})[0]
+					step["desktop"] = word
+					break
+				}
+			}
+			if secs, err := parseTimeoutClause(rest); err == nil && secs > 0 {
+				step["timeout"] = secs
+			}
+			return step, nil
+		}
 		// `wait for the console to say "X", waiting up to 180s`
 		if strings.Contains(rest, "console") {
 			words, err := quotedWords(rest, "say")
@@ -498,18 +565,36 @@ func parseType(l line, rest string, step map[string]any) (map[string]any, error)
 }
 
 // parseRead reads `read the screen as "parts"` and `read the console as "console"`.
+//
+// THE AREA IS THE WHOLE FRAME when the phrase names none, and "the whole frame" is
+// `[0, 0, width, height]` AT THE FILE'S OWN RESOLUTION - not a placeholder. A rect of
+// `[full, 0, 0, 0]` is the shape the first version produced, and the validator refused it as "too
+// small to read", which is the correct verdict: a reading of nothing is not a reading.
 func parseRead(l line, rest string, step map[string]any) (map[string]any, error) {
 	name, _, err := firstQuote(rest)
 	if err != nil {
 		return nil, fmt.Errorf("line %d: `read ... as \"name\"` needs a quoted name: %w", l.no, err)
 	}
-	// THE AREA IS THE WHOLE FRAME unless the phrase names an edge, because a reading with no rect
-	// reads the whole screen and the vocabulary requires one.
-	rect := []any{"full"}
+	// THE AREA IS THE WHOLE FRAME when the phrase names none, and "the whole frame" is a REAL RECT at
+	// the file's own resolution - not a placeholder. The first version emitted `[full, 0, 0, 0]` and
+	// the validator refused it as "too small to read", which is right: a reading of nothing is not a
+	// reading. The resolution is on the walk being built, so it is passed in.
+	// `read the bottom 4.5% of the screen as "panel"` names an AREA, and that is a fraction the
+	// vocabulary already understands. When it names none the rect is left absent, and `parseStepWith`
+	// fills it with the header's own resolution - which is why this function does not have to know
+	// how big the frame is.
+	ocr := map[string]any{"name": name}
 	if i := strings.Index(rest, " of the "); i >= 0 {
-		rect = []any{strings.TrimSpace(rest[i+8 : strings.LastIndex(rest, " as ")])}
+		// `rest` IS EVERYTHING AFTER THE VERB, so the area is its own prefix: "the middle" is
+		// `middle`, and "the bottom 4.5%" is `bottom 4.5%`.
+		area := strings.TrimSpace(rest[:i])
+		ocr["rect"] = strings.TrimPrefix(area, "the ")
 	}
-	step["ocr"] = map[string]any{"name": name, "rect": []any{rect[0], 0, 0, 0}}
+	// `see:` WITH `of: [text]` IS THE READING. `ocr:` used to be a key of its own and it was the same
+	// operation restricted to a word list - one question, "what does the screen say", answered by one
+	// key.
+	ocr["of"] = []any{"text"}
+	step["see"] = ocr
 	return step, nil
 }
 
@@ -808,4 +893,216 @@ func bareOrQuoted(s string) (string, error) {
 		return "", fmt.Errorf("%q has a space in it, so it needs quotes", s)
 	}
 	return s, nil
+}
+
+// parseDecideBlock builds a `want:` from `decide "name" is any of:` and its comparison lines.
+//
+// THE COMPARISONS ARE THE BLOCK, because a decision with no comparisons is a decision that is always
+// true - which is the one thing a `want:` must not be.
+//
+//	decide "that menu names mint" is any of:
+//	  grub contains "start linux mint"
+//	  grub contains "linux mint"
+//
+// becomes
+//
+//	want:
+//	  name: that menu names mint
+//	  any:
+//	    - text: [{from: grub, contains: [start, linux, mint]}]
+func parseDecideBlock(head line, rest string, children []line) (map[string]any, error) {
+	name, after, err := firstQuote(rest)
+	if err != nil {
+		return nil, fmt.Errorf("line %d: `decide \"name\"` needs a quoted name: %w", head.no, err)
+	}
+	want := map[string]any{"name": name}
+	// `is any of:` / `is all of:` / `is:` choose the quantifier.
+	quantifier := "all"
+	if strings.Contains(after, "any of") {
+		quantifier = "any"
+	} else if strings.Contains(after, "not") {
+		quantifier = "not"
+	}
+	if len(children) == 0 {
+		return nil, fmt.Errorf("line %d: `decide` has no comparisons under it, so it would always "+
+			"be true", head.no)
+	}
+	var comparisons []any
+	for _, c := range children {
+		cmp, err := parseComparison(c)
+		if err != nil {
+			return nil, err
+		}
+		comparisons = append(comparisons, cmp)
+	}
+	if quantifier == "not" {
+		want["not"] = comparisons[0]
+	} else {
+		want[quantifier] = comparisons
+	}
+	return map[string]any{"name": head.text, "want": want}, nil
+}
+
+// parseComparison reads one line of a `decide` block: `<reading> <relation> <value>`.
+//
+//	grub contains "start linux mint"     -> text: [{from: grub, contains: [...]}]
+//	panel.spread is less than 42         -> panel.spread: {less_than: 42}
+//	panel.flat_rows is at least 3        -> panel.flat_rows: {at_least: 3}
+func parseComparison(c line) (map[string]any, error) {
+	if name, after, err := firstQuote(""); err == nil {
+		_ = name
+		_ = after
+	}
+	// `X is similar to "phrase" within 0.85` - THE FUZZY ONE, and it is a ratio over the whole
+	// cropped region because that is the only unit where a ratio is reliable: a lost glyph scores
+	// 0.90 and up, a wrong crop scores 0.35.
+	if i := strings.Index(c.text, " is similar to "); i >= 0 {
+		reading := strings.TrimSpace(c.text[:i])
+		arg := strings.TrimSpace(c.text[i+len(" is similar to "):])
+		phrase, after, err := firstQuote(arg)
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", c.no, err)
+		}
+		ratio := 0.85
+		if j := strings.Index(after, "within "); j >= 0 {
+			if v, err := strconv.ParseFloat(strings.Fields(after[j+7:])[0], 64); err == nil {
+				ratio = v
+			}
+		}
+		return map[string]any{"text": []any{map[string]any{
+			"from": reading, "like": phrase, "ratio": ratio,
+		}}}, nil
+	}
+	// A TEXT COMPARISON names a reading, a verb, and a quoted phrase.
+	for _, verb := range []string{"contains", "matches", "equals"} {
+		if i := strings.Index(c.text, " "+verb+" "); i >= 0 {
+			reading := strings.TrimSpace(c.text[:i])
+			arg := strings.TrimSpace(c.text[i+len(verb)+2:])
+			if verb == "contains" {
+				// THE PHRASE IS A WORD LIST: `contains "start linux mint"` is every one of those
+				// words, which is what the YAML's `contains:` takes.
+				phrase, err := unquote(arg)
+				if err != nil {
+					return nil, fmt.Errorf("line %d: %w", c.no, err)
+				}
+				return map[string]any{"text": []any{map[string]any{
+					"from":     reading,
+					"contains": strings.Fields(phrase),
+				}}}, nil
+			}
+			phrase, err := unquote(arg)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %w", c.no, err)
+			}
+			return map[string]any{"text": []any{map[string]any{
+				"from": reading, verb: phrase,
+			}}}, nil
+		}
+	}
+	// A NUMERIC COMPARISON names a reading, a relation and a number.
+	relations := []struct{ phrase, key string }{
+		{"is less than", "less_than"}, {"is greater than", "greater_than"},
+		{"is at least", "at_least"}, {"is at most", "at_most"},
+		{"is between", "between"}, {"is", "equals"},
+	}
+	for _, r := range relations {
+		if i := strings.Index(c.text, " "+r.phrase+" "); i >= 0 {
+			// `panel mean` IS `panel.mean`: a reading and the number measured from it are one name
+			// with a dot, which is what `want:` compares.
+			reading := dottedName(c.text[:i])
+			value := strings.TrimSpace(c.text[i+len(r.phrase)+2:])
+			if r.key == "between" {
+				// `between 20 and 60` - the word "and" is how a person says a range.
+				fields := strings.Fields(strings.ReplaceAll(value, " and ", " "))
+				if len(fields) != 2 {
+					return nil, fmt.Errorf("line %d: `is between` takes two numbers: %q", c.no, value)
+				}
+				lo, err1 := strconv.ParseFloat(fields[0], 64)
+				hi, err2 := strconv.ParseFloat(fields[1], 64)
+				if err1 != nil || err2 != nil {
+					return nil, fmt.Errorf("line %d: `is between` takes two numbers: %q", c.no, value)
+				}
+				return map[string]any{reading: map[string]any{"between": []any{lo, hi}}}, nil
+			}
+			v, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: %q is not a number", c.no, value)
+			}
+			return map[string]any{reading: map[string]any{r.key: v}}, nil
+		}
+	}
+	return nil, fmt.Errorf("line %d: %q is not a comparison. Write `<reading> contains \"words\"` "+
+		"or `<reading> is less than 42`", c.no, c.text)
+}
+
+// parseReadBlock builds a `see:` that names WHAT TO MEASURE, written as an indented list:
+//
+//	read the bottom 4.5% of the screen as "panel"
+//	  measuring mean spread sat flat_rows
+//
+// becomes
+//
+//	see: {name: panel, rect: "bottom 4.5%", of: [mean, spread, sat, flat_rows]}
+//
+// `of:` IS THE LIST OF NUMBERS, and it is the one thing a person has to say because the measurement
+// is a CHOICE: a panel is asked whether it is flat, a launcher whether it is saturated, and a window
+// whether it is bright. Naming them is what keeps a verdict readable.
+func parseReadBlock(head line, rest string, children []line) (map[string]any, error) {
+	name, _, err := firstQuote(rest)
+	if err != nil {
+		return nil, fmt.Errorf("line %d: `read ... as \"name\"` needs a quoted name: %w", head.no, err)
+	}
+	// A `read` WITH NO BLOCK IS A TEXT READING, which is the common case: `read the screen as "page"`
+	// means "the words on it". A block is how a file asks for NUMBERS instead, and that choice is
+	// what `measuring` spells out.
+	if len(children) == 0 {
+		return parseRead(head, rest, map[string]any{"name": head.text})
+	}
+	see := map[string]any{"name": name}
+	// THE AREA, if the phrase names one. `the bottom 4.5% of the screen` is a fraction the vocabulary
+	// already understands, so it is passed through rather than converted here.
+	if i := strings.Index(rest, " of the "); i >= 0 {
+		if j := strings.LastIndex(rest, " as "); j > i {
+			// THE AREA IS THE PHRASE BEFORE `of the`, with a leading `the` dropped: "the middle"
+			// is `middle`, and "the bottom 4.5%" is `bottom 4.5%`.
+			// `rest` IS EVERYTHING AFTER THE VERB, so the area is its own prefix - no offset needed.
+			area := strings.TrimSpace(rest[:i])
+			area = strings.TrimPrefix(area, "the ")
+			see["rect"] = strings.TrimSpace(area)
+		}
+	}
+	// `measuring mean spread sat` - one line, whitespace separated.
+	var of []any
+	for _, c := range children {
+		verb, list := cutVerb(c.text)
+		if verb != "measuring" && verb != "measuring:" {
+			return nil, fmt.Errorf("line %d: a `read` block takes `measuring <numbers>`, not %q",
+				c.no, c.text)
+		}
+		for _, w := range strings.Fields(strings.TrimSuffix(list, ":")) {
+			of = append(of, w)
+		}
+	}
+	if len(of) == 0 {
+		return nil, fmt.Errorf("line %d: `read ... measuring` names no measurement, so the reading "+
+			"would bind nothing", head.no)
+	}
+	see["of"] = of
+	return map[string]any{"name": head.text, "see": see}, nil
+}
+
+// dottedName turns `panel mean` into `panel.mean`, and leaves a single word alone.
+//
+// A PERSON WRITES `panel mean is between 20 and 60`, because a reading and the number measured from it
+// are one thought. The vocabulary names it with a dot - `panel.mean` - because that is what `want:`
+// compares, so the phrase is joined here rather than in the file.
+func dottedName(s string) string {
+	fields := strings.Fields(strings.TrimSpace(s))
+	switch len(fields) {
+	case 1:
+		return fields[0]
+	case 2:
+		return fields[0] + "." + fields[1]
+	}
+	return strings.Join(fields, ".")
 }

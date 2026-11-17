@@ -78,11 +78,11 @@ steps:
   settle: 20
 
 - name: calamares is open
-  ocr:
+  see:
+    of: [text]
     name: cal
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 5
 
 # CALAMARES' OWN FOOTER IS THE PROOF OF A PAGE, AND THE SIDEBAR IS NOT CLICKABLE.
@@ -121,11 +121,11 @@ steps:
   settle: 8
 
 - name: the installation mode page
-  ocr:
+  see:
+    of: [text]
     name: mode
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 # Customize -> Partitions
@@ -136,11 +136,11 @@ steps:
   settle: 8
 
 - name: the partitions page
-  ocr:
+  see:
+    of: [text]
     name: parts
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 4
 
 # THE PARTITIONS PAGE OFFERS `Erase disk` AND `Manual partitioning`, AND `Erase disk` IS THE ONE
@@ -163,11 +163,11 @@ steps:
   settle: 6
 
 - name: the erase page shows ext4
-  ocr:
+  see:
+    of: [text]
     name: fs
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 - name: the default filesystem is ext4
@@ -185,11 +185,11 @@ steps:
   settle: 8
 
 - name: the users page
-  ocr:
+  see:
+    of: [text]
     name: users
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 4
 
 # THE FIVE FIELDS, MEASURED FROM THE PAGE. Each box is wide and the click is in its left third where
@@ -225,11 +225,11 @@ steps:
   settle: 3
 
 - name: the users page is filled in
-  ocr:
+  see:
+    of: [text]
     name: filled
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 - name: the password was accepted
@@ -253,11 +253,11 @@ steps:
   settle: 8
 
 - name: the summary page
-  ocr:
+  see:
+    of: [text]
     name: summary
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 4
 
 # THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM.
@@ -276,11 +276,11 @@ steps:
   settle: 8
 
 - name: the confirmation dialog
-  ocr:
+  see:
+    of: [text]
     name: confirm
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 # `Install Now`, MEASURED AT (1071, 535) INSIDE THE DIALOG. The dialog's own title is the check, so a
@@ -302,11 +302,11 @@ steps:
     max: 60
     do:
     - settle: 15
-    ocr:
+    see:
+      of: [text]
       name: done
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 0
     check:
       name: finished

@@ -111,11 +111,13 @@ Four words open a block, and each maps to a key that is a mapping or a list.
 
 ### `read` — a measurement
 
+A `read` with no block is a TEXT reading; a `read` with a `measuring` block asks for NUMBERS.
+
 ```
-  read the screen as "parts"                  |  - name: read the screen
-                                              |    ocr: {name: parts, rect: ...}
-  read the bottom 4.5% of the screen as "panel"
-    measuring mean spread sat flat_rows       |    see: {name: panel, rect: ..., of: [...]}
+  read the screen as "parts"                     |  - name: read the screen as "parts"
+                                                 |    see: {name: parts, of: [text], rect: [0,0,1920,1080]}
+  read the bottom 4.5% of the screen as "panel"  |  - name: read the bottom 4.5% ...
+    measuring mean spread sat flat_rows          |    see: {name: panel, rect: "bottom 4.5%", of: [mean, spread, sat, flat_rows]}
 ```
 
 ### `decide` — a boolean

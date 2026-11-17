@@ -55,7 +55,8 @@ steps:
       - 420
       - 300
       settle: 10
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 0
@@ -65,7 +66,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 2
       wait: 0
     check:
       name: done
@@ -95,7 +95,8 @@ steps:
       - 420
       - 300
       settle: 5
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 600
@@ -105,7 +106,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 3
       wait: 0
     check:
       name: done

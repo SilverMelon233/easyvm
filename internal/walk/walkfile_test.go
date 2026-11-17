@@ -201,3 +201,72 @@ func uniqueStrings(in []string) []string {
 	}
 	return out
 }
+
+// TWO CONVERSIONS WERE WRONG AND THIS PINS BOTH, because each produced a document that LOADED and
+// then behaved differently from the YAML it claimed to equal.
+//
+// They are worth naming because a conversion bug that still loads is the worst kind: the file runs,
+// the run passes or fails, and the difference from the YAML is invisible until somebody compares.
+func TestTheTwoConversionsThatWereWrong(t *testing.T) {
+	src := `walkthrough "probe"
+  resolution 1024x768
+  recording "p.mp4"
+
+  needs x.iso
+  read the screen as "screen"
+`
+	doc, err := WalkToYAML(src)
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	steps, _ := doc["steps"].([]any)
+
+	// 1. A HEADER `recording` MUST BECOME A `record:` STEP.
+	//
+	// The first version left it as a step whose KEY was `recording:`, which the vocabulary does not
+	// have - so the document was refused at load, and before that it was silently NOT RECORDING.
+	first, _ := steps[0].(map[string]any)
+	if first["record"] != "p.mp4" {
+		t.Fatalf("a header `recording` produced %v; it must be the step `record: p.mp4`", first)
+	}
+	if _, wrong := first["recording"]; wrong {
+		t.Fatal("the step carries a `recording:` key, which is not in the vocabulary")
+	}
+
+	// 2. `read ... as "name"` MUST BE A REAL RECTANGLE, not a placeholder.
+	//
+	// The first version emitted `rect: [full, 0, 0, 0]`, and the validator refused it as "too small
+	// to read" - correctly, because a reading of nothing is not a reading.
+	var read map[string]any
+	for _, raw := range steps {
+		s, _ := raw.(map[string]any)
+		if _, ok := s["see"]; ok {
+			read = s
+		}
+	}
+	if read == nil {
+		t.Fatalf("no `see:` step came out of `read the screen as \"screen\"`: %v", steps)
+	}
+	see, _ := read["see"].(map[string]any)
+	rect, _ := see["rect"].([]any)
+	if len(rect) != 4 {
+		t.Fatalf("`read the screen` produced rect %v; it must be [x0, y0, x1, y1]", see["rect"])
+	}
+	if rect[2] != 1024 || rect[3] != 768 {
+		t.Fatalf("`read the screen` produced rect %v; the whole frame at this file's own "+
+			"resolution is [0, 0, 1024, 768]", rect)
+	}
+	if at, _ := see["rect_at"].([]any); len(at) != 2 || at[0] != 1024 || at[1] != 768 {
+		t.Fatalf("the reading does not say what size it was measured at: %v", see["rect_at"])
+	}
+
+	// AND THE MEASUREMENT IS `see:` WITH `of: [text]`, because `ocr:` is gone: one question, "what
+	// does the screen say", answered by one key.
+	of, _ := see["of"].([]any)
+	if len(of) != 1 || of[0] != "text" {
+		t.Fatalf("a text reading must say `of: [text]`, got %v", see["of"])
+	}
+	if _, wrong := read["ocr"]; wrong {
+		t.Fatal("`ocr:` is emitted, and it is no longer in the vocabulary")
+	}
+}

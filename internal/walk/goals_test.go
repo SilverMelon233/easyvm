@@ -1890,11 +1890,16 @@ func TestTheMacOSRecoveryGateAcceptsReadableRows(t *testing.T) {
 			"and the condition - have to be visible, because the reading's region and enlargement " +
 			"are what make it work at 640x480")
 	}
-	ocr, ok := loop["ocr"].(map[string]any)
+	// `see:` IS THE READING (`ocr:` was the same operation restricted to a word list), and the
+	// enlargement moved onto the reading's own `rect`, so the assertion follows it there.
+	reading, ok := loop["see"].(map[string]any)
 	if !ok {
-		t.Fatal("the loop has no `ocr:` - a condition with no reading reads the screen itself")
+		reading, ok = loop["ocr"].(map[string]any)
 	}
-	if scale, _ := toFloat(ocr["scale"]); scale < 6 {
+	if !ok {
+		t.Fatal("the loop has no `see:` - a condition with no reading reads the screen itself")
+	}
+	if scale, _ := toFloat(reading["scale"]); scale < 6 {
 		t.Errorf("the reading crops at scale %.0f. Measured on the real 640x480 frame: at scale 6 "+
 			"four rows read, at scale 2 only two", scale)
 	}

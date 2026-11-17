@@ -115,7 +115,13 @@ func (e *Executor) seeText(s walk.Step, name string, rectRaw any) error {
 	if err != nil {
 		return fail(s.Name, "loading the frame: %v", err)
 	}
-	words, err := e.readWords(img, rect)
+	// THE ENLARGEMENT COMES OFF THE STEP, because a reading of small text that finds nothing is
+	// indistinguishable from a pane that is not up.
+	scale := 3
+	if v, ok := toFloat(s.Spec["scale"]); ok && v > 0 {
+		scale = int(v)
+	}
+	words, err := e.readWords(img, rect, scale)
 	if err != nil {
 		return fail(s.Name, "%v", err)
 	}

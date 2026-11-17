@@ -72,7 +72,8 @@ steps:
     max: 40
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: desk
       rect:
       - 0
@@ -82,7 +83,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: ready
@@ -102,7 +102,8 @@ steps:
   # A GREETER ALSO DRAWS TEXT, so "something is on screen" is not enough: `/etc/issue` and the greeter's
   # own `Password:` line are what a session that never started looks like, and this fails the stage on
   # them rather than publishing a disk that boots to a prompt.
-  ocr:
+  see:
+    of: [text]
     name: greeter
     rect:
     - 0
@@ -112,7 +113,6 @@ steps:
     rect_at:
     - 1920
     - 1080
-    scale: 1
     wait: 0
 - name: check there is no login prompt
   # `words:` IS WHAT MUST BE THERE AND `without:` IS WHAT MUST NOT, so this asks for both halves of

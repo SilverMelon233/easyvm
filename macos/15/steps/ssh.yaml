@@ -87,7 +87,8 @@ steps:
     max: 40
     do:
     - name: read the pane
-      ocr:
+      see:
+        of: [text]
         name: pane
         # THE WHOLE SCREEN, because the panes put their text in different places and a narrower
         # region was measured to miss the titles on two of them.
@@ -99,7 +100,6 @@ steps:
         rect_at:
         - 1920
         - 1080
-        scale: 1
         wait: 0
     # --- THE PANES THAT ONLY NEED THE FOOTER ------------------------------------------------
     #
@@ -501,7 +501,8 @@ steps:
           - 810
           settle: 15
 
-    ocr:
+    see:
+      of: [text]
       name: wizard
       # THE WHOLE SCREEN, BECAUSE THIS WIZARD CAN END IN TWO PLACES AND BOTH ARE FINE.
       #
@@ -529,7 +530,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: finished
@@ -624,7 +624,8 @@ steps:
     do:
     - settle: 10
     - key: esc
-    ocr:
+    see:
+      of: [text]
       name: desk
       rect:
       - 0
@@ -634,7 +635,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: ready
@@ -704,7 +704,8 @@ steps:
     max: 30
     do:
     - settle: 3
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 0
@@ -714,7 +715,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -740,7 +740,8 @@ steps:
     max: 45
     do:
     - settle: 2
-    ocr:
+    see:
+      of: [text]
       name: screen
       # THE SEARCH RESULT'S OWN COLUMN, AND THE LEFT EDGE IS THE POINT.
       #
@@ -760,7 +761,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 2
       wait: 0
     check:
       name: done
@@ -804,7 +804,8 @@ steps:
     max: 30
     do:
     - settle: 3
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 726
@@ -814,7 +815,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 2
       wait: 0
     check:
       name: done
@@ -852,7 +852,8 @@ steps:
     max: 10
     do:
     - settle: 3
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 726
@@ -862,7 +863,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 2
       wait: 0
     check:
       name: done

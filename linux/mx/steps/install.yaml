@@ -49,7 +49,8 @@ steps:
     max: 30
     do:
     - settle: 6
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 690
@@ -59,7 +60,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 2
       wait: 0
     check:
       name: done
@@ -81,7 +81,8 @@ steps:
     max: 30
     do:
     - settle: 6
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 690
@@ -91,7 +92,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 2
       wait: 0
     check:
       name: done
@@ -114,7 +114,8 @@ steps:
     max: 30
     do:
     - settle: 6
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 332
@@ -124,7 +125,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -150,7 +150,8 @@ steps:
     max: 40
     do:
     - settle: 6
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 332
@@ -160,7 +161,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -183,7 +183,8 @@ steps:
     max: 40
     do:
     - settle: 6
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 332
@@ -193,7 +194,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -214,7 +214,8 @@ steps:
     max: 40
     do:
     - settle: 6
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 332
@@ -224,7 +225,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -245,7 +245,8 @@ steps:
     max: 30
     do:
     - settle: 6
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 332
@@ -255,7 +256,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -303,7 +303,8 @@ steps:
       - 420
       - 300
       settle: 20
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 0
@@ -313,7 +314,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done

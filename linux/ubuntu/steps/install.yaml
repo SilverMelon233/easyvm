@@ -41,7 +41,8 @@ steps:
       - 420
       - 300
       settle: 5
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 0
@@ -51,7 +52,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -95,7 +95,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -105,7 +106,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -144,7 +144,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -154,7 +155,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -194,7 +194,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -204,7 +205,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -242,7 +242,8 @@ steps:
   # IT IS CLOSED, NOT ACCEPTED. `Update now` would replace the installer mid-install with a different
   # build the rest of this file has never been measured against; the X leaves the same installer
   # running, which is what every coordinate below was measured on.
-  ocr:
+  see:
+    of: [text]
     name: page
     rect:
     - 0
@@ -252,7 +253,6 @@ steps:
     rect_at:
     - 1920
     - 1080
-    scale: 1
     wait: 0
 - name: is the update dialog up
   check:
@@ -319,7 +319,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -329,7 +330,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -369,7 +369,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -379,7 +380,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -419,7 +419,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -429,7 +430,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -468,7 +468,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -478,7 +479,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -517,7 +517,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -527,7 +528,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -567,7 +567,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -577,7 +578,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -597,7 +597,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -607,7 +608,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -661,7 +661,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -671,7 +672,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: there
@@ -704,7 +704,8 @@ steps:
       - 420
       - 300
       settle: 20
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 0
@@ -714,7 +715,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done

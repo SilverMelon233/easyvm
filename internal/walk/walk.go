@@ -239,10 +239,10 @@ func Load(path string, overrides map[string]string) (*File, error) {
 		// A REFUSAL RATHER THAN A DISPATCH ORDER THAT HAPPENS TO WORK: silently running both would
 		// make the file mean something the dispatcher's shape decided, and the next reader would
 		// have to know that order to read the file.
-		if has(mapping, "ocr") && has(mapping, "check") {
-			return nil, fmt.Errorf("%s: step %q says both `ocr:` and `check:`; one step does one "+
-				"thing, and the check would never run - the dispatcher reads `ocr:` and returns. "+
-				"Split it into two steps", path, name)
+		if (has(mapping, "see") || has(mapping, "ocr")) && has(mapping, "check") {
+			return nil, fmt.Errorf("%s: step %q says both a reading and a `check:`; one step does "+
+				"one thing, and the check would never run - the dispatcher takes the reading and "+
+				"returns. Split it into two steps", path, name)
 		}
 		substituted, err := substitute(mapping, f.Vars)
 		if err != nil {

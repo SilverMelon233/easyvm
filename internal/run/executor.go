@@ -274,13 +274,13 @@ func (e *Executor) runOne(s walk.Step) error {
 		return e.doSnapshot(s)
 	// THE THREE-STEP MODEL, IN DISPATCH ORDER. `ocr:` reads ONE region and names it; `check:` answers
 	// from that name without touching the screen. Both are separate steps on purpose - see ocr.go.
-	case s.Has("ocr"):
-		return e.doOCR(s)
 	case s.Has("see"):
-		// `see:` MEASURES AND BINDS NUMBERS; it decides nothing. `want:` answers from them. The two
-		// are the generalisation of `ocr:`+`check:` from words to any measurement, and they are the
-		// reason a desktop test no longer needs a function in the binary.
+		// `see:` MEASURES AND BINDS - a word list when `of: [text]`, numbers otherwise. It replaced
+		// `ocr:`, which was the same operation restricted to text: MEASURED 118 uses of one and 0 of
+		// the other once they were one key, and `ocr: {name: X}` and `see: {name: X, of: [text]}`
+		// produced identical readings.
 		return e.doSee(s)
+
 	case s.Has("want"):
 		return e.doWant(s)
 	case s.Has("check"):

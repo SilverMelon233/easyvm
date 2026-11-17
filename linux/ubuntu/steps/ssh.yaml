@@ -68,7 +68,8 @@ steps:
     max: 24
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: greeter
       rect:
       - 0
@@ -78,7 +79,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: settled
@@ -111,7 +111,8 @@ steps:
     max: 30
     do:
     - settle: 3
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 0
@@ -121,7 +122,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -159,7 +159,8 @@ steps:
       - 1464
       - 194
     - settle: 4
-    ocr:
+    see:
+      of: [text]
       name: page
       rect:
       - 0
@@ -169,7 +170,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done

@@ -93,7 +93,8 @@ steps:
     max: 60
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: pane
       rect:
       - 0
@@ -103,7 +104,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: menu_up
@@ -235,7 +235,8 @@ steps:
     max: 25
     do:
     - settle: 6
-    ocr:
+    see:
+      of: [text]
       name: partmenu
       rect:
       - 740
@@ -245,7 +246,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 2
       wait: 0
     check:
       name: part_showing
@@ -359,7 +359,8 @@ steps:
     max: 25
     do:
     - settle: 6
-    ocr:
+    see:
+      of: [text]
       name: parted
       rect:
       - 740
@@ -369,7 +370,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 2
       wait: 0
     check:
       name: parted_showing
@@ -466,7 +466,8 @@ steps:
     max: 180
     do:
     - settle: 15
-    ocr:
+    see:
+      of: [text]
       name: done
       # THE DIALOG, NOT THE WHOLE SCREEN, AND `scale: 3` BECAUSE THE TEXT IS SIXTEEN PIXELS.
       #
@@ -491,7 +492,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 3
       wait: 0
     check:
       name: finished
@@ -788,7 +788,8 @@ steps:
     max: 20
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: chroot
       rect:
       - 0
@@ -798,7 +799,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: shell_up

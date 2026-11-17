@@ -76,11 +76,11 @@ steps:
     max: 40
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: cal
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 0
     check:
       name: up
@@ -145,11 +145,11 @@ steps:
   settle: 6
 
 - name: the installer speaks English now
-  ocr:
+  see:
+    of: [text]
     name: english
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 - name: the page is in English
@@ -200,11 +200,11 @@ steps:
     max: 30
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: at_location
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 3
     check:
       name: here
@@ -227,11 +227,11 @@ steps:
     max: 30
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: at_keyboard
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 3
     check:
       name: here
@@ -251,11 +251,11 @@ steps:
     max: 30
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: at_bootloader
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 3
     check:
       name: here
@@ -270,11 +270,11 @@ steps:
       fact: here
 
 - name: the bootloader page
-  ocr:
+  see:
+    of: [text]
     name: boot
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 # GRUB, NOT THE DEFAULT LIMINE, AND THE REASON IS THE FILESYSTEM THIS WALK INSTALLS.
@@ -288,11 +288,11 @@ steps:
   settle: 5
 
 - name: grub is selected
-  ocr:
+  see:
+    of: [text]
     name: grub
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 - name: the bootloader is grub
@@ -313,11 +313,11 @@ steps:
     max: 30
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: at_partitions
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 3
     check:
       name: here
@@ -335,11 +335,11 @@ steps:
   settle: 8
 
 - name: the partitions page with erase selected
-  ocr:
+  see:
+    of: [text]
     name: parts
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 4
 
 # THE FILESYSTEM COMBO DEFAULTS TO btrfs AND THIS WALK REQUIRES ext4.
@@ -363,11 +363,11 @@ steps:
     max: 24
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: at_partitions_again
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 3
     check:
       name: here
@@ -380,11 +380,11 @@ steps:
       fact: here
 
 - name: the page after choosing ext4
-  ocr:
+  see:
+    of: [text]
     name: fs
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 - name: the root partition is ext4
@@ -400,11 +400,11 @@ steps:
   settle: 10
 
 - name: the desktop page
-  ocr:
+  see:
+    of: [text]
     name: desk
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 # Desktop -> Packages, where the CachyOS sets are already ticked.
@@ -413,11 +413,11 @@ steps:
   settle: 12
 
 - name: the packages page
-  ocr:
+  see:
+    of: [text]
     name: pkgs
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 # Packages -> Users
@@ -430,11 +430,11 @@ steps:
     max: 30
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: at_users
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 3
     check:
       name: here
@@ -447,11 +447,11 @@ steps:
       fact: here
 
 - name: the users page
-  ocr:
+  see:
+    of: [text]
     name: users
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 4
 
 # THE FIVE FIELDS, MEASURED FROM THE PAGE. `Computer Name` IS NOT FILLED BY HAND: this installer
@@ -479,11 +479,11 @@ steps:
   settle: 3
 
 - name: the users page is filled in
-  ocr:
+  see:
+    of: [text]
     name: filled
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 # THE FORM IS COMPLETE WHEN THE USER NAME IS THERE AND NO MISMATCH IS SHOWN.
@@ -509,11 +509,11 @@ steps:
     max: 30
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: at_summary
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 3
     check:
       name: here
@@ -526,11 +526,11 @@ steps:
       fact: here
 
 - name: the summary page
-  ocr:
+  see:
+    of: [text]
     name: summary
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 4
 
 # THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM - the
@@ -550,11 +550,11 @@ steps:
   settle: 10
 
 - name: the confirmation dialog
-  ocr:
+  see:
+    of: [text]
     name: confirm
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 # `Install Now` INSIDE THE DIALOG, AT (1055, 616). The dialog's title is the check, so a click that
@@ -575,11 +575,11 @@ steps:
     max: 80
     do:
     - settle: 15
-    ocr:
+    see:
+      of: [text]
       name: done
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 0
     check:
       name: finished

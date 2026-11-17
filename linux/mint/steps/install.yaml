@@ -42,11 +42,11 @@ steps:
 # works at this point - GRUB draws it - so one `ret` is the whole fix, and it is a step of its own
 # so the transcript says the menu was answered rather than that a wait merely succeeded.
 - name: the medium's GRUB menu is up
-  ocr:
+  see:
+    of: [text]
     name: grub
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 5
 - name: that menu names mint
   check:
@@ -81,7 +81,8 @@ steps:
       - 420
       - 300
       settle: 5
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 0
@@ -91,7 +92,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -157,7 +157,8 @@ steps:
 # THE RESULTING DISK WAS VERIFIED INDEPENDENTLY: s_magic=0xef53, incompat=0x000002c6,
 # EXTENTS=True, 64BIT=True - the same signature zorin produces, which is the same installer.
 - name: the dialog names the filesystem it will create
-  ocr:
+  see:
+    of: [text]
     name: format
     rect:
     - 0
@@ -167,7 +168,6 @@ steps:
     rect_at:
     - 1920
     - 1080
-    scale: 1
     wait: 0
 
 - name: the root partition will be ext4

@@ -410,10 +410,15 @@ var Keys = map[string]Key{
 	// screen and decide", and they could sit inside a click step - so a failure said `did not
 	// advance` whether the click missed or the crop was wrong, and 47 of 70 readings covered the
 	// whole frame because `region:` was optional.
-	"ocr": {Name: "ocr", Kind: KindMapping,
-		Summary: "read ONE region with OCR and name the result: {name, region, region_at, scale}. " +
-			"It decides nothing - a `when:` step answers from the name, and work/ocr/<name>.txt " +
-			"keeps the words a decision was made from"},
+	// `ocr:` IS GONE: `see: {name: X, of: [text]}` IS the same operation.
+	//
+	// MEASURED: `ocr:` 118 uses against `see:`'s handful, and the two produced IDENTICAL readings -
+	// `seeText` and `doOCR` both crop a rect and run tesseract on it. Keeping both meant a reader had
+	// to know that a word list came from one key and a number from another, when the only difference
+	// is what the reading is USED for.
+	//
+	// IT IS ANSWERED BY THE ONE QUESTION THAT MATTERS: "is this a measurement?" A word list is a
+	// measurement of what the screen says. So it is `see:`, and `of:` names which parts.
 
 	// --- `see:` and `want:`: a picture is a VALUE --------------------------------------------
 	//

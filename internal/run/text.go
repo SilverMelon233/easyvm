@@ -85,14 +85,23 @@ func says(words []string, want []string) bool {
 // readWords reads a screen.Rect with OCR, which is what lets a `see:` step produce WORDS as well as
 // numbers. The rect is a FRACTION, so it is converted to pixels against the frame that arrived - the
 // same protection `region:` gets from `region_at:`, without the key.
-func (e *Executor) readWords(img image.Image, r screen.Rect) ([]string, error) {
+// readWords OCRs a rect at a chosen ENLARGEMENT.
+//
+// `scale:` IS NOT TUNING AND IT IS NOT OPTIONAL FOR SMALL TEXT. MEASURED on macOS's 640x480 recovery
+// frame, whose `Uninitialized` row is drawn at about 12 px: at scale 6 tesseract read four rows, at
+// scale 2 it read two. A reading that finds nothing is indistinguishable from a pane that is not
+// there, so the enlargement belongs to the reading rather than to a default.
+func (e *Executor) readWords(img image.Image, r screen.Rect, scale int) ([]string, error) {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	region := [4]int{
 		int(float64(w) * r.XFrom), int(float64(h) * r.From),
 		int(float64(w) * r.XTo), int(float64(h) * r.To),
 	}
-	cropped, err := screen.Crop(img, region, 3)
+	if scale <= 0 {
+		scale = 3
+	}
+	cropped, err := screen.Crop(img, region, scale)
 	if err != nil {
 		return nil, err
 	}

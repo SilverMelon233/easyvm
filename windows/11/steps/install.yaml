@@ -68,7 +68,8 @@ steps:
     max: 180
     do:
     - settle: 5
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 0
@@ -78,7 +79,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done

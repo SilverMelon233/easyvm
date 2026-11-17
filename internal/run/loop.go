@@ -39,7 +39,7 @@ func (e *Executor) doLoop(s walk.Step) error {
 	}
 	for k := range raw {
 		switch k {
-		case "max", "do", "ocr", "check", "until":
+		case "max", "do", "see", "ocr", "check", "until":
 		default:
 			return fail(s.Name, "`loop:` has unknown key %q; it takes max, do, ocr, check and until", k)
 		}
@@ -71,9 +71,15 @@ func (e *Executor) doLoop(s walk.Step) error {
 	if !ok || len(action) == 0 {
 		return fail(s.Name, "`loop:` must say `do:` - the action it repeats")
 	}
-	ocrRaw, ok := raw["ocr"].(map[string]any)
+	// `see:` IS THE READING, and `ocr:` is the name every file wrote before the two were merged:
+	// `see: {of: [text]}` is exactly what `ocr:` did, so one key covers a word list and a set of
+	// numbers. The old spelling is read so a file that has not been migrated runs.
+	ocrRaw, ok := raw["see"].(map[string]any)
 	if !ok {
-		return fail(s.Name, "`loop:` must say `ocr:` - the reading its condition is answered from. "+
+		ocrRaw, ok = raw["ocr"].(map[string]any)
+	}
+	if !ok {
+		return fail(s.Name, "`loop:` must say `see:` - the reading its condition is answered from. "+
 			"A condition with no reading is a condition that reads the screen itself, which is the "+
 			"coupling this shape exists to remove")
 	}
@@ -109,7 +115,7 @@ func (e *Executor) doLoop(s walk.Step) error {
 	//
 	// WHICH READ AS A MISTAKE IN THE FILE, and it was a mistake in this function.
 	ocrStep := walk.Step{Index: s.Index, Name: s.Name + " [ocr]",
-		Spec: map[string]any{"ocr": ocrRaw}}
+		Spec: map[string]any{"see": ocrRaw}}
 	if _, err := parseOCRStep(ocrStep); err != nil {
 		return err
 	}

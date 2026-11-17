@@ -108,7 +108,8 @@ steps:
     settle: 20
 
   - name: read the menu
-    ocr:
+    see:
+      of: [text]
       name: menu
       rect:
       - 0
@@ -118,7 +119,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
   - name: the menu offers Installation
     check:
@@ -244,7 +244,8 @@ steps:
   # "Congratulations! BlissOS-16.9.7 is installed successfully." It is read rather than assumed,
   # because every pane above reports nothing when it fails.
   - name: read the result
-    ocr:
+    see:
+      of: [text]
       name: done
       rect:
       - 480
@@ -254,7 +255,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 2
       wait: 0
   - name: it says the install succeeded
     check:

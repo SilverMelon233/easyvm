@@ -56,11 +56,11 @@ steps:
   settle: 30
 
 - name: calamares is up
-  ocr:
+  see:
+    of: [text]
     name: cal
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 5
 
 - name: the welcome page is in English or needs changing
@@ -118,11 +118,11 @@ steps:
   settle: 6
 
 - name: the installer speaks English
-  ocr:
+  see:
+    of: [text]
     name: english
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 - name: the page is in English
@@ -152,11 +152,11 @@ steps:
   settle: 9
 
 - name: the bootloader page
-  ocr:
+  see:
+    of: [text]
     name: boot
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 # Bootloader -> Partitions
@@ -165,11 +165,11 @@ steps:
   settle: 9
 
 - name: the partitions page
-  ocr:
+  see:
+    of: [text]
     name: parts
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 4
 
 # THIS MEDIUM PRESELECTS NOTHING HERE, so `Erase disk` has to be clicked. Measured: both radio buttons
@@ -179,11 +179,11 @@ steps:
   settle: 8
 
 - name: the partitions page with erase selected
-  ocr:
+  see:
+    of: [text]
     name: erase
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 4
 
 # AND THIS ONE DEFAULTS TO ext4, WHICH IS A MEASUREMENT RATHER THAN AN ASSUMPTION.
@@ -209,11 +209,11 @@ steps:
   settle: 10
 
 - name: the users page
-  ocr:
+  see:
+    of: [text]
     name: users
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 4
 
 # THE FIVE FIELDS, AND THE TWO PASSWORD BOXES ARE ON ONE ROW.
@@ -264,11 +264,11 @@ steps:
   settle: 3
 
 - name: the users page is filled in
-  ocr:
+  see:
+    of: [text]
     name: filled
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 # THE FORM'S OWN VERDICT IS `OK!` IN A GREEN BOX, AND `Password is too short` IS NOT A REFUSAL.
@@ -294,11 +294,11 @@ steps:
     max: 30
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: settle
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 3
     check:
       name: here
@@ -311,11 +311,11 @@ steps:
       fact: here
 
 - name: the summary page
-  ocr:
+  see:
+    of: [text]
     name: summary
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 4
 
 # THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM.
@@ -333,11 +333,11 @@ steps:
   settle: 10
 
 - name: the confirmation dialog
-  ocr:
+  see:
+    of: [text]
     name: confirm
     rect: [0, 0, 1920, 1080]
     rect_at: [1920, 1080]
-    scale: 1
     wait: 3
 
 # `Install Now` INSIDE THE DIALOG, AT (1067, 539).
@@ -355,11 +355,11 @@ steps:
     max: 80
     do:
     - settle: 15
-    ocr:
+    see:
+      of: [text]
       name: done
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 0
     check:
       name: finished

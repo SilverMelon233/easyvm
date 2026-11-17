@@ -285,7 +285,8 @@ steps:
     max: 20
     do:
     - settle: 3
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 0
@@ -295,7 +296,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done

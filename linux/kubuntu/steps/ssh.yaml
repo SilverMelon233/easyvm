@@ -40,11 +40,11 @@ steps:
     max: 40
     do:
     - settle: 10
-    ocr:
+    see:
+      of: [text]
       name: desk
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
-      scale: 1
       wait: 0
     check:
       name: up

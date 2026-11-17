@@ -103,7 +103,8 @@ steps:
   settle: 6
 
 - name: the partitions page after choosing ext4
-  ocr:
+  see:
+    of: [text]
     name: fs
     rect:
     - 0
@@ -113,7 +114,6 @@ steps:
     rect_at:
     - 1920
     - 1080
-    scale: 1
     wait: 3
 
 - name: the root partition is ext4
@@ -198,7 +198,8 @@ steps:
       - 420
       - 300
       settle: 20
-    ocr:
+    see:
+      of: [text]
       name: screen
       rect:
       - 0
@@ -208,7 +209,6 @@ steps:
       rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done

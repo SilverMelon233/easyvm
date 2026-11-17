@@ -76,8 +76,7 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 
 | key | value | what it binds | uses |
 |---|---|---|---|
-| `see` | `{name, rect, of}` | `name.mean` `.spread` `.sat` `.flat_rows` `.contrast` `.min` `.max`, or `name.words` | **new** |
-| `ocr` | `{name, rect, rect_at}` | `name` → the words read from that rect | 118 |
+| `see` | `{name, rect, of}` — `of: [text]` gives a word list, which is what `ocr:` was | `name.mean` `.spread` `.sat` `.flat_rows` `.contrast` `.min` `.max`, or `name.words` | **new** |
 | `when_not` | words | run only if the screen does NOT say these | 10 |
 | `when_not_any` | word-sets | the alternatives form of `when_not:` | 0 |
 | `desktop` | `linux` `kde` `gnome` `cinnamon` `xfce` `windows` `macos` `android` | waits until that desktop's measurement passes | 22 |
@@ -232,6 +231,7 @@ name, and they keep working because the executor reads both.
 | `wait_after` | 0 | `settle:` — **MIGRATED**, 891 uses across 33 files |
 | `wait` (the step verb) | 0 | `settle:` — **MIGRATED**. 118 `wait:` remain INSIDE `ocr:`, where it is the reading's own pause |
 | `region`, `region_at` | 0 | `rect:`, `rect_at:` — **MIGRATED** |
+| `ocr` | 0 | `see: {of: [text]}` — **MIGRATED**, 118 uses; the two produced identical readings |
 
 | `scale` | 42 | `check: {scale: N}` |
 | `require` | 0 | `needs:` — **DELETED from the vocabulary**, because one letter from `requires:` was a trap |
