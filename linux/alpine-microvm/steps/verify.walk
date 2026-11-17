@@ -16,6 +16,9 @@ walkthrough "alpine microvm - the vocabulary against the smallest guest"
 
   needs alpine.iso alpine-vmlinuz alpine-initramfs
 
+  # THE MEDIUM IS ATTACHED AS A SECOND DISK, not booted from: a microvm is handed its kernel, and
+  # Alpine's `modloop=` points at the squashfs inside this ISO. MEASURED without it: the initramfs
+  # mounts nothing and drops to `initramfs emergency recovery shell launched`.
   make a disk "alpine.qcow2" of 1 GiB
   boot as a microvm from kernel "alpine-vmlinuz" and initramfs "alpine-initramfs", waiting up to 300s
 

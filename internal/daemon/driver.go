@@ -325,7 +325,14 @@ const DefaultVideoDevice = "VGA,xres=1920,yres=1080,vgamem_mb=32"
 // verify the result in the same run, and only the verification wants the small machine.
 func machineType(boot machine.Boot) string {
 	if boot.MicroVM {
-		return "microvm,accel=kvm,pcie=off"
+		// `graphics=on` IS WHAT MAKES `see:` POSSIBLE ON A MICROVM, and without it the machine is
+		// serial-only. A walkthrough that PROVES THE VOCABULARY has to read the screen, so a microvm
+		// with no display could only test the console half - and the measurement primitives are the
+		// half this branch exists to make testable.
+		//
+		// IT IS STILL THE SMALL MACHINE: no PCIe, no IDE, no USB. The graphics option adds the VGA
+		// adapter back on the ISA bus, which is one device and about 16 MiB.
+		return "microvm,accel=kvm,pcie=off,graphics=on"
 	}
 	return "q35,accel=kvm,vmport=off"
 }
@@ -761,7 +768,7 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		"-vnc", fmt.Sprintf("127.0.0.1:%d", vncDisplay),
 		"-netdev", fmt.Sprintf("tap,id=net0,ifname=%s,script=no,downscript=no",
 			easyvmnet.TapName),
-		"-device", fmt.Sprintf("virtio-net-pci,netdev=net0,mac=%s,romfile=,host_mtu=%d",
+		"-device", fmt.Sprintf("%s,netdev=net0,mac=%s,romfile=,host_mtu=%d", boot.VirtioNet(),
 			easyvmnet.TapMAC, easyvmnet.UplinkMTU()),
 	)
 	// THE POINTER IS ADDED BY `StorageArgs`, NOT HERE, AND THAT IS THE FIX FOR WINDOWS.
