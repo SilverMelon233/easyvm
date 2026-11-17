@@ -37,6 +37,10 @@ on:
         description: "run the real install (40-90 minutes), not just the compile and unit tests"
         default: true
         type: boolean
+      upstream:
+        description: "the repository whose published media and disks a run pulls"
+        default: "easydev-org/easyvm"
+        type: string
 
 concurrency:
   group: vocab-${{ inputs.branch }}-${{ inputs.distro }}
@@ -211,16 +215,29 @@ jobs:
       - name: the medium, pulled before the run so nothing downloads mid-install
         # `easyvm pull` NO LONGER EXISTS - every medium is pulled outside the run, which is the rule
         # this step follows.
+        #
+        # THE TOKEN IS AN `env:` AND ITS ABSENCE READS LIKE A MISSING TAG. MEASURED on run
+        # 44020426741:
+        #
+        #	GITHUB_TOKEN is empty; a private package needs it and an anonymous pull answers 401
+        #
+        # - the same failure `stage.yml` records at its own pull, reproduced by writing this step as
+        # a `run:` without the env block. The media live in the UPSTREAM repository, not the fork,
+        # so that is what is pulled from.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          set -e
+          set -eu
           mkdir -p work
+          [ -n "${GITHUB_TOKEN:-}" ] || {
+            echo "::error::GITHUB_TOKEN is empty, so this pull would answer 401"
+            exit 1
+          }
+          upstream=$(printf '%s' "${{ inputs.upstream }}" | tr '[:upper:]' '[:lower:]')
           sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
-            ghcr.io "${{ github.repository_owner }}/easyvm" \
+            ghcr.io "$upstream" \
             "iso-${{ inputs.distro }}-desktop" \
-            "$GITHUB_WORKSPACE/work/${{ inputs.distro }}.iso" || {
-              echo "::error::the medium could not be pulled; a run needs it before it starts"
-              exit 1
-            }
+            "$GITHUB_WORKSPACE/work/${{ inputs.distro }}.iso"
           ls -l "work/${{ inputs.distro }}.iso"
 
       - name: install, and prove the disk was written
