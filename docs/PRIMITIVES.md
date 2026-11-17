@@ -32,7 +32,7 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 
 ---
 
-# 1. `do:` — change the machine (23 keys)
+# 1. `do:` — change the machine (22 keys)
 
 ## 1.1 The machine itself
 
@@ -193,7 +193,7 @@ the measuring machine and wrong on the runner.
 | `until_console`, `blind_after` | step | wait on serial output | 2 |
 | `mode`, `words`, `without`, `text`, `pattern`, `range`, `from` | `check` | the older single-comparison form, retained while files still use it | 46 |
 
-# 6. File header — not step keys (4 keys)
+# 6. File header — not step keys (5 rows, 7 names)
 
 | key | value | what it says |
 |---|---|---|
@@ -206,7 +206,7 @@ the measuring machine and wrong on the runner.
 `ends:`, `waits_for:` and `ends_at:` are the old `panes:` model. No current file uses
 them; they are read only by files that have not been ported.
 
-# 7. Retired — 29 keys (14 MIGRATED, 15 DEAD)
+# 7. Retired — 30 rows, 40 names
 
 **MIGRATED means the successor exists and this key is no longer used by any file.**
 **DEAD means nothing uses it and there is no successor; it is a key nobody needed.**
