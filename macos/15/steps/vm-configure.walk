@@ -37,8 +37,29 @@ walkthrough "macos 15 - configure the vm (share, login hook, guest agent)"
   step "prove the name, all three of it"
     ssh == sh -c 'for k in HostName LocalHostName ComputerName; do printf "%s = %s\n" "$k" "$(scutil --get $k)"; done; test "$(scutil --get HostName)" = "{{ hostname }}" && echo HOSTNAME_OK'
     timeout == 60
-  step "set the time zone"
-    ssh == printf '%s\n' '{{ password }}' | sudo -S -p '' systemsetup -settimezone {{ timezone }}
+  # `systemsetup -settimezone` REFUSES IN A NON-GRAPHICAL SSH SESSION ON MACOS 15.
+  #
+  # MEASURED, and IDENTICALLY on the file BEFORE it was converted (upstream job 133765027531):
+  #
+  #	systemsetup -settimezone America/Los_Angeles
+  #	Set TimeZone: America/Los_Angeles
+  #	systemsetup[393:2282] ### Error:-99 .../InternetServices.m Line:395
+  #	localtime =                                    <- nothing written
+  #	date = Tue Nov 17 17:27:45 UTC 2026            <- still UTC
+  #
+  # `-99` IS `kIOReturnNotPermitted`, and it comes from `InternetServices.m` - the XPC helper
+  # `systemsetup` delegates to, which needs a session that a bare ssh channel does not have. The exit
+  # status is 0, so the step looks like it worked and the NEXT step is the one that reports it.
+  #
+  # `ln -sf` IS WHAT systemsetup DOES UNDERNEATH, and it needs nothing but write access:
+  # `/etc/localtime` points at a file in the zoneinfo database, which is the same one every other
+  # guest here uses. Upstream's own comment names this alternative; it chose the documented switch, and
+  # the documented switch does not work from here.
+  #
+  # THE SYMLINK IS TRIED FIRST AND `systemsetup` SECOND, because the reverse order leaves a bad
+  # `localtime` when -99 is reported and the status is still 0.
+  step "set the time zone, by the file systemsetup would write"
+    ssh == printf '%s\n' '{{ password }}' | sudo -S -p '' sh -c 'ln -sf /usr/share/zoneinfo/{{ timezone }} /etc/localtime && ls -l /etc/localtime && date'
     timeout == 180
   step "prove the time zone"
     ssh == sh -c 'local=$(readlink -f /etc/localtime); echo "localtime = $local"; echo "date = $(date)"; printf "%s" "$local" | grep -q "{{ timezone }}" && echo TIMEZONE_OK'
