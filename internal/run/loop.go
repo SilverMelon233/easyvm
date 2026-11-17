@@ -74,8 +74,19 @@ func (e *Executor) doLoop(s walk.Step) error {
 	// `see:` IS THE READING, and `ocr:` is the name every file wrote before the two were merged:
 	// `see: {of: [text]}` is exactly what `ocr:` did, so one key covers a word list and a set of
 	// numbers. The old spelling is read so a file that has not been migrated runs.
+	//
+	// THE KEY IT ARRIVED UNDER IS KEPT, because the two spellings are parsed by two functions with
+	// different vocabularies: `see:` takes `of: [text]` and binds a word list, `ocr:` takes a region
+	// and nothing else. MEASURED on run 44083524097, after the mapping was handed over as `ocr:`:
+	//
+	//	wait for the installer window [ocr]: `ocr:` has unknown key "of"
+	//
+	// - on a loop whose `see:` was correct. Canonicalising the key LOST information rather than
+	// gaining it, so the loop now runs the same step the file wrote.
+	readingKey := "see"
 	ocrRaw, ok := raw["see"].(map[string]any)
 	if !ok {
+		readingKey = "ocr"
 		ocrRaw, ok = raw["ocr"].(map[string]any)
 	}
 	if !ok {
@@ -105,8 +116,11 @@ func (e *Executor) doLoop(s walk.Step) error {
 	// The test that exists built its own correctly-shaped sub-step and asserted on that, which is a
 	// test of the test: when this function handed `parseOCRStep` the wrong key, the test still
 	// passed and every loop in every walkthrough failed in a real run. MEASURED on 44078798458.
-	ocrStep, checkStep, untilStep := loopParts(s, ocrRaw, checkRaw, untilRaw)
-	if _, err := parseOCRStep(ocrStep); err != nil {
+	readingStep, checkStep, untilStep := loopParts(s, readingKey, ocrRaw, checkRaw, untilRaw)
+	// THE READING IS VALIDATED BY RUNNING ITS OWN PARSER PATH, so a `see:` mapping is checked
+	// against `see:`'s vocabulary and an `ocr:` mapping against `ocr:`'s. Both answer "is this a
+	// reading this vocabulary can take", and the alternative is a second copy of those rules here.
+	if err := e.checkReading(readingStep); err != nil {
 		return err
 	}
 
@@ -150,7 +164,7 @@ func (e *Executor) doLoop(s walk.Step) error {
 		//
 		// THE ATTEMPT CEILING STILL BOUNDS IT: a guest whose frames never become readable runs out of
 		// attempts and fails with the last read error.
-		if err := e.doOCR(ocrStep); err != nil {
+		if err := e.runOne(readingStep); err != nil {
 			e.Driver.Log(fmt.Sprintf("  loop: attempt %d could not read the screen (%v); trying again",
 				attempt, err))
 			if attempt == int(max) {
@@ -189,12 +203,27 @@ func (e *Executor) doLoop(s walk.Step) error {
 // says `see:`, `check:` and `until: {fact: ...}` because that is the vocabulary, and these are the
 // three steps that vocabulary is turned into. Getting one of them wrong produces an error message
 // that names the walkthrough, which is why this is a named function with a caller-shaped test.
-func loopParts(s walk.Step, ocrRaw, checkRaw, untilRaw map[string]any) (ocrStep, checkStep, untilStep walk.Step) {
-	ocrStep = walk.Step{Index: s.Index, Name: s.Name + " [ocr]",
-		Spec: map[string]any{"ocr": ocrRaw}}
+func loopParts(s walk.Step, readingKey string, ocrRaw, checkRaw, untilRaw map[string]any) (readingStep, checkStep, untilStep walk.Step) {
+	readingStep = walk.Step{Index: s.Index, Name: s.Name + " [" + readingKey + "]",
+		Spec: map[string]any{readingKey: ocrRaw}}
 	checkStep = walk.Step{Index: s.Index, Name: s.Name + " [check]",
 		Spec: map[string]any{"check": checkRaw}}
 	untilStep = walk.Step{Index: s.Index, Name: s.Name + " [until]",
 		Spec: map[string]any{"until_fact": untilRaw["fact"]}}
-	return ocrStep, checkStep, untilStep
+	return readingStep, checkStep, untilStep
+}
+
+// checkReading validates a loop's reading WITHOUT capturing a frame.
+//
+// IT ASKS THE PARSER, which is the same code the step will hit when it runs - so a mapping that passes
+// here cannot be refused a second later for a reason the loop did not mention. `see:` validates through
+// `parseSeeStep` and `ocr:` through `parseOCRStep`, because they are two vocabularies and a loop may
+// hold either.
+func (e *Executor) checkReading(step walk.Step) error {
+	if _, ok := step.Spec["see"]; ok {
+		_, _, _, _, err := parseSeeStep(step)
+		return err
+	}
+	_, err := parseOCRStep(step)
+	return err
 }

@@ -39,26 +39,11 @@ import (
 // for a text rect, `name.words`. A `want:` step refers to them by those names, so a file can say
 // `bottom.flat_rows` and a reader can find where it came from.
 func (e *Executor) doSee(s walk.Step) error {
-	raw, ok := s.Spec["see"].(map[string]any)
-	if !ok {
-		return fail(s.Name, "`see:` must be a mapping: {name, rect, of}")
+	raw, name, rectRaw, ofRaw, err := parseSeeStep(s)
+	if err != nil {
+		return err
 	}
-	name, _ := raw["name"].(string)
-	if name == "" {
-		return fail(s.Name, "`see:` must say `name:` - the readings are bound under it, and a "+
-			"measurement nobody named cannot be compared")
-	}
-	rectRaw, ok := raw["rect"]
-	if !ok {
-		return fail(s.Name, "`see:` must say `rect:` - the region to measure. It is a fraction of "+
-			"the frame (`top 4.5%%`, `bottom 40px`, `middle`) so it cannot be measured at the wrong "+
-			"size")
-	}
-	ofRaw, _ := raw["of"].([]any)
-	if len(ofRaw) == 0 {
-		return fail(s.Name, "`see:` must say `of:` - which numbers to bind. `of: [mean, spread]` "+
-			"binds %s.mean and %s.spread", name, name)
-	}
+	_ = raw
 
 	// A TEXT rect is read with the OCR path rather than measured, because its result is words.
 	for _, want := range ofRaw {
@@ -549,4 +534,33 @@ func (e *Executor) evalTextCriteria(list []any) (bool, string, error) {
 		}
 	}
 	return result, strings.Join(notes, "; "), nil
+}
+
+// parseSeeStep validates a `see:` mapping and returns the four things the work needs.
+//
+// IT IS SPLIT OUT SO A LOOP CAN ASK "IS THIS A READING I CAN TAKE" WITHOUT TAKING ONE. `doSee` used to
+// own both the validation and the capture, so the only way to check a loop's `see:` at assembly time
+// was to capture a frame - which a loop cannot do before its first attempt.
+func parseSeeStep(s walk.Step) (raw map[string]any, name string, rectRaw any, ofRaw []any, err error) {
+	raw, ok := s.Spec["see"].(map[string]any)
+	if !ok {
+		return nil, "", nil, nil, fail(s.Name, "`see:` must be a mapping: {name, rect, of}")
+	}
+	name, _ = raw["name"].(string)
+	if name == "" {
+		return nil, "", nil, nil, fail(s.Name, "`see:` must say `name:` - the readings are bound "+
+			"under it, and a measurement nobody named cannot be compared")
+	}
+	rectRaw, ok = raw["rect"]
+	if !ok {
+		return nil, "", nil, nil, fail(s.Name, "`see:` must say `rect:` - the region to measure. It "+
+			"is a fraction of the frame (`top 4.5%%`, `bottom 40px`, `middle`) so it cannot be "+
+			"measured at the wrong size")
+	}
+	ofRaw, _ = raw["of"].([]any)
+	if len(ofRaw) == 0 {
+		return nil, "", nil, nil, fail(s.Name, "`see:` must say `of:` - which numbers to bind. "+
+			"`of: [mean, spread]` binds %s.mean and %s.spread", name, name)
+	}
+	return raw, name, rectRaw, ofRaw, nil
 }
