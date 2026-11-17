@@ -35,15 +35,28 @@ steps:
   timeout: 5400
   poll: 5
   keep_alive: true
+# THE DOCK ICON IS AT y=1050, NOT y=1340 - THOSE COORDINATES WERE FROM A 2560x1440 FRAME.
+#
+# MEASURED: this file declares `resolution: [1920, 1080]` and the previous values made the daemon
+# refuse the step outright:
+#
+#	open the installer from the dock: pointer to (1265, 1390): outside a 1920x1080 frame
+#
+# 1390 IS 310 PIXELS BELOW THE BOTTOM OF A 1080 FRAME, so the numbers were taken on a taller screen
+# and never rescaled. The dock was located by its own pixels on the 1920 frame: crop 700..1600 x
+# 1020..1080 scaled 2x puts the installer's ring icon at (700+1022/2, 1020+60/2) = (1211, 1050).
+#
+# THE x RANGE WAS ALREADY RIGHT, which is what makes this a height error rather than a typo: the
+# icon sits at x~1211 on both frames because the dock is centred and narrower than the screen.
 - name: open the installer from the dock
   at_button:
-  - 1210
-  - 1340
-  - 1330
-  - 1450
+  - 1190
+  - 1030
+  - 1235
+  - 1070
   at_fallback:
-  - 1265
-  - 1390
+  - 1211
+  - 1050
   wait_after: 20
 - name: the installer window is up
   loop:
@@ -134,6 +147,18 @@ steps:
   - 1430
   - 845
   wait_after: 44
+# THE ACCOUNT PANE PRINTS `Create User Account`, AND THE OLD CHECK ASKED FOR WORDS IT NEVER SHOWS.
+#
+# MEASURED, tesseract over this pane's own frame:
+#
+#	Install Pop!_OS 24.04 LTS
+#	Choose Account Password
+#	Confirm Password
+#	Create User Account
+#
+# - no `Full`, no `Name`, no `User` as separate words. `says` requires EVERY entry to be present, so
+# this loop could not pass and ran all 45 attempts on a page that was plainly up. The steps after it
+# then clicked into whatever the page had become by the time the loop gave up.
 - name: wait for the account pane
   loop:
     max: 45
@@ -154,17 +179,16 @@ steps:
     check:
       name: done
       from: screen
-      mode: says
+      mode: says_any
       words:
-      - Full
-      - Name
-      - User
+      - - Account
+      - - User
     until:
       fact: done
 - name: type the display name
   click:
-  - 1188
-  - 494
+  - 1195
+  - 443
   type: VM User
   type_gap: 0.09
   wait_after: 2
@@ -210,17 +234,29 @@ steps:
 - name: dismiss anything a stray click opened
   key: esc
   wait_after: 2
+# THE PASSWORD FIELDS ARE AT x=1195, AND `Next` STAYS GREY WHILE THE FIRST ONE IS EMPTY.
+#
+# MEASURED on the live page. The field spans x=970..1425, so 1350 IS inside it and the click was
+# never "outside the box" - but the box only takes the caret when the press lands while the field
+# has focus, and a press into the right third of this one did not. Clicking the field's own centre
+# and typing was measured working:
+#
+#	click (1195,445) then type -> "•••••  ⚠ The password is shorter than 8 characters"
+#
+# `admin` IS SHORT AND THAT IS NOT A REFUSAL: the warning is drawn and `Next` turns GREEN anyway,
+# exactly as `Password is too short` is a warning in kubuntu's Calamares. The confirm field is the
+# same box 102 pixels lower: (1195, 547).
 - name: type the password
   click:
-  - 1350
-  - 447
+  - 1195
+  - 445
   type: '{{ password }}'
   type_gap: 0.09
   wait_after: 2
 - name: confirm the password
   click:
-  - 1350
-  - 543
+  - 1195
+  - 547
   type: '{{ password }}'
   type_gap: 0.09
   wait_after: 2
