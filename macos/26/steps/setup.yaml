@@ -1,0 +1,614 @@
+name: macos 26 setup (recovery image to setup assistant)
+resolution:
+- 1920
+- 1080
+
+# THE SAME WALK AS `macos/15/steps/setup.yaml`, AGAINST macOS 26 (TAHOE).
+#
+# WHAT IS MEASURED ON 26 AND WHAT IS INHERITED IS MARKED STEP BY STEP, AND THE DIFFERENCE MATTERS:
+# the recovery environment's Disk Utility and the installer's licence panes have not changed between
+# these two releases in any way this walk touches, so the coordinates below are carried over - but a
+# carried-over coordinate is a HYPOTHESIS until this file has produced a disk on its own. Every step
+# that says INHERITED is one a failed run should be read as "measure this again", not as "the guest
+# is broken".
+#
+# THE ONE THING THAT IS NOT INHERITED IS MEMORY. macOS 26 does not install in 4 GiB - measured on this
+# project's own earlier runs: at 4096 the installer wrote 37 GiB and then stopped making progress with
+# every vCPU at 100%, the pane frozen on "About 20 minutes remaining" and the disk not growing. macOS
+# keeps an APFS snapshot, a staging volume and its own caches resident while it writes. `memory_mb:
+# 16384` below is the figure `macos/26/steps/resume.yaml` already carries, and the two files agree
+# about it because they run on the same kind of disk.
+vars:
+  # `out` IS THE FILE `publish the disk` FLATTENS INTO, and it comes from `stage.yml`'s matrix -
+  # `out: macos26.qcow2` - so the disk is named for the tag it is pushed under rather than for this
+  # file.
+  out:
+    from: args.out
+    default: out/macos26.qcow2
+  disk_name:
+    default: main
+  expected_gb:
+    default: '68'
+  shutdown:
+    from: args.shutdown
+    default: kill
+steps:
+- name: the media this stage boots from is already on disk
+  # FIRST STEP, BECAUSE A MISSING INPUT MUST FAIL IN THE FIRST SECOND INSTEAD OF
+  # forty minutes into a run. Every one of these files is declared by this leg's
+  # `assets:` in its workflow and placed here by `pull-artifact.sh` before
+  # `easyvm run` is called; nothing in this file downloads.
+  #
+  # `macos-asset-boot-26` AND ITS TWO SIBLINGS ARE A DIFFERENT FIRMWARE FROM THE 15 TAGS, and that is
+  # why this list is not shared with `macos/15`: the two builds carry DIFFERENT IDENTITIES (serial,
+  # MLB, UUID, MAC), and a disk installed under one refuses to boot under the other. MEASURED by
+  # reading both published boot images back with `mcopy`: the config.plist files differ in exactly
+  # those four fields and in nothing else.
+  require:
+  - recovery.dmg
+  - boot.img
+  - macos.rom
+  - macos.vars
+- name: start recording
+  record: macos26-setup.mp4
+- name: create the empty disk
+  disk: disk.qcow2
+  disk_gb: 128
+- name: boot the recovery image
+  boot: true
+  os: macos
+  # THE RECOVERY IMAGE IS A PREPARED INPUT, LIKE EVERY ISO HERE. For release 26 the workflow pulls
+  # `macos-recovery-tahoe`, which is the image Apple's APFS driver is extracted from - and the driver
+  # is the one thing in the firmware that is release-specific.
+  recovery: recovery.dmg
+  # SIXTEEN GIBIBYTES, NOT THE DEFAULT. See the comment above `vars:`: 26 does not finish an install
+  # in 4 GiB, and the failure is a frozen progress bar rather than an error.
+  memory_mb: 16384
+  timeout: 900
+- name: the recovery menu's rows
+  ocr:
+    name: recovery
+    region:
+    - 760
+    - 200
+    - 1400
+    - 560
+    region_at:
+    - 1920
+    - 1080
+    scale: 6
+    wait: 5
+- name: wait for the recovery menu
+  # INHERITED FROM 15, AND THE ROWS ARE THE SAME PROGRAM: macOS Recovery draws the same four rows on
+  # both releases, and the walk accepts any one of them so a reordered or renamed row does not break
+  # it. The `macos` half of `reinstall macos` is release-independent on purpose - the row says
+  # "Reinstall macOS Tahoe", and a word list that demanded "tahoe" would be a second place the release
+  # name lives.
+  loop:
+    max: 180
+    do:
+    - wait: 10
+    ocr:
+      name: recovery
+      region:
+      - 760
+      - 200
+      - 1400
+      - 560
+      region_at:
+      - 1920
+      - 1080
+      scale: 6
+      wait: 0
+    check:
+      name: done
+      from: recovery
+      mode: says_any
+      words:
+      - - restore
+        - time
+        - machine
+      - - reinstall
+        - macos
+      - - safari
+      - - disk
+        - utility
+    until:
+      fact: done
+- name: select disk utility
+  # MEASURED ON THE macOS 26 (TAHOE) RECOVERY SCREEN, AND IT IS NOT THE 15 MENU.
+  #
+  # 15 draws its options in a ROW at y~514 and the Disk Utility card sits at x=837. 26 DRAWS A VERTICAL
+  # CARD LIST INSIDE ONE PANEL at x=721..1197, and a pixel scan of the frame gives four cards:
+  #
+  #	y=247   Restore from Time Machine
+  #	y=335   Reinstall macOS Tahoe
+  #	y=431   Web Browser
+  #	y=523   Disk Utility
+  #
+  # and a Continue button at (1148, 595) under them.
+  #
+  # SO THE INHERITED (837, 514) LANDED ON THE PANEL'S EMPTY LOWER LEFT - between "Web Browser" and
+  # "Disk Utility" and to the left of both - and the walk then clicked Continue at 15's (1142, 586),
+  # which on 26 is the Continue button only because it happens to be near it. The disk-utility screen
+  # that followed was never opened by this walk.
+  click:
+  - 800
+  - 523
+  wait_after: 3
+- name: open disk utility
+  # THE CONTINUE BUTTON THAT OPENS THE SELECTED CARD, measured at (1148, 595) on this screen.
+  click:
+  - 1148
+  - 595
+  wait_after: 8
+
+# DISK UTILITY IS MADE FULL SCREEN BEFORE ANYTHING IN IT IS CLICKED, AND THAT IS WHAT MAKES THE
+# COORDINATES FIXED. Carried over from 15 unchanged: the zoom button's colour is a property of the
+# compositor rather than of this window's position, so it is the same on 26.
+- name: make disk utility full screen
+  at_color:
+  - 40
+  - 200
+  - 64
+  color_tolerance: 45
+  # THE SEARCH IS LIMITED TO THE TOP-LEFT CORNER, WHERE A WINDOW'S TRAFFIC LIGHTS ALWAYS ARE. A
+  # whole-frame search takes the LARGEST blob, and the recovery wallpaper paints saturated greens.
+  color_region:
+  - 0
+  - 30
+  - 700
+  - 400
+  wait_after: 6
+# THE TARGET IS THE DISK THAT SAYS `Uninitialized`, AND NOTHING ELSE IN THIS WINDOW DOES.
+#
+# THREE DEVICES ARE LISTED AND TWO OF THEM CAN BE NAMED `disk0`, because the OpenCore boot image is
+# bootindex 0:
+#
+#	268.4 MB   the boot image       "Internal Physical Disk - GUID Partition Map"
+#	137.44 GB  the target           "Uninitialized"
+#	2.88 GB    the recovery volume  "Mac OS Extended"
+#
+# A CAPACITY TEST CANNOT TELL THEM APART, and the rows SWAP BETWEEN RUNS, so a position is not a
+# judgement either. `Uninitialized` is a property of the disk that has never been formatted, which is
+# exactly the disk to format.
+- name: read the first disk
+  # MEASURED ON MACOS 26, FULL SCREEN, AND THE ROWS ARE NOT WHERE 15 PUT THEM.
+  #
+  # The sidebar of Disk Utility in the 26 recovery environment, read off the frame this walk
+  # produced, with the text bands found by a pixel scan:
+  #
+  #	y=132   row 1   "Apple Inc. VirtIO Block Media"   Uninitialized   <- the 137 GB target
+  #	y=164   row 2   "Apple Inc. VirtIO Block Media"   (the 268 MB boot image)
+  #	y=202           the "External" group heading
+  #	y=228   row 3   "disk2s1"                          (the recovery volume)
+  #
+  # 15 MEASURED THE SAME ROWS AT y=105/133/184, so 26 sits about 27 px LOWER. THE INHERITED CLICK AT
+  # y=112 LANDED ABOVE ROW 1'S TEXT AND SELECTED NOTHING - the run then failed with the selection
+  # still on `disk2s1`, and the `down` loop walked from wherever the window had left the cursor.
+  #
+  # ROW 1 IS THE TARGET ON THIS RELEASE: the detail pane reads "137.44 GB / Internal / Uninitialized /
+  # disk0", which is the disk to erase. Row 2 is the OpenCore boot image at 268.4 MB.
+  click:
+  - 200
+  - 132
+  wait_after: 2
+- name: is the first disk the uninitialised one
+  ocr:
+    name: details
+    # THE NAME AND THE STATE LINE UNDER IT, NOT THE CAPACITY BOX ON THE RIGHT.
+    #
+    # `Uninitialized` IS DRAWN AT ABOUT 12 PX; at `scale: 2` tesseract returned only
+    # `Apple Inc. VirtlO Block Media`, so the state line was absent and no check of it could pass.
+    #
+    # THE REGION IS TALLER THAN 15'S (100..160) BECAUSE 26 DRAWS THE HEADER LOWER: on the frame above,
+    # the disk's name is at y~140 and the type/state line at y~167 - the 15-era region ended at 160 and
+    # cut the line that this step exists to read.
+    region:
+    - 360
+    - 105
+    - 1100
+    - 200
+    region_at:
+    - 1920
+    - 1080
+    scale: 4
+    wait: 0
+- name: the first disk is the uninitialised one
+  check:
+    name: uninitialised
+    from: details
+    mode: contains
+    text: Uninitialized
+- name: step down to the uninitialised disk
+  # `loop:` RUNS `do:` BEFORE `ocr:`, so a loop whose `do:` is "press Down" reads the row AFTER the
+  # move. Row 1 was read by the step above, which is why this loop can start by MOVING - an earlier
+  # version clicked row 1 again inside the loop, so `down` and the click cancelled out.
+  if: uninitialised
+  else:
+    - loop:
+        max: 4
+        do:
+        - key: down
+        - wait: 1
+        ocr:
+          name: details
+          region:
+          - 360
+          - 105
+          - 1100
+          - 200
+          region_at:
+          - 1920
+          - 1080
+          scale: 4
+          wait: 0
+        check:
+          name: uninitialised
+          from: details
+          mode: contains
+          text: Uninitialized
+        until:
+          fact: uninitialised
+- name: erase - open the sheet
+  # THE CLICK IS REPEATED UNTIL THE SHEET IS READ, BECAUSE A CLICK ON A TOOLBAR THAT IS STILL DRAWING
+  # IS DROPPED. Full screen, the Erase button is at (1681, 57).
+  # THE TOOLBAR SITS 28 px LOWER ON 26 THAN ON 15, AND 90 px FURTHER RIGHT.
+  #
+  # MEASURED on the frame this walk produced, with Disk Utility full screen: a pixel scan of the
+  # toolbar band (y=45..100) finds six icons, and the captions under them name them:
+  #
+  #	x=1521  Volume      x=1715  Partition   x=1830  Restore
+  #	x=1662  First Aid   x=1780  Erase       x=1907  Mount
+  #
+  # 15 measured Erase at (1681, 57); on 26 that x is inside the gap between Partition and Erase and
+  # that y is above the whole toolbar - so the click landed on the title bar and the sheet never
+  # opened. MEASURED as the first failure of the real 26 run:
+  #
+  #	erase - open the sheet: the loop ran 6 attempt(s) and the condition never held
+  #
+  # THE WINDOW IS FULL SCREEN, AND THAT IS A FACT WORTH STATING because a measurement taken from a
+  # windowed Disk Utility gives a completely different toolbar (y=283, Erase at x=1362) and would
+  # send the next reader to the wrong numbers.
+  loop:
+    max: 6
+    do:
+    - click:
+      - 1711
+      - 56
+    - wait: 3
+    ocr:
+      name: sheet
+      region:
+      - 720
+      - 425
+      - 1200
+      - 680
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: sheet_up
+      from: sheet
+      mode: says_any
+      words:
+      - - erase
+        - deleted
+      - - free
+        - space
+      - - security
+        - option
+      - - cancel
+        - erase
+    until:
+      fact: sheet_up
+  wait_after: 4
+- name: erase - clear the name field
+  # SELECT-ALL THEN TYPE, BECAUSE THE FIELD ARRIVES FILLED WITH "Untitled" AND IT IS SELECTED.
+  #
+  # 15 PRESSED BACKSPACE ONCE, which deletes ONE character of the eleven that spell "Untitled" - and
+  # on 26 the field is selected when the sheet opens, so typing over it works WITHOUT the backspace
+  # and is undone BY it.
+  #
+  # MEASURED on the first successful 26 erase: the volume was created as "Untitledmain", because the
+  # old step pressed backspace (clearing the selection, deleting nothing but the last character is not
+  # what happened - it collapsed the selection to a caret) and then typed `main` at the start of a
+  # field that still said "Untitled". The disk was formatted correctly and the VOLUME NAME was wrong,
+  # which is the kind of thing that shows up only when a later step looks for the name.
+  #
+  # `meta_l+a` SELECTS THE WHOLE FIELD and the first typed character replaces it, which is one
+  # keystroke and is true whether or not the field arrives selected.
+  key: meta_l+a
+  wait_after: 1
+- name: erase - name the volume
+  # MEASURED ON 26'S ERASE SHEET, WHICH IS 127 px LOWER THAN 15'S.
+  #
+  #	sheet panel   x=720..1200, y=425..680
+  #	Name field     (988, 542)   "Untitled", already selected
+  #	Format  APFS   Scheme  GUID Partition Map   (both already correct)
+  #	Cancel (1066, 650)      Erase (1154, 650)
+  #
+  # 15 clicked (960, 415) to focus the name field. On 26 that y is the sheet's own explanatory text,
+  # a paragraph above the field.
+  click:
+  - 988
+  - 542
+  type: '{{ disk_name }}'
+  wait_after: 4
+- name: erase - confirm
+  click:
+  - 1154
+  - 650
+  wait_after: 5
+- name: erase - wait for the report
+  loop:
+    max: 60
+    do:
+    - wait: 5
+    ocr:
+      name: screen
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - erase
+        - complete
+      - - erase
+        - process
+    until:
+      fact: done
+- name: erase - done
+  # THE REPORT'S OWN BUTTON, measured at (1147, 614) on the "Erase process is complete" dialog that
+  # 26 puts up. 15 measured (1143, 601); the 13 px difference is inside the button on both.
+  click:
+  - 1147
+  - 614
+  wait_after: 5
+- name: close disk utility
+  key: meta_l+q
+  wait_after: 12
+- name: the recovery menu is back
+  loop:
+    max: 60
+    do:
+    - wait: 5
+    ocr:
+      name: screen
+      region:
+      - 760
+      - 200
+      - 1400
+      - 560
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says
+      words:
+      - reinstall
+      - macos
+    until:
+      fact: done
+- name: select reinstall macos
+  click:
+  - 837
+  - 333
+  wait_after: 3
+- name: open the installer
+  click:
+  - 1142
+  - 586
+  wait_after: 20
+- name: wait for the installer to load
+  # WAIT UNTIL THE PANE IS THERE, NOT FOR A NUMBER OF SECONDS THAT SOMEBODY HOPED WAS ENOUGH.
+  #
+  # INHERITED FROM 15, WHERE THE MEASUREMENT WAS 117 SECONDS AGAINST A 10-SECOND WAIT. The word lists
+  # deliberately do not name a release: `macos` alone is accepted, because the pane says "macOS Tahoe"
+  # on 26 and "macOS Sequoia" on 15 and a list naming either would be wrong on the other.
+  loop:
+    max: 24
+    do:
+    - wait: 10
+    ocr:
+      name: instaload
+      region:
+      - 400
+      - 560
+      - 1520
+      - 700
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: loaded
+      from: instaload
+      mode: says_any
+      words:
+      - - agree
+        - to
+        - the
+        - terms
+      - - english
+        - apple
+      - - select
+        - the
+        - disk
+      - - macos
+    until:
+      fact: loaded
+- name: welcome continue
+  click:
+  - 960
+  - 712
+  wait_after: 5
+- name: wait for the licence pane
+  loop:
+    max: 24
+    do:
+    - wait: 10
+    ocr:
+      name: licence
+      region:
+      - 660
+      - 430
+      - 1260
+      - 700
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: licence_up
+      from: licence
+      mode: says_any
+      words:
+      - - software
+        - license
+        - agreement
+      - - please
+        - read
+        - this
+    until:
+      fact: licence_up
+- name: agree to the licence
+  click:
+  - 1005
+  - 713
+  wait_after: 5
+- name: wait for the licence sheet
+  # THE SHEET IS A SEPARATE WINDOW, AND ITS OWN AGREE IS THE ONE THAT MATTERS. Its two buttons are the
+  # light runs at y=509..536, `Disagree` at x=846..955 and `Agree` at x=964..1073 - CENTRE (1018, 520).
+  loop:
+    max: 12
+    do:
+    - wait: 5
+    ocr:
+      name: sheet
+      region:
+      - 780
+      - 330
+      - 1140
+      - 560
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: sheet_up
+      from: sheet
+      mode: says_any
+      words:
+      - - read
+        - and
+        - agree
+      - - disagree
+        - agree
+    until:
+      fact: sheet_up
+- name: agree in the sheet
+  click:
+  - 1018
+  - 520
+  wait_after: 10
+- name: select the destination card
+  click:
+  - 850
+  - 550
+  wait_after: 5
+- name: destination continue
+  click:
+  - 1005
+  - 712
+  wait_after: 10
+- name: the copy runs until the Setup Assistant appears
+  # `max` IS A COUNT OF ATTEMPTS AND EACH ONE WAITS 20 SECONDS, WHICH IS THE ARITHMETIC THAT MATTERS.
+  #
+  # macOS 26's installer quotes its own estimate on the pane, and it is LONGER than 15's: this
+  # project's 26 runs showed "About 5 hours and 20 minutes remaining" with the bar a fifth along, where
+  # the 15 runs said "About 2 hours and 52 minutes". 1080 x 20s IS SIX HOURS, which is that estimate
+  # plus margin - and a timeout shorter than the thing it is timing out is a failure with a delayed
+  # fuse.
+  loop:
+    max: 1080
+    do:
+    - wait: 20
+    ocr:
+      name: screen
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - select
+        - your
+        - country
+        - or
+        - region
+      - - how
+        - do
+        - you
+        - want
+        - to
+        - connect
+        - to
+        - the
+        - internet
+      - - transfer
+        - your
+        - information
+        - to
+        - this
+        - mac
+      - - choose
+        - a
+        - wireless
+        - network
+      - - sign
+        - in
+        - with
+        - your
+        - apple
+        - id
+    until:
+      fact: done
+- name: stop the machine
+  shutdown: '{{ shutdown }}'
+  timeout: 300
+# THE DISK IS FLATTENED INTO THE FILE THE NEXT STAGE PULLS. `stage.yml` publishes `work/<matrix.out>`,
+# and for this leg that is `macos26.qcow2` - the name `macos26` is pushed under. A walk without a
+# `compress:` writes only `work/disk.qcow2` and the publish step then finds nothing.
+- name: publish the disk
+  compress: '{{ out }}'
+- name: stop recording
+  record: false
