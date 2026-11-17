@@ -662,11 +662,40 @@ steps:
 # Delete` - a PARTITION's menu, and the press after it landed on the root partition's row.
 #
 # SO THE ROW THAT MATTERS IS NAMED: on a three-row table the free space is the third, at y=407.
+# THE KEBAB NEEDS A SECOND PRESS, BECAUSE THE FIRST ONE IS WHAT HOVERS THE ROW.
+#
+# MEASURED: `Free space 1.44 GB` is on the table at y=407 and its kebab is the four-pixel column at
+# x=1183..1186 on that line - and a single press there left no menu open, with the pointer sitting on
+# the kebab and nothing drawn under it.
+#
+# THE PRESS IS THEREFORE RETRIED UNTIL THE MENU IS THERE, and the menu's own word proves it. `Create`
+# is the first item; `Shrink` and `Format` are on the partition menus and NOT on a free-space menu, so
+# `Format` is the one that says this is the free space's menu rather than the root partition's.
 - name: the new free space's menu
-  click:
-  - 1185
-  - 407
-  wait_after: 4
+  loop:
+    max: 6
+    do:
+    - click:
+      - 1185
+      - 407
+      wait_after: 3
+    ocr:
+      name: fs_menu
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 1
+    check:
+      name: open
+      from: fs_menu
+      mode: says_any
+      words:
+      # `Create` IS THE FREE-SPACE MENU'S FIRST ITEM AND A PARTITION'S MENU DOES NOT HAVE IT -
+      # measured, the partition menu reads `ext4 filesystem / Edit mount point / Format / Partition /
+      # Shrink / Grow / Delete`, and the free space's reads `Create partition`.
+      - - Create
+    until:
+      fact: open
 
 - name: create the ESP
   click:
