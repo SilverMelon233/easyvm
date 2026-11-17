@@ -518,7 +518,7 @@ steps:
       # `console type` IS THE PKGBASE PATH'S "THE BASE SYSTEM IS ON THE DISK" - pkgbase unpacks
       # and REBOOTS, so the post-install menu this loop was written for never appears. The
       # installed system has no /boot/loader.conf yet, so ttyu0 shows only this question.
-      - - console type
+      - - console
       - - installation
         - completed
       - - account

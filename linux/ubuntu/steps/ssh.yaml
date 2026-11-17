@@ -86,7 +86,7 @@ steps:
       mode: says_any
       words:
       - - password
-      - - log in
+      - - log
       - - complete
         - your
         - setup

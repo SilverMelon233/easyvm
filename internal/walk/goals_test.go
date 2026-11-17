@@ -2462,3 +2462,86 @@ func TestEveryLoopSaysWhatEndsIt(t *testing.T) {
 		t.Fatal("no `loop:` found anywhere, so this test checked nothing")
 	}
 }
+
+// `says` MATCHES WHOLE TOKENS, SO A TWO-WORD ENTRY IN `check: words:` CAN NEVER MATCH.
+//
+// MEASURED, on a reading that plainly contained all three phrases:
+//
+//	[Select storage]        -> false      reading: "... Select storage device: | vda- 128.00 GiB ..."
+//	[Erase disk]            -> false      reading: "... Erase disk g This will all data ... "
+//	[Manual partitioning]   -> false      reading: "... Manual partitioning You can create ..."
+//
+// The comparison is `says`, which builds a set of the reading's tokens and asks whether each wanted
+// entry is IN it - so `Select storage` looks for one token spelled "select storage", which no OCR
+// ever produces. The result is a wait that can never end, and it looks like a page that never
+// arrived: the cachyos partitions wait spent its whole budget on a page that was on screen.
+//
+// THE FIX IS ALWAYS "NAME ONE WORD", never "loosen the comparison": a multi-word entry is a
+// phrase-matching expectation that this vocabulary does not have, and inventing it here would make
+// every existing single-word entry mean something different.
+func TestNoCheckNamesAPhrase(t *testing.T) {
+	root := filepath.Join("..", "..")
+	var files []string
+	for _, pat := range []string{
+		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
+		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
+		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
+		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
+		filepath.Join(root, "android", "*", "steps", "*.yaml"),
+	} {
+		matches, err := filepath.Glob(pat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, matches...)
+	}
+
+	checks := 0
+	// A check may sit on a step or inside a `loop:`; both are visited.
+	var visit func(rel string, name string, check map[string]any)
+	visit = func(rel, name string, check map[string]any) {
+		checks++
+		raw, ok := check["words"].([]any)
+		if !ok {
+			return
+		}
+		// `says` takes a flat list of words; `says_any` takes a list of LISTS, one word-set each.
+		for _, entry := range raw {
+			switch v := entry.(type) {
+			case string:
+				if strings.Contains(v, " ") {
+					t.Errorf("%s: %q: `check: words: %q` is a PHRASE and can never match - `says` "+
+						"compares whole tokens. Name one word", rel, name, v)
+				}
+			case []any:
+				for _, inner := range v {
+					if s, ok := inner.(string); ok && strings.Contains(s, " ") {
+						t.Errorf("%s: %q: `check: words:` set entry %q is a PHRASE and can never "+
+							"match - `says` compares whole tokens. Name one word", rel, name, s)
+					}
+				}
+			}
+		}
+	}
+
+	for _, path := range files {
+		rel, _ := filepath.Rel(root, path)
+		f, err := Load(path, nil)
+		if err != nil {
+			continue // TestEveryWalkthroughLoads reports the reason
+		}
+		for _, s := range f.Steps {
+			if c, ok := s.Spec["check"].(map[string]any); ok {
+				visit(rel, s.Name, c)
+			}
+			if lp, ok := s.Spec["loop"].(map[string]any); ok {
+				if c, ok := lp["check"].(map[string]any); ok {
+					visit(rel, s.Name, c)
+				}
+			}
+		}
+	}
+	if checks == 0 {
+		t.Fatal("no `check:` found anywhere, so this test checked nothing")
+	}
+}

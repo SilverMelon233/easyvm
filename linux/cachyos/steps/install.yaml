@@ -127,56 +127,46 @@ steps:
 #
 # SO THE STEPS ARE THREE KEYS, not a typed word, and the reason is the combo's search rather than the
 # locale list's order.
-- name: open the language list
-  click: [980, 661]
-  wait_after: 4
-
-- name: jump to the English group
-  key: e
-  wait_after: 2
-
-- name: step up to British English
-  key: up
-  wait_after: 1
-
-- name: step up to American English
-  key: up
-  wait_after: 1
-
-- name: choose it
-  key: ret
-  wait_after: 6
-
-- name: the installer speaks English now
-  ocr:
-    name: english
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 3
-
-- name: the page is in English
-  check:
-    name: ok
-    from: english
-    mode: says
-    words: [welcome, cachyos]
-
-# CALAMARES' FOOTER: `Next` IS AT (1356, 753) ON EVERY PAGE OF THIS INSTALLER, MEASURED.
+# CHOOSING THE LANGUAGE IS A RETRY, NOT A KEY SEQUENCE THAT WORKED ONCE.
 #
-# THE y IS 753 AND NOT 791, AND 38 PIXELS IS THE WHOLE DIFFERENCE. MEASURED off the frame, row by row
-# across the button's own x range:
+# MEASURED: two runs of this same file on the same medium produced an ENGLISH installer and then a
+# CHINESE one - `CachyOS 安装程序`, `地区`, `区域`, `系统语言将设置为简体中文（中国）`. The five
+# keypresses below are the sequence that works, but the combo's list is opened by a click and a click
+# can miss, and when it does the keys go to the page instead of the list and the language never
+# changes. Nothing noticed, because the check that was supposed to notice read the sidebar.
 #
-#	y=735  35   background above the button
-#	y=739  58   the button's top edge
-#	y=751 172   the word `Next`, at its brightest
-#	y=767  86   the button's bottom edge
-#	y=771  35   background below it
-#
-# A click at 791 lands BELOW the button. The walk then reported every page as visited while the
-# installer stayed on Welcome, which is what the run's own screenshot showed.
-#
-# Welcome -> Location
+# SO THE WHOLE SEQUENCE IS THE LOOP'S `do:`, and the reading is the welcome page's own English body.
+# Each attempt reopens the list from wherever the page is, so a missed click is simply retried.
+- name: choose English, retrying until the page says so
+  loop:
+    max: 6
+    do:
+    - click: [980, 661]
+      wait_after: 4
+    - key: e
+      wait_after: 2
+    - key: up
+      wait_after: 1
+    - key: up
+      wait_after: 1
+    - key: ret
+      wait_after: 6
+    ocr:
+      name: english
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
+    check:
+      name: ok
+      from: english
+      mode: says
+      words:
+      - - program
+      - - questions
+    until:
+      fact: ok
+
 - name: next from welcome
   click: [1356, 751]
   wait_after: 8
@@ -216,7 +206,6 @@ steps:
       words:
       - - Region
       - - zone
-      - - system language
     until:
       fact: here
 
@@ -241,14 +230,27 @@ steps:
       from: at_keyboard
       mode: says_any
       words:
-      - - Keyboard model
+      - - Keyboard
       - - Layout
-      - - Type here to test
     until:
       fact: here
 
+# THE KEYBOARD PAGE'S `Next` IS NOT AT THE HEIGHT THE OTHER PAGES' ARE, AND THAT IS MEASURED.
+#
+# The wizard draws its footer at the bottom of the PAGE CONTENT, and the keyboard page is shorter
+# than the partitions page - the same thing Calamares does, and the reason one `Next` coordinate
+# does not serve a wizard. MEASURED on the live frame, crop 1150..1520 x 760..840 scaled 4x:
+#
+#	Back   (1150+500/4, 760+128/4) = (1275, 792)
+#	Next   (1150+840/4, 760+128/4) = (1360, 792)      <- this page
+#	Cancel (1150+1180/4, 760+128/4) = (1445, 792)
+#
+# - at y=792, not the y=834 this file used, which is the page-name strip below the footer. That
+# click landed on `Keyboard`'s own sidebar entry, so the page never changed and the wait after it
+# spent its whole budget: MEASURED, the frame sat on `Keyboard model: | Generic 105-key PC` with
+# `next` never pressed.
 - name: next from keyboard
-  click: [1356, 834]
+  click: [1360, 792]
   wait_after: 8
 
 - name: the bootloader page arrives after keyboard
@@ -269,7 +271,6 @@ steps:
       words:
       - - snapshot
       - - chainloading
-      - - multiprotocol
     until:
       fact: here
 
@@ -328,14 +329,23 @@ steps:
       from: at_partitions
       mode: says_any
       words:
-      - - Select storage
-      - - Erase disk
-      - - Manual partitioning
+      - - storage
+      - - Erase
+      - - Manual
     until:
       fact: here
 
+# THE RADIO, NOT THE LABEL. MEASURED on the live frame, crop 400..1100 x 320..460 scaled 2x:
+#
+#	Erase disk's circle     (400+54/2, 320+92/2)  = (427, 366)
+#	Manual partitioning's   (400+54/2, 320+226/2) = (427, 433)
+#
+# (533, 364) IS ON THE WORD `Erase` AND DOES NOTHING - `label` and `radio` are different widgets, and
+# this one's label is not clickable. MEASURED: with that click the page stayed as it booted, `Erase
+# disk` unselected and `Next` GREY, so `next from bootloader` pressed nothing and the wait after it
+# spent its whole budget on a page that was already there.
 - name: select erase disk
-  click: [533, 364]
+  click: [427, 366]
   wait_after: 8
 
 - name: the partitions page with erase selected
@@ -378,9 +388,9 @@ steps:
       from: at_partitions_again
       mode: says_any
       words:
-      - - Select storage
-      - - Erase disk
-      - - Manual partitioning
+      - - storage
+      - - Erase
+      - - Manual
     until:
       fact: here
 
@@ -446,9 +456,9 @@ steps:
       from: at_users
       mode: says_any
       words:
-      - - What is your name
-      - - Computer Name
-      - - Repeat Password
+      - - Computer
+      - - Repeat
+      - - Password
     until:
       fact: here
 
