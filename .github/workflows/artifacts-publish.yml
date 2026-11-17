@@ -211,9 +211,19 @@ jobs:
   # and every request produces a DIFFERENT URL AND TOKEN, so there is nothing stable to pin.
   #
   # SO IT IS A TRANSFER BETWEEN TWO PACKAGES RATHER THAN A DOWNLOAD: the file is the same bytes, one
-  # copy is already published under `macos-recovery-sequoia`, and this mirrors it into THIS
+  # copy is already published under `macos-recovery-<name>`, and this mirrors it into THIS
   # repository's package so the asset layer has one place to look. A pull and a push, both through the
   # organisation's actions.
+  #
+  # ONE ROW PER macOS RELEASE, AND `tahoe` WAS MISSING FROM THIS JOB. `internal/asset` has resolved
+  # release 26 to the tag `macos-recovery-tahoe` since that table was written, and the publisher had
+  # only ever mirrored `sequoia` - so the image a 26 stage requires was in `easydiskbake` and in no
+  # repository this build reads. The failure mode of the omission is the one this project keeps
+  # paying for: a 404 in somebody's first step, naming a tag that looks like a typo.
+  #
+  # THE SOURCE IS THE PUBLISHER'S OWN PACKAGE for both rows. `sequoia` was mirrored from THIS
+  # repository before (it had been copied here once by hand); pulling both from `easydiskbake` makes
+  # the two rows the same shape and leaves one origin for every Apple image.
   recovery:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -221,6 +231,19 @@ jobs:
       contents: read
       packages: write
       checks: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # THE TAG IS THE RELEASE NAME, because that is what `recoveryMacOSTag` maps to:
+        #
+        #	15 -> macos-recovery-sequoia      26 -> macos-recovery-tahoe
+        #
+        # WRITTEN OUT RATHER THAN BUILT FROM A SUFFIX, so `TestEveryFetchedTagIsPublishedAndEvery
+        # PublishedTagIsFetched` can read these as the tags they are. A row added here without a
+        # matching entry in that table is a tag nothing resolves to.
+        include:
+          - tag: macos-recovery-sequoia
+          - tag: macos-recovery-tahoe
     # THE EVENT CHECK IS NOT DECORATION: an `inputs.` value is EMPTY on any event that is not a
     # dispatch, so `inputs.which == ''` alone is FALSE on a push and the job is skipped while the run
     # reports success.
@@ -231,22 +254,26 @@ jobs:
       - name: pull the published image
         # THE SOURCE IS THE PUBLISHER'S OWN PACKAGE, which is public - but every tag this build
         # consumes then lives in this repository, and the asset layer has ONE place to look.
+        #
+        # THAT SENTENCE USED TO SAY `repository: easydev-org/easyvm`, which was true and was the
+        # reason only one release could be mirrored: the second one had never been copied here, so
+        # the pull had nothing to read. `easydiskbake` is where macOS images are actually produced.
         uses: easydev-org/easyactions/oci-pull@main
         with:
-          tag: macos-recovery-sequoia
+          tag: ${{ matrix.tag }}
           dest: ${{ runner.temp }}/recovery
-          repository: easydev-org/easyvm
+          repository: easydev-org/easydiskbake
           token: ${{ github.token }}
-          check-name: recovery-pull
+          check-name: recovery-pull-${{ matrix.tag }}
 
       - name: push it here
         uses: easydev-org/easyactions/oci-push@main
         with:
-          path: ${{ runner.temp }}/recovery/macos-recovery-sequoia
-          tag: macos-recovery-sequoia
+          path: ${{ runner.temp }}/recovery/${{ matrix.tag }}
+          tag: ${{ matrix.tag }}
           repository: ${{ inputs.disks_repository }}
           token: ${{ github.token }}
-          check-name: recovery-mirror
+          check-name: recovery-mirror-${{ matrix.tag }}
 
   # THE FIRMWARE A MACOS GUEST BOOTS THROUGH, BUILT ONCE AND PUBLISHED.
   #
@@ -278,6 +305,11 @@ jobs:
   # THE IDENTITY IS FIXED HERE AND TRAVELS WITH THE IMAGE. macOS binds an installation to the serial
   # it was installed under; a disk that boots with a different one stops at a loop that reads as a
   # broken disk. Every stage boots the same disk, so every stage must use the same identity.
+  #
+  # ONE ROW PER RELEASE, AND EACH ROW WRITES ITS OWN TAGS. A single job publishing `macos-asset-boot`
+  # for two releases would have the second overwrite the first, and the 15 stages - which are the ones
+  # that work today - boot from that tag. So the row carries the RELEASE NAME and every tag and file
+  # this job reads or writes is built from it.
   opencore:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -285,6 +317,25 @@ jobs:
       contents: read
       packages: write
       checks: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # `walk` is the file, `recovery` the already-mirrored image it requires, `suffix` the part
+        # a published tag carries. THE 15 ROW HAS AN EMPTY SUFFIX ON PURPOSE: `macos-asset-boot`
+        # without one is what `macos/15/steps/*.yaml` and every stage in macos.yml pull today, and
+        # renaming it would be a change to files that are working.
+        #
+        # THE SUFFIX IS THE RELEASE, NOT THE CODE NAME: `-26`, not `-tahoe`, because the walkthroughs
+        # are named by release (`macos/26`) and the recovery tag is the one that needs a code name.
+        include:
+          - release: "15"
+            walk: macos/15/steps/firmware.yaml
+            recovery: macos-recovery-sequoia
+            suffix: ""
+          - release: "26"
+            walk: macos/26/steps/firmware.yaml
+            recovery: macos-recovery-tahoe
+            suffix: "-26"
     if: github.event_name != 'workflow_dispatch' || (inputs.which == '' && (inputs.group == 'all' || inputs.group == 'macos'))
     steps:
       - uses: actions/checkout@v4
@@ -306,7 +357,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/work"
           sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
             ghcr.io "$(printf '%s' "${{ inputs.disks_repository }}" | tr '[:upper:]' '[:lower:]')" \
-            macos-recovery-sequoia "$GITHUB_WORKSPACE/work/recovery.dmg"
+            "${{ matrix.recovery }}" "$GITHUB_WORKSPACE/work/recovery.dmg"
           ls -l "$GITHUB_WORKSPACE/work/recovery.dmg"
 
       - name: run the build in one container, because loopback is per container
@@ -352,7 +403,7 @@ jobs:
                 *) echo "=== THE DAEMON DID NOT COME UP ==="; cat /tmp/daemon.log; exit 1 ;;
               esac
 
-              easyvm run /repo/macos/15/steps/firmware.yaml --work /work || {
+              easyvm run /repo/${{ matrix.walk }} --work /work || {
                 echo "=== THE CLIENT REFUSED TO QUEUE THE BUILD ==="; cat /tmp/daemon.log; exit 1; }
 
               # THE EXIT CODE IS NOT THE ANSWER. \`status\` returns 0 for BOTH "finished" and
@@ -407,30 +458,34 @@ jobs:
         # qemu's pflash arguments name, so a boot would fail on a path that exists in the registry
         # and not on disk.
         #
+        # `${{ matrix.suffix }}` IS EMPTY FOR 15 AND `-26` FOR 26. Two releases publishing one tag
+        # would have the second overwrite the first, and the tag the working 15 stages boot from is
+        # that one - so the 15 tags keep their names and 26 gets its own.
+        #
         # THE NAMES ON THE WAY OUT ARE THE ONES `internal/run/actions.go` FALLS BACK TO when no
         # `build: opencore` step ran: `boot.img`, `macos.rom`, `macos.vars` in the work directory.
         uses: easydev-org/easyactions/oci-push@main
         with:
           path: ${{ github.workspace }}/work/boot.img
-          tag: macos-asset-boot
+          tag: macos-asset-boot${{ matrix.suffix }}
           repository: ${{ inputs.disks_repository }}
           token: ${{ github.token }}
-          check-name: opencore-boot
+          check-name: opencore-boot${{ matrix.suffix }}
 
       - name: push macos.rom
         uses: easydev-org/easyactions/oci-push@main
         with:
           path: ${{ github.workspace }}/work/macos.rom
-          tag: macos-asset-rom
+          tag: macos-asset-rom${{ matrix.suffix }}
           repository: ${{ inputs.disks_repository }}
           token: ${{ github.token }}
-          check-name: opencore-rom
+          check-name: opencore-rom${{ matrix.suffix }}
 
       - name: push macos.vars
         uses: easydev-org/easyactions/oci-push@main
         with:
           path: ${{ github.workspace }}/work/macos.vars
-          tag: macos-asset-vars
+          tag: macos-asset-vars${{ matrix.suffix }}
           repository: ${{ inputs.disks_repository }}
           token: ${{ github.token }}
-          check-name: opencore-vars
+          check-name: opencore-vars${{ matrix.suffix }}

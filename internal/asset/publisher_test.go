@@ -62,8 +62,25 @@ func TestEveryFetchedTagIsPublishedAndEveryPublishedTagIsFetched(t *testing.T) {
 		"dev-node-pkg":            true,
 		"dev-python-pkg":          true,
 	}
+	// AND THE TAGS PUBLISHED AHEAD OF A CONSUMER, ON PURPOSE AND BY NAME.
+	//
+	// `macos-asset-*-26` IS THE macOS 26 FIRMWARE, built and published because macOS 26 had no
+	// firmware of its own and the build does not branch on release - only its recovery image does.
+	// NOTHING PULLS THESE YET, because `macos/26/steps/` holds one file (`resume.yaml`) and there is
+	// no 26 setup or ssh walkthrough for a stage to boot. Publishing them now is what makes the next
+	// step - writing those walkthroughs - a change to YAML alone rather than one that also has to
+	// build and publish a firmware nobody has ever seen succeed.
+	//
+	// THIS LIST IS THE DEBT ITSELF. A tag named here is a tag the test will not complain about; an
+	// entry whose consumer later ARRIVES is caught by the FIRST loop in this test (the tag is now in
+	// `fetched`), so the list cannot quietly grow stale in the harmless direction.
+	publishedAheadOfAConsumer := map[string]bool{
+		"macos-asset-boot-26": true,
+		"macos-asset-rom-26":  true,
+		"macos-asset-vars-26": true,
+	}
 	for tag := range published {
-		if fetched[tag] || inputsToTheBuild[tag] || stillInAWalk[tag] {
+		if fetched[tag] || inputsToTheBuild[tag] || stillInAWalk[tag] || publishedAheadOfAConsumer[tag] {
 			continue
 		}
 		t.Errorf("artifacts-publish.yml writes %q and nothing asks for it - not a workflow's "+
@@ -167,8 +184,9 @@ func tagsThePublisherWrites(t *testing.T, src string) (catalogue, mirrored map[s
 			"unpublished")
 	}
 
-	// THE MIRRORED TAG is named in the recovery step rather than in a row, because Apple's image
-	// cannot be described by a URL.
+	// THE MIRRORED TAGS are named in the recovery step rather than in rows, because Apple's images
+	// cannot be described by a URL - and there is one per RELEASE, so this reads every row of that
+	// matrix rather than a single name.
 	for _, m := range regexp.MustCompile(`macos-recovery-[a-z]+`).FindAllString(src, -1) {
 		mirrored[m] = true
 	}
@@ -177,12 +195,48 @@ func tagsThePublisherWrites(t *testing.T, src string) (catalogue, mirrored map[s
 	// `oci-push` step, and there is no catalogue row for them because no URL produces them - the
 	// OpenCore firmware is assembled from four downloaded files plus a driver out of the recovery
 	// image. A tag pushed here must be pulled by some workflow, which is what the caller checks.
-	pushed := regexp.MustCompile(`(?m)^\s*tag:\s*([A-Za-z0-9._-]+)\s*$`)
+	//
+	// A TAG MAY END IN `${{ matrix.suffix }}`, AND THAT IS EXPANDED RATHER THAN IGNORED. The
+	// `opencore` job is a matrix over two releases and the suffix is empty for 15 and `-26` for 26 -
+	// so the tag strings in the file are templates, and a test that skipped them would pass while
+	// NOTHING was published under the names the stages read. MEASURED: making the job a matrix
+	// without this failed the caller with
+	//
+	//	a preparation step can ask for "macos-asset-boot" and artifacts-publish.yml does not write it
+	//
+	// which was exactly right - the literal `macos-asset-boot` had become `macos-asset-boot${{
+	// matrix.suffix }}` and no longer appeared anywhere. The fix is to expand the templates the way
+	// the runner does.
+	//
+	// THE SUFFIXES COME FROM THE SAME `include:` BLOCK the job uses, so a row added there without
+	// this list is a tag the test reports as unpublished - which is the direction that fails loudly
+	// instead of silently.
+	suffixes := []string{""}
+	if m := regexp.MustCompile(`(?m)^\s*suffix:\s*"([^"]*)"\s*$`).FindAllStringSubmatch(src, -1); m != nil {
+		suffixes = suffixes[:0]
+		for _, s := range m {
+			suffixes = append(suffixes, s[1])
+		}
+	}
+
+	// THE WHOLE VALUE, BECAUSE A TEMPLATE CONTAINS SPACES: `macos-asset-boot${{ matrix.suffix }}` is
+	// one tag expression and a character class that excluded spaces matched only `macos-asset-boot${`.
+	pushed := regexp.MustCompile(`(?m)^\s*tag:\s*(.+?)\s*$`)
 	for _, m := range pushed.FindAllStringSubmatch(src, -1) {
 		// A `tag:` on an `oci-pull` step is an INPUT, not something this file writes, and those are
 		// the catalogue and mirrored sets above. Only the pushes count.
-		if strings.Contains(src, "oci-push") {
-			mirrored[m[1]] = true
+		if !strings.Contains(src, "oci-push") {
+			continue
+		}
+		for _, suffix := range suffixes {
+			expanded := strings.ReplaceAll(m[1], "${{ matrix.suffix }}", suffix)
+			// ANY TEMPLATE LEFT OVER IS NOT A TAG. `${{ matrix.tag }}` on the recovery mirror is
+			// covered by the `macos-recovery-` read above; anything else here means a place the
+			// test cannot expand, and guessing at it would be worse than saying so.
+			if strings.Contains(expanded, "${{") {
+				continue
+			}
+			mirrored[expanded] = true
 		}
 	}
 	return catalogue, mirrored
