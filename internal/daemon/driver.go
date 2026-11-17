@@ -705,7 +705,15 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	// which is the FIRST isa-serial device qemu adds, so this must be the only one and it is.
 	qgaSocket := filepath.Join(d.work, "qga.sock")
 	_ = os.Remove(qgaSocket)
-	if guestOS.IsMacOS() {
+	//
+	// A MICROVM GETS `isa-serial` FOR THE SAME KIND OF REASON: `virtio-serial` is a PCI device and a
+	// microvm has no PCI bus. MEASURED, live:
+	//
+	//	qemu-system-x86_64: -device virtio-serial: No 'PCI' bus found for device 'virtio-serial-pci'
+	//
+	// and because qemu exits at startup the step reports `qmp ... connection refused`, which reads
+	// as a socket problem rather than an argument one.
+	if guestOS.IsMacOS() || boot.MicroVM {
 		args = append(args,
 			"-chardev", "socket,id=qga0,path="+qgaSocket+",server=on,wait=off",
 			"-device", "isa-serial,chardev=qga0",
@@ -753,7 +761,20 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		args = append(args, "-vga", "none")
 	case machine.AndroidVGA:
 		args = append(args, "-device", "virtio-vga,xres=1920,yres=1080")
-	default:
+	case "std":
+		// A MICROVM HAS NO PCI BUS, so `-device VGA` cannot attach - measured:
+		//
+		//	qemu-system-x86_64: -device VGA,xres=1920,yres=1080,vgamem_mb=32:
+		//	No 'PCI' bus found for device 'VGA'
+		//
+		// `-vga std` IS THE ISA FORM of the same adapter. It cannot carry a resolution, which is why
+		// every other guest here uses the `-device` form - but a microvm's screen is a text console
+		// whose resolution is qemu's own default, and the walkthrough that reads it says what it
+		// expects rather than needing 1920x1080.
+		if boot.MicroVM {
+			args = append(args, "-vga", "std")
+			break
+		}
 		args = append(args, "-device", DefaultVideoDevice)
 	}
 	args = append(args, boot.StorageArgs()...)
@@ -768,8 +789,12 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		"-vnc", fmt.Sprintf("127.0.0.1:%d", vncDisplay),
 		"-netdev", fmt.Sprintf("tap,id=net0,ifname=%s,script=no,downscript=no",
 			easyvmnet.TapName),
-		"-device", fmt.Sprintf("%s,netdev=net0,mac=%s,romfile=,host_mtu=%d", boot.VirtioNet(),
-			easyvmnet.TapMAC, easyvmnet.UplinkMTU()),
+		// `romfile=` AND `host_mtu=` ARE NOT OPTIONS EVERY VIRTIO NET DEVICE HAS. `virtio-net-device`
+		// - the mmio form a microvm needs - has neither:
+		//
+		//	-device virtio-net-device,netdev=net0,...,romfile=,host_mtu=1450:
+		//	Property 'virtio-net-device.romfile' not found
+		"-device", netDevice(boot, easyvmnet.TapMAC, easyvmnet.UplinkMTU()),
 	)
 	// THE POINTER IS ADDED BY `StorageArgs`, NOT HERE, AND THAT IS THE FIX FOR WINDOWS.
 	//
@@ -1680,3 +1705,20 @@ func (d *Driver) VNCPort() int {
 // fail, not retry: "the guest is gone" is the answer, and every further attempt is a minute of somebody's
 // afternoon spent confirming it.
 var ErrMachineGone = errors.New("the guest is no longer running")
+
+
+// netDevice builds the network device this machine can attach.
+//
+// THE PCI FORM TAKES `romfile=` AND `host_mtu=`, and both are load-bearing there: the empty `romfile`
+// keeps qemu from looking for a PXE ROM that is not installed in this image, and `host_mtu` matches
+// the tap. The mmio form a microvm needs has NEITHER property, so the two cannot share a format
+// string - MEASURED, live:
+//
+//	-device virtio-net-device,netdev=net0,...,romfile=,host_mtu=1450:
+//	Property 'virtio-net-device.romfile' not found
+func netDevice(boot machine.Boot, mac string, mtu int) string {
+	if boot.MicroVM {
+		return fmt.Sprintf("virtio-net-device,netdev=net0,mac=%s", mac)
+	}
+	return fmt.Sprintf("virtio-net-pci,netdev=net0,mac=%s,romfile=,host_mtu=%d", mac, mtu)
+}

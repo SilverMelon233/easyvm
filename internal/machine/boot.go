@@ -432,13 +432,19 @@ func (b Boot) StorageArgs() []string {
 		if path == "" {
 			return
 		}
-		idx := nextIndex
-		nextIndex++
 		id := fmt.Sprintf("media%d", nextID)
 		nextID++
+		// NO `bootindex`: the host hands the kernel over, so nothing on this bus is booted from. It
+		// is a BLOCK DEVICE the guest reads `modloop=` out of.
+		//
+		// MEASURED, and the reason it matters: giving it one collided with the target disk's index 0
+		//
+		//	-device virtio-blk-device,drive=target,bootindex=0: The bootindex 0 has already been used
+		//
+		// - qemu refused at startup and the step reported `qmp ... connection refused`.
 		args = append(args,
 			"-drive", fmt.Sprintf("file=%s,if=none,format=raw,readonly=on,id=%s", path, id),
-			"-device", fmt.Sprintf("virtio-blk-device,drive=%s,bootindex=%d", id, idx),
+			"-device", fmt.Sprintf("virtio-blk-device,drive=%s", id),
 		)
 	}
 	appendMedia := func(path string) {
@@ -475,8 +481,28 @@ func (b Boot) StorageArgs() []string {
 	// `discard=unmap` IS ON WHEN NOTHING IS INSTALLING, for the same reason and with the opposite
 	// sign as macOS: after a system is on the disk, its TRIMs are information the qcow2 can use to
 	// stay small.
+	// A MICROVM'S TARGET IS INDEX 0, BECAUSE NOTHING ELSE IS IN THE BOOT ORDER: the host hands the
+	// kernel over, so no medium carries a `bootindex` and the counter is still 0. Using it there
+	// collided the disk with itself -
+	//
+	//	-device virtio-blk-device,drive=target,bootindex=0: The bootindex 0 has already been used
+	//
+	// - and every other machine keeps the counter, where the installer is 0 and the target is 1 so
+	// the firmware cannot outrank the medium it was told to boot.
+	//
+	// AND A MICROVM'S TARGET IS INDEX 1 RATHER THAN 0, measured the hard way: qemu takes index 0 for
+	// the kernel it was handed, so the disk answering 0 is
+	//
+	//	-device virtio-blk-device,drive=target,bootindex=0: The bootindex 0 has already been used
+	//
+	// - and the same command line has NO other `bootindex` in it, which is what made this look like a
+	// duplicate-device bug for three attempts.
 	diskIndex := nextIndex
-	nextIndex++
+	if b.MicroVM {
+		diskIndex = 1
+	} else {
+		nextIndex++
+	}
 	disk := fmt.Sprintf("file=%s,if=none,format=qcow2,id=target", b.Disk)
 	if b.Discardable() {
 		disk += ",discard=unmap"
@@ -507,6 +533,17 @@ func (b Boot) StorageArgs() []string {
 	// pointing device comes through OpenCore, and the tablet is still attached so a person can drive the
 	// recovery screen. `StorageArgs` has already created the controller for the recovery disk there,
 	// which is the same variable.
+	// A MICROVM HAS NO PCI BUS, so there is no xHCI controller for a USB tablet to hang from - and
+	// measured, asking for one stops qemu at startup:
+	//
+	//	qemu-system-x86_64: -device qemu-xhci,id=xhci: No 'PCI' bus found for device 'qemu-xhci'
+	//
+	// A guest whose job is to prove the vocabulary does not need a pointer: the steps that click are
+	// exercised on the full machines, where a pointer exists. What this machine proves is that the
+	// vocabulary starts a guest, reads its console, and measures its screen.
+	if b.MicroVM {
+		return args
+	}
 	if !xhciAdded {
 		args = append(args, "-device", "qemu-xhci,id=xhci")
 		xhciAdded = true
@@ -807,6 +844,12 @@ func (b Boot) VGAFor(defaultVGA string) string {
 // silently opt out, and the failure mode is the one above: a guest with no card that reports it as a
 // capture bug three stages later.
 func (b Boot) AudioArgs() []string {
+	// A MICROVM HAS NO PCI BUS, so `ich9-intel-hda` - the default sound card - cannot attach. A guest
+	// whose job is to prove the vocabulary does not need audio, and the device it cannot have is the
+	// one that stops the machine at startup.
+	if b.MicroVM {
+		return nil
+	}
 	// `usb-audio` NEEDS THE xHCI CONTROLLER, which Windows' answer/driver CDs already create and
 	// macOS's own device list creates. On a guest with neither, `bus=xhci.0` names a bus that does
 	// not exist and qemu refuses to start - so this branch is only taken for macOS, whose

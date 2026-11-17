@@ -255,7 +255,13 @@ func parseStep(lines []line, i int) (map[string]any, int, error) {
 		return nil, 0, err
 	}
 	if _, ok := step["name"]; !ok {
-		step["name"] = head.text
+		// A BLOCK HEAD'S NAME MUST NOT END WITH `:` - the colon is the format's syntax, and a name
+		// carrying it makes the YAML decoder read `name: decide "x" is all of:` as a nested mapping:
+		//
+		//	yaml: line 29: mapping values are not allowed in this context
+		//
+		// MEASURED on the first microvm walkthrough that used a `decide` block.
+		step["name"] = strings.TrimSuffix(head.text, ":")
 	}
 	return step, next, nil
 }
@@ -498,6 +504,15 @@ func parseBoot(l line, rest string, step map[string]any) (map[string]any, error)
 		if i := strings.Index(rest, "initramfs "); i >= 0 {
 			if name, _, err := firstQuote(rest[i:]); err == nil {
 				step["initrd"] = name
+			}
+		}
+		// `medium "x.iso"` ATTACHES THE DISTRIBUTION IMAGE AS A BLOCK DEVICE, which is what an Alpine
+		// microvm reads its `modloop=` squashfs out of. A kernel and an initramfs alone boot the
+		// kernel and then stop: measured, the guest reached
+		// `initramfs emergency recovery shell launched` because there was nothing to mount.
+		if i := strings.Index(rest, "medium "); i >= 0 {
+			if name, _, err := firstQuote(rest[i:]); err == nil {
+				step["iso"] = name
 			}
 		}
 	}
@@ -940,7 +955,9 @@ func parseDecideBlock(head line, rest string, children []line) (map[string]any, 
 	} else {
 		want[quantifier] = comparisons
 	}
-	return map[string]any{"name": head.text, "want": want}, nil
+	// THE NAME CARRIES NO TRAILING COLON: it is the block's syntax, and a name holding it makes the
+	// YAML decoder read `name: decide "x" is all of:` as a mapping.
+	return map[string]any{"name": strings.TrimSuffix(head.text, ":"), "want": want}, nil
 }
 
 // parseComparison reads one line of a `decide` block: `<reading> <relation> <value>`.
