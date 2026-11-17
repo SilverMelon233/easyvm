@@ -550,6 +550,25 @@ steps:
   # the 15 runs said "About 2 hours and 52 minutes". 1080 x 20s IS SIX HOURS, which is that estimate
   # plus margin - and a timeout shorter than the thing it is timing out is a failure with a delayed
   # fuse.
+  #
+  # AND THE LAST PART IS SLOW RATHER THAN STUCK, WHICH IS WORTH KNOWING BEFORE SOMEBODY KILLS A RUN
+  # THAT WAS WORKING. MEASURED on this guest, 16 GiB of guest RAM, twenty minutes after the copy
+  # reported "About 1 hour and 31 minutes remaining":
+  #
+  #	screen         three captures 20 s apart, BYTE-IDENTICAL, and a click changed nothing
+  #	disk.qcow2     36.6 GiB, size and mtime both frozen
+  #	/proc/<qemu>/io   write_bytes still climbing: 9.4 MB in 30 s  (~300 KB/s)
+  #	threads        4 of 9 in state R, qemu at 400% CPU
+  #	RSS            15.9 GiB of the 16 GiB the guest was given
+  #
+  # SO A FROZEN SCREEN ON THIS STAGE IS NOT A HANG - the guest is inside the step its own installer
+  # PAINTS nothing for (APFS takes a snapshot, discards the staging volume, switches root) and the
+  # qcow2 does not grow because it is rewriting blocks it already allocated. THE I/O COUNTER IS THE
+  # TEST, not the picture and not the file size.
+  #
+  # IT ALSO SAYS WHY 16 GiB IS THE FLOOR FOR 26: at 4 GiB the same step froze at 37 GiB and never
+  # finished (see `macos/26/steps/resume.yaml`), and here the guest's entire 16 GiB is resident, so
+  # this stage is running with no memory to spare.
   loop:
     max: 1080
     do:
