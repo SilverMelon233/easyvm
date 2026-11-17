@@ -270,14 +270,56 @@ jobs:
             *) echo "=== THE DAEMON DID NOT COME UP ==="; exit 1 ;;
           esac
 
-      - name: install, and prove the disk was written
+      - name: ask for the run, and follow it to the end
+        # `easyvm run` IS A CLIENT AND RETURNS IMMEDIATELY. MEASURED on run 44025008327:
+        #
+        #	status: starting
+        #	[easyvm] the daemon is driving it; `easyvm status --work work` to follow
+        #	stat: cannot statx 'vocab-kubuntu.qcow2': No such file or directory
+        #
+        # - the run had STARTED and the next line asked for its output. So the request and the
+        # following are two different things, and this step does both.
+        #
+        # THE LOOP ENDS BEFORE THE JOB'S OWN LIMIT, or the runner kills it mid-sleep and the daemon
+        # log - the one thing that says which step failed - is never printed. stage.yml records
+        # exactly that: 97 minutes in `follow it` and an opaque cancellation instead of a reason.
+        #
+        # POSIX SH ONLY: a container step runs /bin/sh, and `$SECONDS` is a bash variable.
+        run: |
+          set -eu
+          easyvm run "linux/${{ inputs.distro }}/steps/install.yaml" \
+            --work "$GITHUB_WORKSPACE/work" \
+            --out "$GITHUB_WORKSPACE/vocab-${{ inputs.distro }}.qcow2" \
+            --password admin
+
+          limit=$(( 100 - 10 ))
+          rounds=0
+          while [ "$rounds" -lt "$limit" ]; do
+            rounds=$((rounds + 1))
+            state=$(easyvm status --work "$GITHUB_WORKSPACE/work" 2>&1 || true)
+            printf '%s\n' "$state"
+            case "$state" in
+              *"status: finished"*) echo "=== THE WALKTHROUGH FINISHED ==="; break ;;
+              *"status: failed"*)
+                echo "=== THE WALKTHROUGH FAILED ==="
+                cat "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
+                exit 1 ;;
+            esac
+            sleep 60
+          done
+          case "$state" in
+            *"status: finished"*) ;;
+            *) echo "=== THE WALKTHROUGH DID NOT FINISH IN TIME ==="
+               cat "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
+               exit 1 ;;
+          esac
+
+      - name: prove the disk was written
         run: |
           set -e
-          easyvm run "linux/${{ inputs.distro }}/steps/install.yaml" \
-            --work work \
-            --out "vocab-${{ inputs.distro }}.qcow2" \
-            --password admin
-          size=$(stat -c %s "vocab-${{ inputs.distro }}.qcow2")
+          f="$GITHUB_WORKSPACE/vocab-${{ inputs.distro }}.qcow2"
+          ls -l "$f" || { echo "::error::the run finished and produced no disk"; exit 1; }
+          size=$(stat -c %s "$f")
           echo "the disk is $size bytes"
           # THE SAME FLOOR THE PRODUCT USES. A header-only qcow2 is a walk whose clicks never reached
           # the installer's disk, and a green step in front of one proves nothing.
