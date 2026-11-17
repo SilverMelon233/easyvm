@@ -101,7 +101,10 @@ jobs:
           set -e
           go build -o /tmp/easyvm ./cmd/easyvm
           n=0
-          for f in $(find . -path ./.git -prune -o -name '*.yaml' -path '*/steps/*' -print); do
+          # BOTH EXTENSIONS, because a tree mid-migration holds both and a glob that said `*.yaml`
+          # checked 39 of 60 files and reported success - measured on run 44074330266, after 18
+          # walkthroughs had been converted and none of them was looked at.
+          for f in $(find . -path ./.git -prune -o \( -name '*.yaml' -o -name '*.walk' \) -path '*/steps/*' -print); do
             /tmp/easyvm check "$f" >/dev/null
             n=$((n+1))
           done
