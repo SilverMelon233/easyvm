@@ -51,12 +51,17 @@ steps:
   # An earlier version of this comment called that a stall and was WRONG. The evidence is a frame the
   # recorder kept, at 18:51:56 - the Apple logo, a progress bar about four fifths full, and the words
   # "About 21 minutes remaining...". The disk stopped growing at 37.95 GiB because the copy had
-  # finished and the guest was waiting to restart; qemu was still working at 400% CPU until the run
-  # was stopped by hand twelve minutes later. So the sequence at 12288 was
+  # finished and the guest was waiting to restart. So the sequence at 12288 was
   #
   #	erase -> licence -> copy (37.95 GiB) -> installer restart -> progress bar, 21 minutes left
   #
-  # and the conclusion it supports is the opposite of a stall: 12 GiB takes the install to the end.
+  # BUT THAT RUN WAS STOPPED BY HAND WHILE THE PROGRESS BAR STILL READ 21 MINUTES, SO IT PROVES LESS
+  # THAN IT LOOKS. Booting the 37.95 GiB disk it left behind reaches the Apple logo and a progress bar
+  # that never advances - the disk is an UNFINISHED INSTALL, which is what stopping during the final
+  # restart produces. So this run shows 12 GiB erases, copies and reaches the installer's restart; it
+  # does not show 12 GiB reaching the Setup Assistant, because nothing waited for it.
+  #
+  # THE CI RUN AT THIS SIZE IS THE TEST OF THAT LAST STEP, and it is the only one that is.
   memory_mb: 12288
   timeout: 900
 - name: the recovery menu's rows
@@ -417,11 +422,80 @@ steps:
   - 1005
   - 712
   wait_after: 10
+# THE POINTER IS MOVED OFF THE BUTTON IT JUST PRESSED, AND THAT IS THE REAL FIX.
+#
+# (1005,712) IS "Continue" ON THE PANE THAT ASKS WHERE TO INSTALL, AND IT IS "Cancel" ON THE PROGRESS
+# VIEW THAT REPLACES IT - the same pixels, one pane later. Leaving the pointer there is what put up
+#
+#	Are you sure you want to cancel the installation of macOS Tahoe?
+#	[Continue Installing]  [Quit]
+#
+# on run 44150638949, and that sheet then sat unanswered for the remaining 2.3 hours of the run while
+# the copy - 40% at t+300s, 85% at t+600s - was already healthy underneath it.
+#
+# SO THE POINTER GOES SOMEWHERE WITH NO CONTROL ON IT before the long wait. MEASURED FROM THE FAILING
+# RUN'S OWN FRAME: (960,330) is inside the macOS Tahoe artwork at the top of the progress view, a flat
+# region whose pixels span rgb 65..91 - not a button, not a checkbox, not a text field. A click there
+# does nothing, and that is the point.
+#
+# THE CANCEL SHEET IS ALSO ANSWERED IF IT APPEARS ANYWAY (see the branch inside look 1), because a
+# pointer move is a mitigation and the sheet is what actually has to be handled.
+- name: move the pointer off the cancel button
+  click:
+  - 960
+  - 330
+  wait_after: 2
 - name: the copy runs, look 1 of at most 8
   loop:
     max: 270
     do:
     - wait: 20
+    # THE COPY'S OWN CANCEL BUTTON SITS WHERE THE PREVIOUS STEP CLICKED, AND THE INSTALLER ASKS
+    # "Are you sure you want to cancel" WHEN IT IS HIT.
+    #
+    # MEASURED ON RUN 44150638949, which is what this branch exists for: \`destination continue\`
+    # clicks (1005,712) on the pane that says "macOS Tahoe will be installed on the disk", the copy
+    # starts and the pane BECOMES the progress view - and on that view (1005,712) is the CANCEL
+    # button. The pointer was still there, Cancel fired, and the installer put up
+    #
+    #	Are you sure you want to cancel the installation of macOS Tahoe?
+    #	"Reinstall macOS" in the menu and "Continue" again.
+    #	[Continue Installing]  [Quit]
+    #
+    # The frames prove the copy itself was healthy: 40% at t+300s, 85% at t+600s, "About 12 minutes
+    # remaining" - and then the dialog, unchanged for the remaining 2.3 hours of the run.
+    #
+    # CONTINUE INSTALLING IS (960,508), measured from that frame. Answering it is the whole fix: the
+    # copy resumes where it stopped rather than starting over.
+    - name: read the pane for the cancel sheet
+      ocr:
+        name: cancelshot
+        region:
+        - 820
+        - 300
+        - 1100
+        - 600
+        region_at:
+        - 1920
+        - 1080
+        scale: 1
+        wait: 0
+    - name: classify - the cancel confirmation
+      check:
+        name: cancel_sheet
+        from: cancelshot
+        mode: says
+        words:
+        - continue
+        - installing
+    - name: answer the cancel confirmation
+      if: cancel_sheet
+      then:
+        - name: continue installing
+          click:
+          - 960
+          - 508
+          wait_after: 10
     ocr:
       name: screen
       region:
