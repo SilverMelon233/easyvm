@@ -137,12 +137,48 @@ steps:
     until:
       fact: here
 
+# THE FIRST FIELD TAKES NO TEXT ON THE RUNNER, AND `clear:` IS WHAT MAKES THAT VISIBLE.
+#
+# MEASURED on the CI leg: `the users page is drawn` passed - the page WAS up - and then
+#
+#	=== users - what is your name
+#	  typed 6 character(s)
+#
+# while the field stayed empty, so Calamares kept `Next` grey and the install never started. The
+# press lands at (718, 377) and this workstation types into it; the runner's window is a few pixels
+# elsewhere and the press misses the box.
+#
+# `clear:` MAKES THE STEP SELF-CORRECTING rather than merely visible: it selects the field's contents
+# and deletes them before typing, which is a no-op on an empty box and puts the caret in it when the
+# press DID land. Every other field on this page already does this; the first one did not, because it
+# is the one that starts empty.
 - name: users - what is your name
   click:
   - 718
   - 377
+  clear: true
   type: '{{ user }}'
   wait_after: 2
+
+- name: the name took, or the field would still be empty
+  loop:
+    max: 8
+    do:
+    - wait: 1
+    ocr:
+      name: name_field
+      region: [560, 340, 1200, 420]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: took
+      from: name_field
+      mode: says_any
+      words:
+      - - '{{ user }}'
+    until:
+      fact: took
 - name: users - login name, select all
   click:
   - 700
