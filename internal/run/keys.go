@@ -21,7 +21,7 @@ func ExecutableKeys() []string {
 		// name; `loop:` is the three parts written down. ONLY THESE THREE ARE DISPATCHED: `says`,
 		// `says_any` and `max` are sub-keys of `check:` and `loop:` - a sub-key is not a step, and
 		// claiming it here is what the dispatch test exists to refuse.
-		"ocr", "check", "loop", "if",
+		"check", "loop", "if",
 		// `see:` MEASURES and `want:` DECIDES - the pair that makes a screen test data rather than a
 		// function in the binary. Both have a branch in runOne.
 		"see", "want",

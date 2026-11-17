@@ -442,14 +442,19 @@ func TestTheMachineDisablesTheVMwareBackdoorPort(t *testing.T) {
 	}
 	code := dropLineComments(string(body))
 
-	// THE -machine ARGUMENT IS WHERE THIS LIVES, and it must keep the accelerator it also names.
-	i := strings.Index(code, `"-machine", "q35,accel=kvm`)
+	// THE MACHINE TYPE IS BUILT BY `machineType` NOW, because a `microvm:` boot asks qemu for a
+	// different machine and a literal in the argument list could not say two things. So the check
+	// follows it there - and it must still keep the accelerator, and still disable vmport.
+	i := strings.Index(code, "func machineType(")
 	if i < 0 {
-		t.Fatal("no `-machine q35,accel=kvm` argument; the machine's own options have moved")
+		t.Fatal("no `machineType`, so the machine's options have moved again")
 	}
 	line := code[i:]
-	if end := strings.Index(line, "\n"); end > 0 {
+	if end := strings.Index(line, "\n}\n"); end > 0 {
 		line = line[:end]
+	}
+	if !strings.Contains(line, `"q35,accel=kvm`) {
+		t.Fatalf("`machineType` no longer names q35 with its accelerator: %s", line)
 	}
 	if !strings.Contains(line, "vmport=off") {
 		t.Fatalf("the machine is started with %s, and q35's default `vmport=on` binds `vmmouse`, "+
