@@ -258,13 +258,28 @@ jobs:
         # THAT SENTENCE USED TO SAY `repository: easydev-org/easyvm`, which was true and was the
         # reason only one release could be mirrored: the second one had never been copied here, so
         # the pull had nothing to read. `easydiskbake` is where macOS images are actually produced.
-        uses: easydev-org/easyactions/oci-pull@main
-        with:
-          tag: ${{ matrix.tag }}
-          dest: ${{ runner.temp }}/recovery
-          repository: easydev-org/easydiskbake
-          token: ${{ github.token }}
-          check-name: recovery-pull-${{ matrix.tag }}
+        #
+        # `pull-artifact.sh` RATHER THAN THE `oci-pull` ACTION, AND THE REASON IS THE FILENAME.
+        # MEASURED on run 44006675366, the first run of this matrix: BOTH rows failed with
+        #
+        #	oci-pull: pulling ...:macos-recovery-tahoe -> .../recovery/macos-recovery (916 MiB)
+        #	oci-push: .../recovery/macos-recovery-tahoe does not exist
+        #
+        # - the action TRUNCATES the on-disk name to `macos-recovery`, so it writes a file the push
+        # step cannot find. With one tag it wrote `macos-recovery-sequoia` and nobody noticed;
+        # `macos-recovery` and `macos-recovery-tahoe` differ in their last segment, which is what
+        # the truncation drops. The script takes a destination FILENAME, which is the thing the next
+        # step needs, and it is the same script the `opencore` job already pulls its own recovery
+        # image with.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/recovery"
+          sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+            ghcr.io easydev-org/easydiskbake \
+            "${{ matrix.tag }}" "$RUNNER_TEMP/recovery/${{ matrix.tag }}"
+          ls -l "$RUNNER_TEMP/recovery/${{ matrix.tag }}"
 
       - name: push it here
         uses: easydev-org/easyactions/oci-push@main
