@@ -284,9 +284,32 @@ steps:
 # MEASURED: with the box clear, two MORE password fields appear below it (`Root password`,
 # `Repeat root password`) and the form cannot be completed until they are filled. Ticking it removes
 # them and sets root's password to the user's, which is what every other distribution here does.
+# THE BOX'S EFFECT IS READABLE EVEN THOUGH THE BOX IS NOT: ticking it REMOVES the root-password
+# section, so `Repeat root password` leaving the page IS the tick having taken. MEASURED: on the
+# run before this one the click landed on a checkbox that had not been drawn yet, the section stayed,
+# `Next` stayed grey, and the two clicks after it did nothing - while the file reported both boxes.
 - name: reuse the user password for root
-  click: [587, 649]
-  wait_after: 4
+  loop:
+    max: 6
+    do:
+    - click: [587, 649]
+      wait_after: 3
+    ocr:
+      name: root_section
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 2
+    check:
+      name: gone
+      from: root_section
+      mode: says_without
+      # `Repeat` IS FROM `Repeat root password`, the field this section owns - and it is the only
+      # `Repeat` on the page, because the user password's second box is unlabelled.
+      words: [Password]
+      without: [Repeat]
+    until:
+      fact: gone
 
 # AND THE ACCOUNT LOGS ITSELF IN: an unattended client cannot type at a login screen.
 # THE TWO CHECKBOXES ARE 106 PIXELS APART, NOT 51, AND THAT IS WHY THE SECOND ONE MISSED.
@@ -381,9 +404,12 @@ steps:
     scale: 1
     wait: 3
 
-# `Install Now` INSIDE THE DIALOG, AT (1067, 539).
+# `Install Now` INSIDE THE DIALOG. MEASURED off the live frame: the button's box spans
+# x=680..740, y=352..368 in the 1280-wide view, so its centre is (709, 360) there - (1064, 540) on
+# the 1920 frame. The file had (1057, 527), which is the button's TOP EDGE: measured twice, once
+# missing it entirely and once catching it, which is what an edge click looks like.
 - name: install now
-  click: [1057, 527]
+  click: [1064, 540]
   wait_after: 25
 
 - name: the install writes the disk
