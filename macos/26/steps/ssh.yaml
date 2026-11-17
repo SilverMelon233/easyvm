@@ -1,0 +1,768 @@
+name: macos 26 ssh - the setup assistant, remote login, and a graceful shutdown
+resolution:
+- 1920
+- 1080
+ssh_user: vmuser
+ssh_port: 2222
+vars:
+  user:
+    from: args.user
+    default: vmuser
+  password:
+    from: args.password
+    default: vmuser
+  out:
+    from: args.out
+    default: out/macos26-ssh.qcow2
+  shutdown:
+    from: args.shutdown
+    default: acpi
+boot_disk: from_caller
+steps:
+- name: the media this stage boots from is already on disk
+  require:
+  - boot.img
+  - macos.rom
+  - macos.vars
+- name: start recording
+  record: macos26-ssh.mp4
+- name: boot the disk
+  boot: true
+  os: macos
+  memory_mb: 16384
+  timeout: 900
+- name: answer the wizard until the desktop appears
+  loop:
+    max: 60
+    do:
+    - name: read the pane
+      ocr:
+        name: pane
+        region:
+        - 0
+        - 0
+        - 1920
+        - 1080
+        region_at:
+        - 1920
+        - 1080
+        scale: 1
+        wait: 0
+    - name: classify - country or region
+      check:
+        name: country
+        from: pane
+        mode: says
+        words:
+        - select
+        - your
+        - country
+        - or
+        - region
+    - name: classify - transfer
+      check:
+        name: transfer
+        from: pane
+        mode: says
+        words:
+        - transfer
+        - your
+        - information
+        - to
+        - this
+        - mac
+    - name: classify - account
+      check:
+        name: account
+        from: pane
+        mode: says
+        words:
+        - create
+        - a
+        - mac
+        - account
+    - name: classify - apple account
+      check:
+        name: apple_account
+        from: pane
+        mode: says
+        words:
+        - sign
+        - in
+        - to
+        - your
+        - apple
+        - account
+    - name: classify - the apple account sheet
+      check:
+        name: apple_sheet
+        from: pane
+        mode: says
+        words:
+        - sure
+        - skip
+        - signing
+    - name: classify - terms
+      check:
+        name: terms
+        from: pane
+        mode: says
+        words:
+        - terms
+        - conditions
+    - name: classify - age
+      check:
+        name: age
+        from: pane
+        mode: says
+        words:
+        - age
+        - range
+    - name: classify - location
+      check:
+        name: location
+        from: pane
+        mode: says
+        words:
+        - enable
+        - location
+        - services
+    - name: classify - the location sheet
+      check:
+        name: location_sheet
+        from: pane
+        mode: says
+        words:
+        - find
+        - my
+        - available
+    - name: classify - time zone
+      check:
+        name: time_zone
+        from: pane
+        mode: says
+        words:
+        - time
+        - zone
+    - name: classify - analytics
+      check:
+        name: analytics
+        from: pane
+        mode: says
+        words:
+        - analytics
+        - improve
+    - name: classify - data and privacy
+      check:
+        name: privacy_pane
+        from: pane
+        mode: says
+        words:
+        - privacy
+        - fundamental
+    - name: classify - spoken languages
+      check:
+        name: languages
+        from: pane
+        mode: says
+        words:
+        - spoken
+        - languages
+    - name: classify - accessibility
+      check:
+        name: accessibility
+        from: pane
+        mode: says
+        words:
+        - accessibility
+        - individual
+    - name: classify - screen time
+      check:
+        name: screen_time
+        from: pane
+        mode: says
+        words:
+        - screen
+        - time
+    - name: classify - filevault
+      check:
+        name: filevault
+        from: pane
+        mode: says
+        words:
+        - ready
+        - encrypting
+    - name: classify - the filevault sheet
+      check:
+        name: filevault_sheet
+        from: pane
+        mode: says
+        words:
+        - securely
+        - encrypted
+    - name: classify - look
+      check:
+        name: look
+        from: pane
+        mode: says
+        words:
+        - choose
+        - your
+        - look
+    - name: classify - update
+      check:
+        name: update
+        from: pane
+        mode: says
+        words:
+        - update
+        - mac
+        - automatically
+    - name: classify - keyboard
+      check:
+        name: keyboard
+        from: pane
+        mode: says
+        words:
+        - keyboard
+        - assistant
+    - name: spoken languages
+      if: languages
+      then:
+      - name: languages continue
+        click:
+        - 1284
+        - 799
+        wait_after: 7
+    - name: accessibility
+      if: accessibility
+      then:
+      - name: accessibility not now
+        click:
+        - 1284
+        - 799
+        wait_after: 7
+    - name: data and privacy
+      if: privacy_pane
+      then:
+      - name: privacy continue
+        click:
+        - 1284
+        - 799
+        wait_after: 8
+    - name: transfer your data
+      if: transfer
+      then:
+      - name: choose not to transfer
+        click:
+        - 742
+        - 712
+        wait_after: 3
+      - name: transfer continue
+        click:
+        - 1284
+        - 799
+        wait_after: 8
+    - name: country or region
+      if: country
+      then:
+      - name: focus the country list
+        click:
+        - 900
+        - 470
+        wait_after: 2
+      - name: type the country
+        type: united states
+        wait_after: 3
+      - name: country continue
+        click:
+        - 1284
+        - 799
+        wait_after: 7
+    - name: the account, which is what this whole stage exists for
+      if: account
+      then:
+      - name: account full name
+        click:
+        - 959
+        - 496
+        wait_after: 2
+      - name: account full name text
+        type: '{{ user }}'
+        wait_after: 2
+      - name: account short name
+        click:
+        - 959
+        - 530
+        wait_after: 2
+      - name: clear the auto-filled short name
+        key: meta_l+a
+        wait_after: 1
+      - name: delete it
+        key: backspace
+        wait_after: 1
+      - name: account short name text
+        type: '{{ user }}'
+        wait_after: 2
+      - name: account password
+        click:
+        - 841
+        - 601
+        wait_after: 2
+      - name: account password text
+        type: '{{ password }}'
+        wait_after: 2
+      - name: account verify
+        click:
+        - 1068
+        - 601
+        wait_after: 2
+      - name: account verify text
+        type: '{{ password }}'
+        wait_after: 2
+      - name: untick the apple account reset
+        click:
+        - 745
+        - 663
+        wait_after: 2
+      - name: account continue
+        click:
+        - 1284
+        - 799
+        wait_after: 180
+    - name: apple account - other sign-in options, then later
+      if: apple_account
+      then:
+      - name: open other sign-in options
+        click:
+        - 620
+        - 800
+        wait_after: 4
+      - name: sign in later
+        click:
+        - 682
+        - 853
+        wait_after: 7
+    - name: the apple account confirmation sheet
+      if: apple_sheet
+      then:
+      - name: skip the apple account
+        click:
+        - 1017
+        - 644
+        wait_after: 8
+    - name: terms and conditions
+      if: terms
+      then:
+      - name: terms agree
+        click:
+        - 1282
+        - 799
+        wait_after: 7
+      - name: licence agree
+        click:
+        - 1019
+        - 616
+        wait_after: 8
+    - name: age range
+      if: age
+      then:
+      - name: choose adult
+        click:
+        - 959
+        - 710
+        wait_after: 7
+    - name: location services
+      if: location
+      then:
+      - name: location continue
+        click:
+        - 1284
+        - 799
+        wait_after: 7
+    - name: the location confirmation sheet
+      if: location_sheet
+      then:
+      - name: dont use location services
+        click:
+        - 959
+        - 575
+        wait_after: 7
+    - name: time zone
+      if: time_zone
+      then:
+      - name: time zone continue
+        click:
+        - 1284
+        - 799
+        wait_after: 7
+    - name: analytics - untick sharing first
+      if: analytics
+      then:
+      - name: untick share analytics
+        click:
+        - 745
+        - 520
+        wait_after: 2
+      - name: analytics continue
+        click:
+        - 1284
+        - 799
+        wait_after: 7
+    - name: screen time
+      if: screen_time
+      then:
+      - name: screen time later
+        click:
+        - 1131
+        - 799
+        wait_after: 7
+    - name: filevault
+      if: filevault
+      then:
+      - name: filevault not now
+        click:
+        - 1129
+        - 799
+        wait_after: 8
+    - name: the filevault confirmation sheet
+      if: filevault_sheet
+      then:
+      - name: continue without filevault
+        click:
+        - 1004
+        - 598
+        wait_after: 8
+    - name: choose your look
+      if: look
+      then:
+      - name: look continue
+        click:
+        - 1284
+        - 799
+        wait_after: 9
+    - name: the keyboard assistant, which eats the next keystroke
+      if: keyboard
+      then:
+      - name: keyboard quit
+        click:
+        - 1228
+        - 826
+        wait_after: 10
+    ocr:
+      name: wizard
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: at_update
+      from: wizard
+      mode: says
+      words:
+      - update
+      - mac
+      - automatically
+    until:
+      fact: at_update
+- name: reset the guest past the update pane, which never advances
+  reboot: true
+  timeout: 300
+- name: wait for the login window
+  loop:
+    max: 24
+    do:
+    - wait: 10
+    ocr:
+      name: clock
+      region:
+      - 820
+      - 90
+      - 1100
+      - 250
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: at_login
+      from: clock
+      mode: matches
+      pattern: '[0-9]+:[0-9]+'
+    until:
+      fact: at_login
+- name: dismiss anything over the login window
+  key: esc
+  wait_after: 2
+- name: click the password field
+  click:
+  - 960
+  - 981
+  wait_after: 2
+- name: type the password
+  type: '{{ password }}'
+  wait_after: 2
+- name: press return
+  key: ret
+  wait_after: 20
+- name: dismiss the overlays macOS puts up on a first login
+  do:
+  - click:
+    - 1228
+    - 826
+    wait_after: 4
+  - click:
+    - 1228
+    - 826
+    wait_after: 4
+  - click:
+    - 1228
+    - 826
+    wait_after: 4
+  - key: esc
+    wait_after: 2
+  - key: meta_l+q
+    wait_after: 2
+  - key: esc
+    wait_after: 2
+- name: wait for the desktop
+  loop:
+    max: 30
+    do:
+    - wait: 10
+    - key: esc
+    ocr:
+      name: desk
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: ready
+      from: desk
+      mode: says_without
+      words:
+      - finder
+      without:
+      - continue
+      - back
+      - later
+    until:
+      fact: ready
+- name: dismiss anything over the desktop
+  key: esc
+  wait_after: 2
+- name: open spotlight
+  key: meta_l+spc
+  wait_after: 4
+- name: type the settings app name
+  type: system settings
+  wait_after: 7
+- name: open it
+  key: ret
+  wait_after: 14
+- name: the settings window is up
+  loop:
+    max: 30
+    do:
+    - wait: 3
+    ocr:
+      name: screen
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - system
+        - settings
+      - - general
+      - - wi-fi
+    until:
+      fact: done
+- name: search for remote login
+  click:
+  - 715
+  - 267
+  type: remote login
+  clear: true
+  modifier: meta_l
+  wait_after: 10
+- name: the remote login result is on screen
+  loop:
+    max: 45
+    do:
+    - wait: 2
+    ocr:
+      name: screen
+      region:
+      - 480
+      - 240
+      - 760
+      - 420
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - sharing
+        - remote
+      - - allow
+        - full
+        - disk
+        - access
+    until:
+      fact: done
+- name: open the remote login pane
+  click:
+  - 703
+  - 336
+  wait_after: 12
+- name: open the remote login pane again
+  unless:
+  - allow
+  - full
+  - disk
+  - access
+  region:
+  - 726
+  - 300
+  - 1200
+  - 715
+  scale: 2
+  click:
+  - 703
+  - 336
+  wait_after: 12
+  region_at:
+  - 1920
+  - 1080
+- name: the remote login pane is up
+  loop:
+    max: 30
+    do:
+    - wait: 3
+    ocr:
+      name: screen
+      region:
+      - 726
+      - 300
+      - 1200
+      - 715
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - allow
+        - full
+        - disk
+        - access
+    until:
+      fact: done
+- name: turn remote login on
+  unless:
+  - log
+  - in
+  - to
+  - this
+  - computer
+  region:
+  - 726
+  - 300
+  - 1200
+  - 715
+  scale: 2
+  click:
+  - 1145
+  - 353
+  wait_after: 4
+  region_at:
+  - 1920
+  - 1080
+- name: the switch reads on
+  loop:
+    max: 10
+    do:
+    - wait: 3
+    ocr:
+      name: screen
+      region:
+      - 726
+      - 300
+      - 1200
+      - 715
+      region_at:
+      - 1920
+      - 1080
+      scale: 2
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - log
+        - in
+        - to
+        - this
+        - computer
+    until:
+      fact: done
+- name: close the pane
+  click:
+  - 1145
+  - 679
+  wait_after: 5
+- name: wait for sshd
+  require_ssh: true
+  timeout: 600
+- name: prove the build over ssh
+  ssh: sw_vers -productVersion
+- name: prove the account over ssh
+  ssh: id -un
+- name: prove disk utility works over ssh
+  ssh: diskutil list | head -5
+- name: name the machine
+  ssh: printf '%s\n' "{{ password }}" | sudo -S scutil --set LocalHostName {{ user }}
+- name: note what is absent
+  ssh: command -v brew || true
+- name: stop the machine
+  shutdown: ssh
+  timeout: 300
+- name: publish the disk
+  compress: '{{ out }}'
+- name: stop recording
+  record: false
