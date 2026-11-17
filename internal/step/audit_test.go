@@ -45,7 +45,8 @@ func readTable(t *testing.T) tableSections {
 	var out tableSections
 	section := ""
 	for _, line := range strings.Split(string(raw), "\n") {
-		if strings.HasPrefix(line, "## ") || strings.HasPrefix(line, "### ") {
+		if strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ") ||
+			strings.HasPrefix(line, "### ") {
 			section = line
 			continue
 		}
@@ -62,7 +63,7 @@ func readTable(t *testing.T) tableSections {
 		}
 		names := splitCell(first)
 		switch {
-		case strings.Contains(section, "retirement plan"):
+		case strings.Contains(section, "Retired"):
 			out.merged = append(out.merged, names...)
 		case strings.Contains(section, "Subkeys"):
 			out.subkey = append(out.subkey, names...)
@@ -102,6 +103,9 @@ func TestEveryKeyInTheTableExists(t *testing.T) {
 		t.Fatalf("parsed only %d keys as step keys; the table has drifted or the parser broke",
 			len(tb.main))
 	}
+	// THE FILE HEADER AND THE RETIREMENT LIST ARE NOT STEP KEYS. A header field lives in the walk
+	// package's document validator, and a retired key is one the code may have already deleted -
+	// neither belongs in this package's vocabulary, so neither is checked here.
 	for _, k := range append(append([]string{}, tb.main...), tb.subkey...) {
 		if _, ok := Keys[k]; !ok {
 			t.Errorf("docs/PRIMITIVES.md lists `%s:` and the vocabulary does not declare it - a "+
@@ -172,8 +176,8 @@ func readMigrated(t *testing.T) []string {
 	var out []string
 	inPlan := false
 	for _, line := range strings.Split(string(raw), "\n") {
-		if strings.HasPrefix(line, "## ") {
-			inPlan = strings.Contains(line, "retirement plan")
+		if strings.HasPrefix(line, "# ") || strings.HasPrefix(line, "## ") {
+			inPlan = strings.Contains(line, "Retired")
 			continue
 		}
 		if !inPlan || !strings.HasPrefix(line, "|") {

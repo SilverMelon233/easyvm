@@ -472,6 +472,67 @@ var Keys = map[string]Key{
 		Summary: "DECIDE from named readings and bind a BOOLEAN: {name, all|any|not}. It compares " +
 			"with less_than, greater_than, at_least, at_most, equals, or a difference from another " +
 			"reading. It never reads the screen, so it costs nothing to re-ask"},
+	// --- `check:`'s criteria, and the relations inside them -------------------------------
+	//
+	// THESE ARE SUBKEYS: they are written inside `check:` and never on a step. They are declared
+	// here for the same reason every other key is - the validator refuses an unknown key, and a
+	// subkey that is not declared would make a legitimate file fail to load. `audit_test.go` reports
+	// any declared key that the table omits, which is what keeps this list and the document in step.
+	//
+	// THE THREE TEXT COMPARISONS ANSWER THREE QUESTIONS, and the split is measured rather than
+	// tidy: `contains:` asks whether the region CONTAINS words, `like:`/`ratio:` asks whether it IS
+	// a sentence, and `fuzzy:` is the tolerance `contains:` needs when a glyph is misread.
+	"contains": {Name: "contains", Kind: KindList,
+		Summary: "with `check: text:`: ALL these words, any order, case and punctuation folded"},
+	"contains_any": {Name: "contains_any", Kind: KindWordSets,
+		Summary: "with `check: text:`: ANY one of these word-sets"},
+	"not_contains": {Name: "not_contains", Kind: KindList,
+		Summary: "with `check: text:`: NONE of these words may be present"},
+	"equals": {Name: "equals", Kind: KindString,
+		Summary: "with `check: text:`: the whole region's text equals this, normalised"},
+	"matches": {Name: "matches", Kind: KindString,
+		Summary: "with `check: text:`: a regular expression over the region's text"},
+	"like": {Name: "like", Kind: KindString,
+		Summary: "with `check: text:`: the whole region is approximately THIS sentence - the " +
+			"only place a ratio belongs, because it needs a long string to be reliable"},
+	"fuzzy": {Name: "fuzzy", Kind: KindInt,
+		Summary: "with `check: text: contains:`: an EDIT DISTANCE per word, 0 (exact) to 2. A " +
+			"distance and not a ratio, because `disk`->`dsk` is one edit and scores 0.750 as a ratio"},
+	"ratio": {Name: "ratio", Kind: KindFloat,
+		Summary: "with `check: text: like:`: how close, 0 to 1. 0.85 separates one misread glyph " +
+			"from a wrong crop"},
+	"mean": {Name: "mean", Kind: KindMapping,
+		Summary: "with `check: colour:`: mean brightness 0..255 over the rect, compared with " +
+			"less_than, greater_than, at_least, at_most, between or equals"},
+	"spread": {Name: "spread", Kind: KindMapping,
+		Summary: "with `check: colour:`: the mean absolute deviation of brightness - what FLAT " +
+			"means. A panel's border measures 0 to 2; a wallpaper 8 or more"},
+	"sat": {Name: "sat", Kind: KindMapping,
+		Summary: "with `check: colour:`: mean HSV saturation 0..1"},
+	"flat_rows": {Name: "flat_rows", Kind: KindMapping,
+		Summary: "with `check: colour:`: how many rows in the rect are ONE COLOUR across its full " +
+			"width - the number that sees a panel whose colour matches its wallpaper"},
+	"contrast": {Name: "contrast", Kind: KindMapping,
+		Summary: "with `check: colour:`: max minus min brightness inside the rect"},
+	"vs": {Name: "vs", Kind: KindMapping,
+		Summary: "with `check: colour:`: compare this rect's number against ANOTHER rect's - " +
+			"`{rect: middle, mean: {greater_than: 40}}` is the panel rule's brightness difference"},
+	"min": {Name: "min", Kind: KindMapping,
+		Summary: "with `check: colour:`: the darkest pixel in the rect"},
+	"less_than": {Name: "less_than", Kind: KindFloat,
+		Summary: "a comparison: < this"},
+	"greater_than": {Name: "greater_than", Kind: KindFloat,
+		Summary: "a comparison: > this"},
+	"at_least": {Name: "at_least", Kind: KindFloat,
+		Summary: "a comparison: >= this"},
+	"at_most": {Name: "at_most", Kind: KindFloat,
+		Summary: "a comparison: <= this"},
+	"between": {Name: "between", Kind: KindPair,
+		Summary: "a comparison: [low, high] inclusive"},
+	"minus": {Name: "minus", Kind: KindString,
+		Summary: "a comparison modifier: subtract another reading first, as " +
+			"`{minus: body.mean, greater_than: 40}`"},
+
 	"rect": {Name: "rect", Kind: KindString,
 		Summary: "with `see:` and `check:`: the region to measure, as a FRACTION of the frame " +
 			"rather than a pixel pair, so it cannot be measured at the wrong size. Forms: " +
