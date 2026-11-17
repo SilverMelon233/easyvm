@@ -473,9 +473,23 @@ steps:
 # pointer, and the press is the first thing that puts the pointer there.
 #
 # SO THE ROW IS CLICKED FIRST - on its own `vda1` label, which is inert - and the kebab after it.
+# THE ROW IS SELECTED ON ITS TYPE CELL, NOT ITS LABEL - THE LABEL IS A LINK TO THE DETAIL PAGE.
+#
+# MEASURED: a press on `vda1` at (460, 363) opens
+#
+#	Storage > vda - VirtIO Disk > vda1
+#	Partition    Name -   UUID 4d012aae...   Type Linux filesystem data   Size 137 GB
+#	ext4 filesystem   Name root   Mount point /
+#
+# - a DETAIL page, with its own Shrink/Grow and its own kebabs at different heights. The step that
+# followed pressed the LIST page's kebab coordinate into that page and opened nothing, which is why
+# `the partition menu is open` failed with the detail page on screen.
+#
+# `ext4 filesystem` at (460, 363) is the Type cell of the same row and selects the row without
+# navigating.
 - name: select the root partition's row
   click:
-  - 460
+  - 700
   - 363
   wait_after: 3
 
