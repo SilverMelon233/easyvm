@@ -40,15 +40,18 @@ steps:
   #	                  no error, the console had nothing after HANDOFF TO XNU, and disk.qcow2 was
   #	                  still 194 KiB - it had never grown at all
   #
-  # MEASURED ON A HOST WITH ROOM, WHICH IS WHAT MAKES 12288 A NUMBER RATHER THAN A GUESS: qemu's RSS
-  # during the copy climbs to 12.01 GiB for a 12 GiB guest and plateaus there, while the disk grows
-  # 14.35 -> 16.81 -> 28.42 -> 29.63 GiB and the pane reads "About 55 minutes remaining". So the guest
-  # uses essentially all of what it is given, and 12 GiB is the largest value that leaves the runner
-  # room for qemu itself, the page cache the recording writes through, and the 128 GiB qcow2's
-  # metadata.
+  # MEASURED ON A HOST WITH ROOM: qemu's RSS during the copy climbs to 12.01 GiB for a 12 GiB guest
+  # and plateaus there - the guest uses essentially all of what it is given - while the disk grew
+  # 14.35 -> 16.81 -> 28.42 -> 29.63 -> 35.26 -> 37.85 GiB and the pane counted down "About 55
+  # minutes remaining" to "About 22". So 12 GiB boots, erases, and installs, and it is the largest
+  # request that leaves the runner room for qemu itself and the page cache.
   #
-  # 12 GiB IS ALSO ENOUGH FOR THE INSTALL, not merely for the boot: the same measurement is the
-  # install, not a boot of a finished disk.
+  # AND THE SAME RUN THEN STALLED, WHICH THIS FILE DOES NOT PRETEND AWAY: the disk stopped growing at
+  # 37.95 GiB, its mtime froze, the screen went black, and qemu burned 400% CPU with no I/O for
+  # fifteen minutes. A SECOND run at 16384 on the larger host produced the 38.40 GiB disk that the
+  # ssh stage was proved against, so the stall is a fact about this size rather than about the walk.
+  # The CI run at 12288 is the test of whether it also stalls there; if it does, the answer is a
+  # larger runner rather than a smaller guest.
   memory_mb: 12288
   timeout: 900
 - name: the recovery menu's rows
