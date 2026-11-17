@@ -106,9 +106,40 @@ steps:
   - 1329
   - 836
   wait_after: 15
+# THE USERS PAGE HAS TO BE UP BEFORE ANYTHING IS TYPED INTO IT, AND ON CI IT WAS NOT.
+#
+# MEASURED on the CI leg: every field in this page reported `typed N character(s)` and the install
+# still never started, because the FIRST field - `What is your name?` - took no text. `click` followed
+# immediately by `type:` is a press and then keystrokes; if the page is still laying itself out, the
+# press lands on the old page and the typing goes nowhere. On this workstation the page is drawn by
+# the time the click arrives; on the runner it is not.
+#
+# SO THE PAGE IS WAITED FOR BY ITS OWN FIRST LABEL, which is a word the previous page (Desktop) does
+# not carry.
+- name: the users page is drawn
+  loop:
+    max: 30
+    do:
+    - wait: 6
+    ocr:
+      name: at_users
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 2
+    check:
+      name: here
+      from: at_users
+      mode: says_any
+      words:
+      - - name
+      - - Password
+    until:
+      fact: here
+
 - name: users - what is your name
   click:
-  - 700
+  - 718
   - 377
   type: '{{ user }}'
   wait_after: 2

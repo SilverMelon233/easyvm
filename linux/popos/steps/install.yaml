@@ -201,6 +201,17 @@ steps:
   - 755
   - 1430
   - 845
+  # THE FALLBACK IS THE BUTTON'S CENTRE, MEASURED, AND IT IS REQUIRED RATHER THAN A NICETY.
+  #
+  # MEASURED on the CI leg: `create user account: no control fill in [1240,755 1430,845], and no
+  # `at_fallback:` to use instead: the dominant colour there is too small to be a control, or there
+  # is none`. The scan looks for a filled rectangle of one colour inside that box; on the runner the
+  # button is drawn with the same fill as its pane and the scan found nothing, while the button was
+  # there and clickable. This is the same failure `open the installer from the dock` had on this
+  # medium, and the same answer: a measured point rather than a scan.
+  at_fallback:
+  - 1366
+  - 811
   wait_after: 22
 - name: wait for the password pane
   loop:
@@ -266,6 +277,9 @@ steps:
   - 755
   - 1430
   - 845
+  at_fallback:
+  - 1366
+  - 811
   wait_after: 25
 - name: drive encryption - don't encrypt
   click:
