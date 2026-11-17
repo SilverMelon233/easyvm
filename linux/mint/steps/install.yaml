@@ -262,7 +262,14 @@ steps:
       name: done
       from: finished
       mode: says
-      words: [Complete]
+      # `Complete` IS THE DIALOG'S TITLE AND OCR DROPS IT. MEASURED on this dialog's own frame:
+      #
+      #	read: "Install Linux Mint oon but until you restart the computer, any changes you make"
+      #
+      # - the title `Installation Complete` came back as `oon`, so a check on it could never pass
+      # while the dialog was plainly on screen. `restart` is from the sentence underneath, which is
+      # the longest line on the dialog and the one OCR reads cleanly.
+      words: [restart]
     until:
       fact: done
 - name: stop the machine
