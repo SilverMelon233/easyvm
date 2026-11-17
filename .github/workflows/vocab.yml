@@ -359,8 +359,8 @@ jobs:
           upstream=$(printf '%s' "${{ inputs.upstream }}" | tr '[:upper:]' '[:lower:]')
           sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
             ghcr.io "$upstream" "${{ inputs.boot_disk }}" \
-            "$GITHUB_WORKSPACE/work/boot.qcow2"
-          ls -l "$GITHUB_WORKSPACE/work/boot.qcow2"
+            "$GITHUB_WORKSPACE/work/disk.qcow2"
+          ls -l "$GITHUB_WORKSPACE/work/disk.qcow2"
 
       - name: a microvm's medium, downloaded because upstream publishes none
         # THE ALPINE README (63 MiB) IS SMALL ENOUGH TO FETCH DIRECTLY, and that is the point of a
@@ -469,8 +469,12 @@ jobs:
             # used as a placeholder when `walk:` names the file, so naming an artifact after it would
             # produce `vocab-ubuntu.qcow2` for a Windows install.
             slug=$(printf '%s' "$file" | tr '/' '-' | sed 's/-steps-/-/; s/\.walk$//')
+            # THE FILE SAYS `disk: disk.qcow2` AND `boot:` STARTS IT, so the pulled disk IS
+            # `work/disk.qcow2`. Passing `--boot-disk` as well would name a SECOND path for the same
+            # file, and the step that takes the input disk looks only for the name the file wrote -
+            # MEASURED: `take the input disk: no disk at .../work/disk.qcow2`.
             boot=""
-            if [ -n "${{ inputs.boot_disk }}" ]; then boot="--boot-disk $GITHUB_WORKSPACE/work/boot.qcow2"; fi
+            if [ -n "${{ inputs.boot_disk }}" ]; then boot="--boot-disk $GITHUB_WORKSPACE/work/disk.qcow2"; fi
             easyvm run "$file" \
               --work "$GITHUB_WORKSPACE/work" \
               --out "$GITHUB_WORKSPACE/$slug.qcow2" \
