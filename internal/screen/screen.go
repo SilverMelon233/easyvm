@@ -1103,12 +1103,111 @@ func IsGNOMEDesktop(img image.Image) (bool, Stats) {
 
 // IsCinnamonDesktop reports whether a frame is a Cinnamon desktop.
 //
-// CINNAMON IS A GNOME FORK AND DRAWS THE SAME SHAPE: a bar along an edge over a body. Measured on
-// mint's live medium. It is a separate name for the same reason GNOME's is separate - so the dispatch
-// table says which medium uses which desktop, and so a change for one does not silently change the
-// other. The measurement is shared and this comment says so.
+// IT IS NOT `IsLinuxDesktop`, AND THAT IS MEASURED RATHER THAN PREFERRED. Cinnamon's stock theme on
+// mint 22.3 is MINT-Y-DARK, whose panel is the SAME COLOUR as the wallpaper behind it - so the one
+// thing `IsLinuxDesktop` looks for, a brightness difference between the edge band and the body,
+// is zero by construction.
+//
+// MEASURED, frame 1920x1080 from mint's live medium after GRUB was answered:
+//
+//	IsLinuxDesktop   false   BottomVar=8.50 BottomSat=655.4 BrightnessDrop=0
+//	body rows (y=300..340)   mean 36.7 35.9 36.1
+//	panel rows (y=1040..1064) mean 29.4 .. 39.1
+//
+// - the panel is not darker OR lighter than the body, it is the same, and `margin > 40` can never
+// be satisfied. mint therefore waited out its whole `desktop:` timeout on a desktop that was up.
+//
+// WHAT DOES SEPARATE IT IS THE PANEL'S OWN EDGE, and that is a shape rather than a colour. Row by
+// row down the bottom of that same frame, with `mad` the mean absolute deviation along the row:
+//
+//	y=1030..1038   mad 8.3..8.5   the wallpaper, which has its own texture
+//	y=1039         mad 0.0        THE PANEL'S TOP BORDER - one colour across the full width
+//	y=1040..1044   mad 0.2..2.1   the panel's own background
+//	y=1045..1070   mad 6.8..19.0  the icons on it
+//	y=1075..1079   mad 0.2..1.7   the panel's bottom border
+//
+// SO THE TEST IS: inside the bottom quarter of the frame, a row that is FLAT across the full width
+// and has MORE PIXELS BELOW IT THAN A BORDER WOULD BE. Flatness across the full width is what a
+// panel's border is; wallpaper is never that; and requiring content below it is what rejects the
+// frame's own last row, which is flat on any solid image.
+//
+// IT DOES NOT LOOK FOR THE PANEL'S COLOUR, because the colour is the theme's - a light Cinnamon
+// theme inverts it, and a test that named a colour would fail on the next release the way this one
+// did on this one.
 func IsCinnamonDesktop(img image.Image) (bool, Stats) {
-	return IsLinuxDesktop(img)
+	if ok, st := IsLinuxDesktop(img); ok {
+		return true, st
+	}
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	st := Stats{Width: w, Height: h}
+	if w == 0 || h == 0 {
+		return false, st
+	}
+
+	// THE BOTTOM QUARTER, because a panel is at the bottom on every Cinnamon medium here and a
+	// quarter is more than the 41 rows measured while still excluding a wallpaper band high up.
+	from := h - h/4
+	// A BORDER IS THIN, so the rows below the flat one are what prove it is a border rather than a
+	// frame that is simply solid to its last row.
+	const minBelow = 6
+
+	for y := h - 1 - minBelow; y >= from; y-- {
+		if rowFlatness(img, y) > 3 {
+			continue
+		}
+		// THE ROW IS FLAT. It counts as a panel edge only if the band below it is NOT also flat
+		// all the way to the frame's edge - a solid colour to the bottom is a window, not a bar.
+		belowFlat := true
+		for yy := y + 1; yy < h-minBelow; yy++ {
+			if rowFlatness(img, yy) > 3 {
+				belowFlat = false
+				break
+			}
+		}
+		if belowFlat {
+			continue
+		}
+		st.BrightnessDrop = 0
+		st.BottomVar = rowSpread(img, y)
+		return true, st
+	}
+	return false, st
+}
+
+// rowFlatness is the mean absolute deviation of brightness along one row, sampled every 4th pixel.
+//
+// IT IS THE SEPARATOR BETWEEN A BORDER AND A WALLPAPER: measured 0.0 to 2.1 on the panel's own
+// borders and 8.3 or more on the wallpaper beside them.
+func rowFlatness(img image.Image, y int) float64 {
+	b := img.Bounds()
+	var total, count float64
+	pixels := make([]float64, 0, 512)
+	for x := b.Min.X; x < b.Max.X; x += 4 {
+		r, g, bl, _ := img.At(x, y).RGBA()
+		v := float64((r>>8 + g>>8 + bl>>8) / 3)
+		pixels = append(pixels, v)
+		total += v
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	mean := total / count
+	var dev float64
+	for _, v := range pixels {
+		d := v - mean
+		if d < 0 {
+			d = -d
+		}
+		dev += d
+	}
+	return dev / count
+}
+
+// rowSpread is the same number as bandSpread for a one-row band.
+func rowSpread(img image.Image, y int) float64 {
+	return rowFlatness(img, y)
 }
 
 // IsXFCEDesktop reports whether a frame is an XFCE desktop.

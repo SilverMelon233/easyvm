@@ -31,6 +31,38 @@ steps:
   os: linux
   iso: mint.iso
   timeout: 1800
+# THE MEDIUM STOPS AT ITS OWN GRUB MENU AND WAITS, WHICH IS WHY THIS STAGE USED TO TIME OUT.
+#
+# MEASURED on this ISO (Linux Mint 22.3 Cinnamon 64-bit): after `boot:` the screen is GRUB's menu
+# with `Start Linux Mint 22.3 Cinnamon 64-bit` highlighted and the footnote `Press enter to boot the
+# selected OS`. It does not count down. The `wait for the live desktop` step below then waited out
+# its whole budget against a menu, and the CI leg failed at 1h30m with the disk never written.
+#
+# FIVE SECONDS IS NOT A TIMER TO OUTLAST, IT IS A MENU THAT NOBODY PRESSED. The keyboard already
+# works at this point - GRUB draws it - so one `ret` is the whole fix, and it is a step of its own
+# so the transcript says the menu was answered rather than that a wait merely succeeded.
+- name: the medium's GRUB menu is up
+  ocr:
+    name: grub
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 5
+- name: that menu names mint
+  check:
+    name: is_mint
+    from: grub
+    mode: says_any
+    words:
+    - - start
+      - linux
+      - mint
+    - - linux
+      - mint
+- name: answer the menu, which does not count down
+  key: ret
+  wait_after: 20
+
 - name: wait for the live desktop
   desktop: linux/cinnamon
   timeout: 5400

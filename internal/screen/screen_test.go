@@ -542,3 +542,70 @@ func TestKDEDesktopAcceptsBothPanelHeights(t *testing.T) {
 		t.Fatal("a flat Calamares window must not read as a KDE desktop")
 	}
 }
+
+// MINT'S CINNAMON DESKTOP IS A PANEL THE SAME COLOUR AS ITS WALLPAPER, and `IsLinuxDesktop` cannot
+// see it - which is not a missing threshold, it is a wrong premise for this one medium.
+//
+// THE FRAME IS REAL: internal/screen/testdata/mint_desktop.png is 1920x1080 captured from mint
+// 22.3 Cinnamon's live medium, after its GRUB menu was answered, with nothing else on screen. The
+// numbers below are that frame's, not a drawn approximation:
+//
+//	IsLinuxDesktop    false   BottomVar=8.50  BrightnessDrop=0
+//	y=1030..1038      mad 8.3..8.5   wallpaper
+//	y=1039            mad 0.0        the panel's top border
+//	y=1040..1044      mad 0.2..2.1   the panel's background
+//	y=1045..1070      mad 6.8..19.0  its icons
+//	y=1075..1079      mad 0.2..1.7   its bottom border
+//
+// so the panel is there and the brightness difference the shared test looks for is exactly zero.
+func TestCinnamonSeesAPanelThatIsTheSameColourAsItsWallpaper(t *testing.T) {
+	f, err := os.Open("testdata/mint_desktop.png")
+	if err != nil {
+		t.Fatalf("mint's live frame is the whole point of this test: %v", err)
+	}
+	defer f.Close()
+	img, err := png.Decode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// THE SHARED TEST DOES NOT SEE IT, and that is the fact this test exists to pin down: if a later
+	// change makes `IsLinuxDesktop` accept this frame, the special case below is dead code and this
+	// test says so rather than letting it rot.
+	if ok, st := IsLinuxDesktop(img); ok {
+		t.Fatalf("IsLinuxDesktop now accepts mint's frame (%s), so IsCinnamonDesktop no longer "+
+			"needs its own reading - remove the special case instead of keeping both", st.Explain())
+	}
+
+	if ok, st := IsCinnamonDesktop(img); !ok {
+		t.Fatalf("mint's own live desktop must read as a Cinnamon desktop: %s", st.Explain())
+	}
+}
+
+// AND THE PANEL'S EDGE IS NOT A WINDOW'S EDGE: a solid frame, and a window with a border, must both
+// stay out. Without this, "a flat row near the bottom" is satisfied by every full-screen dialog.
+func TestCinnamonRejectsASolidFrameAndAWindow(t *testing.T) {
+	// A UNIFORM FRAME: every row is flat, including the last, so there is no border with content
+	// under it - this is the boot screen and the install window's body.
+	solid := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	fill(solid, solid.Bounds(), color.RGBA{40, 40, 44, 255})
+	if ok, st := IsCinnamonDesktop(solid); ok {
+		t.Fatalf("a uniform frame must not read as a Cinnamon desktop: %s", st.Explain())
+	}
+
+	// A WINDOW THAT FILLS THE BOTTOM QUARTER: a flat body with a title bar and a button row, which
+	// is a full-screen installer dialogue. Its rows are flat AND its last rows are flat, which is
+	// exactly the shape the rule has to reject.
+	win := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	fill(win, win.Bounds(), color.RGBA{90, 90, 96, 255})
+	if ok, st := IsCinnamonDesktop(win); ok {
+		t.Fatalf("a full-screen window must not read as a Cinnamon desktop: %s", st.Explain())
+	}
+
+	// A BLACK BOOT SCREEN, the frame a guest shows before anything is drawn.
+	black := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+	fill(black, black.Bounds(), color.RGBA{0, 0, 0, 255})
+	if ok, _ := IsCinnamonDesktop(black); ok {
+		t.Fatal("a black screen must not read as a Cinnamon desktop")
+	}
+}
