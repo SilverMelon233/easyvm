@@ -542,218 +542,27 @@ steps:
   - 1005
   - 712
   wait_after: 10
-- name: the copy runs, segment 1 of 3
-  # 90 MINUTES TOTAL, IN THREE SEGMENTS WITH A RESET BETWEEN THEM.
+- name: the copy runs until the Setup Assistant appears
+  # NINETY MINUTES, AND `max` IS A COUNT OF ATTEMPTS RATHER THAN MINUTES.
   #
-  # THE OLD STEP WAS ONE `loop: max: 1080` - six hours - AND THAT WAS WRONG TWICE OVER. Six hours is
-  # longer than the job budget the caller gives this stage (`"timeout": 400` minutes in
-  # `macos26.yml`, which is 6h40m), so a step that used its ceiling would be killed by the runner
-  # rather than fail on its own terms; and it assumed the installer makes steady progress, which on
-  # 16 GiB it does not.
+  #	270 x 20 s = 90 minutes
   #
-  # MEASURED ON THIS GUEST: the copy reached "About 1 hour and 31 minutes remaining" at 36.6 GiB and
-  # then wrote at 300 KB/s for half an hour with a byte-identical screen and all 16 GiB resident. A
-  # RESET RECOVERED IT - the guest came back to the same install reading "About 29 minutes
-  # remaining", and that is the whole reason this is cut into segments.
+  # THE ARITHMETIC IS WRITTEN OUT BECAUSE I GOT IT WRONG ONCE: the first version of this change said
+  # `max: 90` and its comment said "thirty minutes", which was right about the arithmetic and wrong
+  # about the request - the step is meant to WAIT NINETY MINUTES, so the count is 270.
   #
-  # SO A SEGMENT'S CEILING IS A CLOCK, NOT A HOPE: 30 minutes, then reset, three times.
+  # THE OLDER VERSION SAID `max: 1080` (six hours), which was longer than this stage's own job budget
+  # in `macos26.yml` (400 minutes) - a step that used its ceiling would be killed by the runner rather
+  # than fail on its own terms. 90 minutes is inside that budget with room for the erase, the installer
+  # and the publish.
+  #
+  # AND ON 16 GiB THIS STEP CAN LEGITIMATELY USE ALL OF IT: MEASURED, the installer reached "About 1
+  # hour and 31 minutes remaining", wrote 36.6 GiB, and then crawled at ~300 KB/s with all 16 GiB
+  # resident and a byte-identical screen for half an hour. A warm reset recovered it - the same disk
+  # came back reading "About 29 minutes remaining" - so the guest was thrashing rather than stuck, and
+  # the wait is what stands between this step and a published disk.
   loop:
-    # THIRTY MINUTES: 90 x 20 s. See the comment above for why this is divided at all.
-    max: 90
-    do:
-    - wait: 20
-    ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
-      scale: 1
-      wait: 0
-    check:
-      name: done
-      from: screen
-      mode: says_any
-      words:
-      - - select
-        - your
-        - country
-        - or
-        - region
-      - - how
-        - do
-        - you
-        - want
-        - to
-        - connect
-        - to
-        - the
-        - internet
-      - - transfer
-        - your
-        - information
-        - to
-        - this
-        - mac
-      - - choose
-        - a
-        - wireless
-        - network
-      - - sign
-        - in
-        - with
-        - your
-        - apple
-        - id
-    until:
-      fact: done
-- name: nothing yet, so reset the guest before the next segment
-  # A WARM RESET, NOT A STOP AND START. MEASURED: on this guest the installer reached "About 1 hour
-  # and 31 minutes remaining", wrote 36.6 GiB, and then crawled at 300 KB/s with all 16 GiB of guest
-  # RAM resident and four vCPUs pegged - thirty minutes with a byte-identical screen. A reset put it
-  # back on a working path at "About 29 minutes remaining", which is what this step buys.
-  #
-  # IT IS UNCONDITIONAL, AND THAT IS DELIBERATE. The walk cannot tell "crawling" from "nearly done"
-  # without a reading this file does not have - the installer's own countdown is the only signal and
-  # it is inside the picture. A reset WHEN THE INSTALL IS ALREADY FINISHED costs a boot (measured: the
-  # guest comes back to the Setup Assistant from the disk it just wrote), and a reset NOT TAKEN when
-  # the guest is crawling costs the run.
-  #
-  # `reboot:` IS QEMU'S OWN RESET, so the guest sees a warm restart and the disk keeps what it has;
-  # the boot image, the recovery image and the target stay attached.
-  reboot: true
-  timeout: 300
-- name: wait for the guest to come back after the reset
-  loop:
-    max: 30
-    do:
-    - wait: 10
-    ocr:
-      name: back
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
-      scale: 1
-      wait: 0
-    check:
-      name: anything
-      from: back
-      mode: matches
-      pattern: '.'
-    until:
-      fact: anything
-- name: the copy runs, segment 2 of 3
-  # THE SECOND SEGMENT. The reset above is what makes it start from a guest that is scheduling again
-  # instead of one that is thrashing against a full page cache.
-  loop:
-    # THIRTY MINUTES: 90 x 20 s. See the comment above for why this is divided at all.
-    max: 90
-    do:
-    - wait: 20
-    ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
-      scale: 1
-      wait: 0
-    check:
-      name: done
-      from: screen
-      mode: says_any
-      words:
-      - - select
-        - your
-        - country
-        - or
-        - region
-      - - how
-        - do
-        - you
-        - want
-        - to
-        - connect
-        - to
-        - the
-        - internet
-      - - transfer
-        - your
-        - information
-        - to
-        - this
-        - mac
-      - - choose
-        - a
-        - wireless
-        - network
-      - - sign
-        - in
-        - with
-        - your
-        - apple
-        - id
-    until:
-      fact: done
-- name: reset again, after the second segment
-  # A WARM RESET, NOT A STOP AND START. MEASURED: on this guest the installer reached "About 1 hour
-  # and 31 minutes remaining", wrote 36.6 GiB, and then crawled at 300 KB/s with all 16 GiB of guest
-  # RAM resident and four vCPUs pegged - thirty minutes with a byte-identical screen. A reset put it
-  # back on a working path at "About 29 minutes remaining", which is what this step buys.
-  #
-  # IT IS UNCONDITIONAL, AND THAT IS DELIBERATE. The walk cannot tell "crawling" from "nearly done"
-  # without a reading this file does not have - the installer's own countdown is the only signal and
-  # it is inside the picture. A reset WHEN THE INSTALL IS ALREADY FINISHED costs a boot (measured: the
-  # guest comes back to the Setup Assistant from the disk it just wrote), and a reset NOT TAKEN when
-  # the guest is crawling costs the run.
-  #
-  # `reboot:` IS QEMU'S OWN RESET, so the guest sees a warm restart and the disk keeps what it has;
-  # the boot image, the recovery image and the target stay attached.
-  reboot: true
-  timeout: 300
-- name: wait for the guest to come back again
-  loop:
-    max: 30
-    do:
-    - wait: 10
-    ocr:
-      name: back
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
-      scale: 1
-      wait: 0
-    check:
-      name: anything
-      from: back
-      mode: matches
-      pattern: '.'
-    until:
-      fact: anything
-- name: the copy runs, segment 3 of 3
-  # THE LAST SEGMENT, AND THE ONE THAT DOES NOT RESET AFTERWARDS - the step after it stops the
-  # machine, and this walk's product is the disk, so a further reset would only boot it again.
-  loop:
-    # THIRTY MINUTES: 90 x 20 s. See the comment above for why this is divided at all.
-    max: 90
+    max: 270
     do:
     - wait: 20
     ocr:
