@@ -9,11 +9,11 @@ the code declares a key the table omits, and when a key marked MIGRATED is still
 used by a file.
 
 ```
-131 keys declared
- 46 are STEP keys        — a key whose presence is the step's verb
- 52 are SUBKEYS          — written inside another key, never on a step
-  4 are FILE-HEADER keys — not steps at all
- 29 are RETIRED          — replaced, migrated, or dead
+152 keys declared in code
+ 42 are STEP keys        — a key whose presence is the step's verb
+ 24 rows of SUBKEYS      — written inside another key, never on a step
+  5 rows of HEADER keys  — not steps at all
+ 30 rows of RETIRED keys — replaced, migrated, or dead
 ```
 
 ## The model: three verbs, and a picture is a value
