@@ -122,9 +122,27 @@ walkthrough "macos 15 - every primitive, nothing expensive"
     require_ssh == true
     ssh_probe == echo ok
     timeout == 900
-  step "shut down through the agent"
-    requires == - qga
-    shutdown == guest_agent
+  # THE GUEST AGENT IS NOT UP AGAIN AFTER THE REBOOT, AND SSH IS.
+  #
+  # `shutdown: guest_agent` ASKS THE GUEST'S OWN AGENT OVER THE VIRTIO SERIAL PORT, and this disk's
+  # agent was installed by the ssh stage - which is a previous RUN, on a previous boot. The step before
+  # this one just proved ssh answers:
+  #
+  #	ssh answers on port 2222
+  #
+  # but the agent channel was silent:
+  #
+  #	shut down through the agent: guest agent shutdown: reading the agent's answer:
+  #	  read unix @->/__w/.../work/qga.sock: i/o timeout
+  #
+  # MEASURED on run 44154940752, step 18/19. `requires: [qga]` did not catch it because `requires` is a
+  # PASSIVE key - it records that a stage needs a capability, it does not probe one.
+  #
+  # `shutdown: ssh` IS THE METHOD THAT MATCHES WHAT WAS PROVEN: the same channel the step before it
+  # just answered on. A primitive is exercised by the transport that is known good, not by one that a
+  # reboot may or may not have restarted.
+  step "shut down through the channel that just answered"
+    shutdown == ssh
     timeout == 300
   step "stop whatever is left"
     shutdown == kill
