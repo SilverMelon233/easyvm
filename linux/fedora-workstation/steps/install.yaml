@@ -627,9 +627,17 @@ steps:
       name: up
       from: esp_dialog
       mode: says_any
+      # `EFI` IS IN BLIVET'S RIGHT-HAND PANEL ON EVERY PAGE - it lists `/boot/efi` under
+      # `Partitions (advanced)` - so that word proved nothing. MEASURED:
+      #
+      #	esp_dialog: 80 word(s): ... Storage > vda-VirtIO Disk > vdal Requirements ...
+      #	esp_dialog [check]: up = true (mode says_any: read "EFI")
+      #
+      # on a frame with no dialog on it. The breadcrumb `Storage > vda - VirtIO Disk > vda1` is what
+      # this page shows, and `Cancel` is on the dialog and nowhere on the page behind it.
       words:
-      - - Create
-      - - EFI
+      - - Cancel
+      - - Automatically
     until:
       fact: up
 
