@@ -9,11 +9,10 @@ the code declares a key the table omits, and when a key marked MIGRATED is still
 used by a file.
 
 ```
-152 keys declared in code
- 42 are STEP keys        — a key whose presence is the step's verb
- 24 rows of SUBKEYS      — written inside another key, never on a step
-  5 rows of HEADER keys  — not steps at all
- 30 rows of RETIRED keys — replaced, migrated, or dead
+147 keys declared in code
+ 81 are STEP keys        — 45 operations, the rest modifiers and gates
+ 66 are SUBKEYS          — written inside another key, never on a step
+ 42 rows of RETIRED keys — replaced, migrated, or dead
 ```
 
 ## The model: three verbs, and a picture is a value
@@ -32,7 +31,7 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 
 ---
 
-# 1. `do:` — change the machine (22 keys)
+# 1. `do:` — change the machine (24 keys)
 
 ## 1.1 The machine itself
 
@@ -90,7 +89,7 @@ measured at 1920x1080 but the framebuffer is 640x480"*.
 That is why `region_at:` is gone: it was written 42 times and was always the
 header's own `resolution:`.
 
-# 3. `want:` — decide (4 keys)
+# 3. `want:` — decide (6 keys)
 
 | key | value | what it does | uses |
 |---|---|---|---|
@@ -145,7 +144,7 @@ wrong unit for a short word: `disk`→`dsk` is one glyph and scores 0.750, so an
 threshold refuses a pane's own button label. `like:` is the only ratio, and it is
 right only for a whole region that is one sentence.
 
-# 4. Modifiers — each names a question (12 keys)
+# 4. Modifiers — each names a question (11 keys)
 
 | key | value | the question | uses |
 |---|---|---|---|
@@ -209,7 +208,7 @@ the measuring machine and wrong on the runner.
 `ends:`, `waits_for:` and `ends_at:` are the old `panes:` model. No current file uses
 them; they are read only by files that have not been ported.
 
-# 7. Retired — 30 rows, 40 names
+# 7. Retired — 34 rows
 
 Three words, and they are not interchangeable:
 
