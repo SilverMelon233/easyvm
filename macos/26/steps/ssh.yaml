@@ -33,7 +33,7 @@ steps:
   timeout: 900
 - name: answer the wizard until the desktop appears
   loop:
-    max: 60
+    max: 40
     do:
     - name: read the pane
       ocr:
@@ -48,6 +48,25 @@ steps:
         - 1080
         scale: 1
         wait: 0
+    - name: read the login window's clock
+      ocr:
+        name: clock
+        region:
+        - 820
+        - 90
+        - 1100
+        - 250
+        region_at:
+        - 1920
+        - 1080
+        scale: 1
+        wait: 0
+    - name: classify - the login window
+      check:
+        name: at_login
+        from: clock
+        mode: matches
+        pattern: '[0-9]+[:.][0-9]+'
     - name: classify - country or region
       check:
         name: country
@@ -449,6 +468,28 @@ steps:
         - 1228
         - 826
         wait_after: 10
+    - name: update mac automatically - reset past it
+      if: update
+      then:
+      - name: reset the guest
+        reboot: true
+        timeout: 300
+      - name: let it come back
+        wait: 60
+    - name: the login window - log in
+      if: at_login
+      then:
+      - name: click the password field
+        click:
+        - 960
+        - 983
+        wait_after: 3
+      - name: type the password
+        type: '{{ password }}'
+        wait_after: 2
+      - name: press return
+        key: ret
+        wait_after: 25
     ocr:
       name: wizard
       region:
@@ -462,76 +503,17 @@ steps:
       scale: 1
       wait: 0
     check:
-      name: at_update
+      name: finished
       from: wizard
-      mode: says
+      mode: says_without
       words:
-      - update
-      - mac
-      - automatically
+      - finder
+      without:
+      - continue
+      - back
+      - later
     until:
-      fact: at_update
-- name: reset the guest past the update pane, which never advances
-  reboot: true
-  timeout: 300
-- name: wait for the login window
-  loop:
-    max: 24
-    do:
-    - wait: 10
-    ocr:
-      name: clock
-      region:
-      - 820
-      - 90
-      - 1100
-      - 250
-      region_at:
-      - 1920
-      - 1080
-      scale: 1
-      wait: 0
-    check:
-      name: at_login
-      from: clock
-      mode: matches
-      pattern: '[0-9]+:[0-9]+'
-    until:
-      fact: at_login
-- name: dismiss anything over the login window
-  key: esc
-  wait_after: 2
-- name: click the password field
-  click:
-  - 960
-  - 981
-  wait_after: 2
-- name: type the password
-  type: '{{ password }}'
-  wait_after: 2
-- name: press return
-  key: ret
-  wait_after: 20
-- name: dismiss the overlays macOS puts up on a first login
-  do:
-  - click:
-    - 1228
-    - 826
-    wait_after: 4
-  - click:
-    - 1228
-    - 826
-    wait_after: 4
-  - click:
-    - 1228
-    - 826
-    wait_after: 4
-  - key: esc
-    wait_after: 2
-  - key: meta_l+q
-    wait_after: 2
-  - key: esc
-    wait_after: 2
+      fact: finished
 - name: wait for the desktop
   loop:
     max: 30

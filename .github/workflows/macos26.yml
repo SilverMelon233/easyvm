@@ -33,7 +33,42 @@ permissions:
   checks: write
 
 jobs:
+  # THE GUEST ASKS FOR 16 GiB AND THE STANDARD RUNNER HAS 16 GB, SO qemu IS KILLED BY THE OOM KILLER
+  # THREE MINUTES INTO THE COPY.
+  #
+  # MEASURED ON RUN 44122437321: the erase and the licence sheet passed, the destination card was
+  # selected, "the copy runs, look 1" began, and at its tenth attempt the QMP connection became
+  # `write: broken pipe` and every later attempt said the same. The daemon logged no error, the qemu
+  # console had nothing after `HANDOFF TO XNU`, and the machine was still "up" - which is what an OOM
+  # kill looks like from inside the process that survives it. The same walk had already produced a
+  # working disk on a pod with a 24 GiB limit.
+  #
+  # A GUEST THIS SIZE NEEDS A LARGER RUNNER. GitHub's standard `ubuntu-24.04` has 4 vCPU / 16 GB; the
+  # pod this walk was measured on has 12 vCPU / 24 GiB. So this job fails in the first minute, naming
+  # the two numbers, instead of spending twenty minutes installing and then dying with a broken pipe
+  # that points at screendump.
+  #
+  # IT IS A SEPARATE JOB SO THE MESSAGE IS THE WHOLE JOB. A check inside `setup` would be one step of
+  # forty and would read as "prepare failed".
+  room:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: the guest's memory has to fit in the runner's
+        run: |
+          set -eu
+          need_gib=16
+          total_kib=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
+          total_gib=$(( total_kib / 1024 / 1024 ))
+          echo "runner: ${total_gib} GiB, guest: ${need_gib} GiB (macos/26/steps/setup.yaml memory_mb: 16384)"
+          # QEMU ITSELF, THE PAGE CACHE THE RECORDING WRITES THROUGH, AND THE 38 GiB DISK'S METADATA ALL
+          # SIT NEXT TO THE GUEST, so a runner that only just fits is a runner that will be killed.
+          if [ "$total_gib" -lt $(( need_gib + 8 )) ]; then
+            echo "::error::this runner has ${total_gib} GiB and macOS 26 needs ${need_gib} GiB plus qemu's own overhead. The guest will be killed by the OOM killer a few minutes into the copy, with no error in any log - measured on run 44122437321. Use a larger runner (this walk was measured on a pod with a 24 GiB limit)."
+            exit 1
+          fi
+
   setup:
+    needs: room
     uses: ./.github/workflows/stage.yml
     secrets: inherit
     with:
