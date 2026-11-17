@@ -601,10 +601,16 @@ steps:
 # MEASURED: after `Shrink`, the page is still `Storage > vda - VirtIO Disk > vda1`, and the new
 # `Free space 1.44 GB` row exists on the LIST page behind it. `Storage` in that breadcrumb is at
 # (196, 143) in the 1280-wide view - (294, 215) here - and is the link back up.
+# THE BREADCRUMB'S `Storage` IS AT (427, 222), NOT (294, 215).
+#
+# MEASURED off the detail page's own frame, crop 250..700 x 190..240 scaled 3x: the word `Storage`
+# spans x=454..600 in that crop, centred at (530, 96) - which is (250+530/3, 190+96/3) = (427, 222)
+# on the frame. (294, 215) is 133 pixels LEFT of it, on the page's margin, so the list was never
+# returned to and every step below pressed LIST coordinates into the DETAIL page.
 - name: back to the partition list
   click:
-  - 294
-  - 215
+  - 427
+  - 222
   wait_after: 6
 
 - name: the list is up, with free space on it
