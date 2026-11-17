@@ -1,0 +1,230 @@
+name: vocab
+
+# THE BRANCH'S WORKFLOW, ON A BRANCH THAT GITHUB WILL ACTUALLY START.
+#
+# WHY THIS FILE IS HERE RATHER THAN ONLY ON THE FEATURE BRANCH, measured three ways:
+#
+#	gh workflow run vocab-image.yml --ref vocabulary/three-verbs
+#	  -> HTTP 404 (…/actions/workflows/vocab-image.yml)
+#	gh run list --workflow=vocab-image.yml       -> nothing
+#	gh api …/actions/workflows                    -> the default-branch files only
+#
+# `workflow_dispatch` and `workflow_run` are BOTH resolved against the DEFAULT branch, so a workflow
+# that exists only on a feature branch can never be started by hand and never triggers another. A
+# push to that branch does run it, which is enough to compile and test - but not enough to RE-RUN a
+# real install without inventing a commit.
+#
+# SO THIS ONE FILE LIVES ON `main` AND ITSELF CHECKS OUT THE BRANCH UNDER TEST. Its inputs name the
+# branch, so the same file can drive any feature branch without another commit on that branch.
+#
+# THE WHOLE POINT IS THE LAST JOB: a step that loads, validates and then does nothing is the failure
+# the vocabulary's own tests cannot see. Only a real guest can tell a working walkthrough from a
+# parseable one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "the branch under test"
+        default: "vocabulary/three-verbs"
+        type: string
+      distro:
+        description: "which install to drive"
+        default: "kubuntu"
+        type: choice
+        options: [kubuntu, ubuntu]
+      run_walkthrough:
+        description: "run the real install (40-90 minutes), not just the compile and unit tests"
+        default: true
+        type: boolean
+
+concurrency:
+  group: vocab-${{ inputs.branch }}-${{ inputs.distro }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/easyvm
+  # THE BRANCH NAME FOLDED INTO SOMETHING A REGISTRY TAG MAY CARRY. `/` is a path separator in a tag,
+  # not a character, and `vocabulary/three-verbs` produced `vocab-vocabulary/three-verbs`, which the
+  # registry refused with `invalid reference format` - after every test had passed.
+  TAG: vocab-${{ inputs.distro }}
+
+permissions:
+  contents: read
+  packages: write
+  checks: write
+
+jobs:
+  # ===========================================================================
+  # THE CHEAP GATE. It needs nothing but a compiler, so it runs on the runner.
+  # ===========================================================================
+  compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: the code compiles
+        run: go build ./...
+
+      - name: vet
+        run: go vet ./...
+
+      - name: every walkthrough still loads
+        # A PURE PARSE: it asks the vocabulary whether each step means something. No guest, no image.
+        # It is also the check that catches a vocabulary change breaking a real file.
+        run: |
+          set -e
+          go build -o /tmp/easyvm ./cmd/easyvm
+          n=0
+          for f in $(find . -path ./.git -prune -o -name '*.yaml' -path '*/steps/*' -print); do
+            /tmp/easyvm check "$f" >/dev/null
+            n=$((n+1))
+          done
+          echo "$n walkthrough(s) load"
+
+  # ===========================================================================
+  # THE TESTS, IN THE MACHINE THEY DESCRIBE, AND THE IMAGE THEY ARE SHIPPED IN.
+  # ===========================================================================
+  image:
+    needs: compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      tag: ${{ steps.tag.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # THE CONTAINERFILE COPIES `dist/easyvm`, so the binary the image carries is built here - the
+      # same way `image.yml` does it, for the same reason: a test of an image built from another
+      # commit's binary proves nothing.
+      - name: build the binary the image carries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" -o dist/easyvm ./cmd/easyvm
+          chmod 0755 dist/easyvm
+          ls -l dist/easyvm
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: log in to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: the unit tests, in the machine they describe
+        # `--target tester` is this image plus a Go toolchain, so the tools a test reaches for are the
+        # ones the walkthroughs get. `internal/run`'s GPT test spawns `qemu-img`, which a bare runner
+        # does not have - and the fix for that is not to skip the test.
+        run: |
+          set -euo pipefail
+          docker build -f ./Containerfile --target runtime -t easyvm-ci:local .
+          docker build -f ./Containerfile --target tester -t easyvm-tester:ci .
+          docker run --rm \
+            -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache \
+            easyvm-tester:ci test ./... -count=1 -timeout 900s
+
+      - name: the vocabulary tables match the code
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache easyvm-tester:ci \
+            test ./internal/step/ -run 'TestEveryKey|TestNoKey|TestMerged' -v -count=1
+
+      - name: the measurements reproduce the desktop verdicts
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache easyvm-tester:ci \
+            test ./internal/screen/ -run 'TestTheMeasurementsReproduce' -v -count=1
+
+      - name: the tag
+        id: tag
+        run: |
+          set -euo pipefail
+          slug=$(printf '%s' "${{ inputs.branch }}" | tr '/_' '--' | tr -cd 'a-zA-Z0-9.-')
+          echo "name=vocab-${slug}" >> "$GITHUB_OUTPUT"
+
+      - name: build and push the branch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ===========================================================================
+  # THE REAL INSTALL, IN THE IMAGE JUST PUSHED. THIS IS THE JOB THAT ANSWERS THE QUESTION.
+  # ===========================================================================
+  walkthrough:
+    needs: image
+    if: inputs.run_walkthrough
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+      checks: write
+    container:
+      image: ${{ env.IMAGE }}:${{ needs.image.outputs.tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN --shm-size 2g
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: the binary, as the image carries it
+        run: easyvm versions
+
+      - name: the medium, pulled before the run so nothing downloads mid-install
+        # `easyvm pull` NO LONGER EXISTS - every medium is pulled outside the run, which is the rule
+        # this step follows.
+        run: |
+          set -e
+          mkdir -p work
+          sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+            ghcr.io "${{ github.repository_owner }}/easyvm" \
+            "iso-${{ inputs.distro }}-desktop" \
+            "$GITHUB_WORKSPACE/work/${{ inputs.distro }}.iso" || {
+              echo "::error::the medium could not be pulled; a run needs it before it starts"
+              exit 1
+            }
+          ls -l "work/${{ inputs.distro }}.iso"
+
+      - name: install, and prove the disk was written
+        run: |
+          set -e
+          easyvm run "linux/${{ inputs.distro }}/steps/install.yaml" \
+            --work work \
+            --out "vocab-${{ inputs.distro }}.qcow2" \
+            --password admin
+          size=$(stat -c %s "vocab-${{ inputs.distro }}.qcow2")
+          echo "the disk is $size bytes"
+          # THE SAME FLOOR THE PRODUCT USES. A header-only qcow2 is a walk whose clicks never reached
+          # the installer's disk, and a green step in front of one proves nothing.
+          if [ "$size" -lt $((512 * 1024 * 1024)) ]; then
+            echo "::error::$size bytes is a qcow2 header with nothing written to it"
+            exit 1
+          fi
