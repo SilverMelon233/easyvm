@@ -55,6 +55,11 @@ type Rect struct {
 	From, To float64
 	// X0, X1 are fractions of the width. Zero values mean the full width.
 	XFrom, XTo float64
+	// Pixels says From/To/XFrom/XTo are PIXEL coordinates rather than fractions, and must be scaled
+	// against the frame they are measured on. The older files carry pixel rects because that is what
+	// a screen ruler gives; the newer form prefers fractions because they cannot be wrong at another
+	// size. Keeping both in one struct means one place converts, rather than every reader.
+	Pixels bool
 }
 
 // FullWidth is the whole frame's width, which is what a panel test measures.
@@ -68,15 +73,22 @@ func Measure(img image.Image, r Rect) Reading {
 	if w == 0 || h == 0 {
 		return read
 	}
-	y0 := b.Min.Y + int(float64(h)*r.From)
-	y1 := b.Min.Y + int(float64(h)*r.To)
+	// A PIXEL RECT IS SCALED AGAINST THIS FRAME, which is the conversion `Pixels` exists for: the
+	// same struct carries both, and this is the one place that knows the frame's size.
+	from, to, xf, xt := r.From, r.To, r.XFrom, r.XTo
+	if r.Pixels {
+		from, to = r.From/float64(h), r.To/float64(h)
+		xf, xt = r.XFrom/float64(w), r.XTo/float64(w)
+	}
+	y0 := b.Min.Y + int(float64(h)*from)
+	y1 := b.Min.Y + int(float64(h)*to)
 	if y1 <= y0 {
 		y1 = y0 + 1
 	}
 	if y1 > b.Max.Y {
 		y1 = b.Max.Y
 	}
-	xFrom, xTo := r.XFrom, r.XTo
+	xFrom, xTo := xf, xt
 	if xTo <= xFrom {
 		xFrom, xTo = 0, 1
 	}

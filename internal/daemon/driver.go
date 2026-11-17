@@ -1706,7 +1706,6 @@ func (d *Driver) VNCPort() int {
 // afternoon spent confirming it.
 var ErrMachineGone = errors.New("the guest is no longer running")
 
-
 // netDevice builds the network device this machine can attach.
 //
 // THE PCI FORM TAKES `romfile=` AND `host_mtu=`, and both are load-bearing there: the empty `romfile`

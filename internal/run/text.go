@@ -94,9 +94,18 @@ func says(words []string, want []string) bool {
 func (e *Executor) readWords(img image.Image, r screen.Rect, scale int) ([]string, error) {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
+	// A PIXEL RECT IS SCALED AGAINST THIS FRAME. `Rect.Pixels` says which it is, and this is the one
+	// place that knows the size the frame actually arrived at - which is what makes a rect of
+	// `[760, 200, 1400, 560]` crop the same place on a 640x480 guest as on the 1920x1080 it was
+	// measured on.
+	from, to, xf, xt := r.From, r.To, r.XFrom, r.XTo
+	if r.Pixels {
+		from, to = r.From/float64(h), r.To/float64(h)
+		xf, xt = r.XFrom/float64(w), r.XTo/float64(w)
+	}
 	region := [4]int{
-		int(float64(w) * r.XFrom), int(float64(h) * r.From),
-		int(float64(w) * r.XTo), int(float64(h) * r.To),
+		int(float64(w) * xf), int(float64(h) * from),
+		int(float64(w) * xt), int(float64(h) * to),
 	}
 	if scale <= 0 {
 		scale = 3

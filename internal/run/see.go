@@ -71,6 +71,10 @@ func (e *Executor) doSee(s walk.Step) error {
 	if err != nil {
 		return fail(s.Name, "%v", err)
 	}
+	// A PIXEL RECT FROM A `.walk` IS `[]any` OF `int`, AND A YAML ONE IS `[]any` OF `int` TOO - but
+	// the converter can also produce `[]int` when it builds the full-frame default. Both are
+	// normalised by `parseRect`; this line is here so a future third shape is caught rather than
+	// silently read as a fraction.
 	f, err := e.Driver.Frame()
 	if err != nil {
 		return fail(s.Name, "reading the frame: %v", err)
@@ -107,6 +111,10 @@ func (e *Executor) seeText(s walk.Step, name string, rectRaw any) error {
 	if err != nil {
 		return fail(s.Name, "%v", err)
 	}
+	// A PIXEL RECT FROM A `.walk` IS `[]any` OF `int`, AND A YAML ONE IS `[]any` OF `int` TOO - but
+	// the converter can also produce `[]int` when it builds the full-frame default. Both are
+	// normalised by `parseRect`; this line is here so a future third shape is caught rather than
+	// silently read as a fraction.
 	f, err := e.Driver.Frame()
 	if err != nil {
 		return fail(s.Name, "reading the frame: %v", err)
@@ -407,10 +415,29 @@ func parseRect(raw any) (screen.Rect, error) {
 			}
 			f[i] = n
 		}
-		return screen.Rect{From: f[1], To: f[3], XFrom: f[0], XTo: f[2]}, nil
+		// A LIST IS PIXELS OR FRACTIONS, AND THE TWO ARE TOLD APART BY MAGNITUDE.
+		//
+		// Pixels are what the older files carry - `rect: [760, 200, 1400, 560]` on a 1920x1080 frame -
+		// and a fraction is what the newer form prefers, because it cannot be measured at the wrong
+		// size. A fraction is at most 1.0 and a pixel coordinate is at least 1 in any real frame, so
+		// values above 1 in any position mean PIXELS.
+		//
+		// IT IS NOT A GUESS: a rect of [0, 0, 1, 1] is the single top-left pixel and no file means
+		// that, while a rect whose last two numbers are 1920 and 1080 is a frame this repository
+		// measures at on every page. The alternative - a second key - is what `rect_at:` already is,
+		// except `rect_at:` says the SIZE and this says the UNIT.
+		pixels := f[0] > 1 || f[1] > 1 || f[2] > 1 || f[3] > 1
+		if !pixels {
+			return screen.Rect{From: f[1], To: f[3], XFrom: f[0], XTo: f[2]}, nil
+		}
+		// A PIXEL RECT IS CONVERTED AGAINST THE FRAME THE READING ARRIVED FROM, which the caller
+		// knows and this function does not - so it is returned unconverted and the caller scales it.
+		return screen.Rect{
+			From: f[1], To: f[3], XFrom: f[0], XTo: f[2], Pixels: true,
+		}, nil
 	}
 	return screen.Rect{}, fmt.Errorf("`rect:` must be a name like `bottom 4.5%%` or a list of " +
-		"four fractions")
+		"four numbers")
 }
 
 var rectWords = regexp.MustCompile(`^(middle|top|bottom)(?:\s+(\d+(?:\.\d+)?)\s*(%|px))?$`)
