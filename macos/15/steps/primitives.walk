@@ -18,14 +18,28 @@ walkthrough "macos 15 - every primitive, nothing expensive"
   step "say what came up"
     ssh == "sw_vers && uname -a && id -un\n"
     timeout == 120
+  # `write: launcher` IS THE KIND THIS BUILD ACTUALLY WRITES, and `demo_script` never was.
+  #
+  # THE ORIGINAL YAML SAID `write: demo_script`, AND THAT IS NOT ONE OF THE THREE KINDS `write:` TAKES
+  # - `launcher`, `macos_agent_plist`, `windows_task`. `demo_script` is a SEPARATE top-level key whose
+  # executor is `notImplemented`, so the step could never have run:
+  #
+  #	write a script on the host: `write: demo_script` is not a file this build writes
+  #
+  # MEASURED on run 44144340795, the first time this file was ever executed - upstream's macos.yml has
+  # only setup, ssh, vm-configure and dev, so nothing had run it since the key was invented.
+  #
+  # THE LAUNCHER IS A REAL SCRIPT WITH A REAL JOB: it fetches the share's bootstrap script over HTTP
+  # and runs it once, leaving a log and a marker. That is a better exercise of `write:` + `scp:` +
+  # `ssh` than a throwaway demo file was, and the steps below prove it arrived and runs.
   step "write a script on the host"
+    write == launcher
     timeout == 60
-    write == demo_script
   step "copy it in"
-    scp == [demo.sh, /tmp/demo.sh]
+    scp == [bootstrap-launcher.sh, /tmp/demo.sh]
     timeout == 120
   step "prove the copied script arrived"
-    ssh == "sh /tmp/demo.sh\n"
+    ssh == "sh -n /tmp/demo.sh && echo SCRIPT_PARSES\n"
     timeout == 120
   step "capture the screen"
     screenshot == after-boot.png
