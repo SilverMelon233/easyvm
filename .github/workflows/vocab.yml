@@ -42,12 +42,12 @@ concurrency:
   group: vocab-${{ inputs.branch }}-${{ inputs.distro }}
   cancel-in-progress: true
 
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/easyvm
-  # THE BRANCH NAME FOLDED INTO SOMETHING A REGISTRY TAG MAY CARRY. `/` is a path separator in a tag,
-  # not a character, and `vocabulary/three-verbs` produced `vocab-vocabulary/three-verbs`, which the
-  # registry refused with `invalid reference format` - after every test had passed.
-  TAG: vocab-${{ inputs.distro }}
+# NO `env:` FOR THE IMAGE NAME, AND THAT IS MEASURED RATHER THAN TIDY: `env` is NOT resolvable inside
+# a job's `container.image:` - the dispatch was refused with
+#
+#	Line: 188, Col: 14: Unrecognized named-value: 'env'
+#
+# so the registry path is written where it is used, from `github.repository_owner`.
 
 permissions:
   contents: read
@@ -168,7 +168,7 @@ jobs:
           file: ./Containerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ env.IMAGE }}:${{ steps.tag.outputs.name }}
+          tags: ghcr.io/${{ github.repository_owner }}/easyvm:${{ steps.tag.outputs.name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -185,7 +185,7 @@ jobs:
       packages: write
       checks: write
     container:
-      image: ${{ env.IMAGE }}:${{ needs.image.outputs.tag }}
+      image: ghcr.io/${{ github.repository_owner }}/easyvm:${{ needs.image.outputs.tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
