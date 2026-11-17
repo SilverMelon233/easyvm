@@ -306,6 +306,71 @@ func (e *Executor) doUntil(s walk.Step) error {
 // IT IS HOW A RETRY IS WRITTEN WITHOUT A CONDITIONAL INSIDE A CLICK. opensuse's installer retry must
 // not press the desktop icon while YaST2 is already open, because a second double-click lands on the
 // wizard - and a step that cannot say "unless this is already up" has to be a Python function.
+// doActionList runs a step's `do:` list in order, under the step's own name.
+//
+// IT IS THE PANE MODEL'S ACTION LIST AND IT IS ORDINARY: `loop:`'s `do:` and `if:`'s `then:` are the
+// same shape, and both already run through this dispatcher. Only the TOP-LEVEL `do:` had no branch,
+// so `macos/15/steps/sequoia.yaml`'s eight multi-click panes clicked nothing.
+//
+// A FAILURE NAMES THE OUTER STEP AND THE INNER ONE, because "the analytics pane failed" is not enough
+// when it is the second of two clicks - the reader needs to know which.
+func (e *Executor) doActionList(s walk.Step) error {
+	raw, ok := s.Spec["do"].([]any)
+	if !ok || len(raw) == 0 {
+		return fail(s.Name, "`do:` must be a list of steps")
+	}
+	for i, entry := range raw {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			return fail(s.Name, "`do:` entry %d is not a step", i+1)
+		}
+		inner := walk.Step{Index: s.Index, Name: s.Name, Spec: m}
+		if _, hasName := m["name"]; !hasName {
+			inner.Name = fmt.Sprintf("%s [%d]", s.Name, i+1)
+		}
+		if err := e.runOne(inner); err != nil {
+			return fmt.Errorf("%s, step %d of %d: %w", s.Name, i+1, len(raw), err)
+		}
+	}
+	return nil
+}
+
+// doWhen runs a step only if the screen shows the words it names.
+//
+// `when:` IS `unless:`'S MIRROR, AND IT WAS DECLARED WITHOUT AN IMPLEMENTATION - which made it the
+// worst kind of key. MEASURED: 16 uses in `macos/15/steps/sequoia.yaml`, the Setup Assistant walk,
+// and `runOne` has no branch for it, so every one of those steps reached the switch's last arm and
+// returned `no implementation for this step's keys`. The macOS setup walk could not run.
+//
+// IT IS THE SECOND STEP MODEL ("panes") AND THAT IS WHY IT IS BEING FOLDED IN RATHER THAN REVIVED ON
+// ITS OWN. A pane file said `when:` (the words that mean this pane is up) and `do:` (the actions),
+// which is the same three parts `loop:` and `check:` already spell out. `when:` keeps its meaning and
+// gains an implementation here; `do:` is read by the dispatcher as the step's own action; and the
+// separate `once:`/`end:`/`stuck_after:` state machine is deleted rather than rebuilt, because a
+// pane that is answered twice is a `loop:` whose fact goes false.
+//
+// THE READING IS ONE CAPTURE, like `unless:`, so the gate and the action that follows it cannot see
+// two different screens.
+func (e *Executor) doWhen(s walk.Step) error {
+	want := wordsOf(s, "when")
+	if len(want) == 0 {
+		return fail(s.Name, "`when:` must name the words that mean this step applies")
+	}
+	words, err := e.readScreen(s, s.Name+" - when")
+	if err != nil {
+		return err
+	}
+	if !says(words, want) {
+		e.Driver.Log(fmt.Sprintf("  skipped: the screen does not say %q", strings.Join(want, " ")))
+		return nil
+	}
+	e.Driver.Log(fmt.Sprintf("  applies: the screen says %q", strings.Join(want, " ")))
+	// THE ACTION IS THE REST OF THE STEP. `when:` is a GATE, not an action, so the dispatcher is
+	// re-entered with the gate removed - the same shape `unless:` uses, and for the same reason: a
+	// step says one thing and a gate is not that thing.
+	return e.dispatchRest(s)
+}
+
 func (e *Executor) doUnless(s walk.Step) error {
 	// `unless_any:` IS THE ALTERNATIVES FORM, and it exists for the same reason `expect_any:` does: a
 	// pane can announce itself in more than one way. Measured on opensuse-tumbleweed's installer, whose
@@ -586,6 +651,49 @@ func (e *Executor) doAtColor(s walk.Step) error {
 //
 // THE LABEL IS NOT READ. tesseract reads these 14-px labels unreliably - `Select` came back as
 // nothing at all on two panes - while the fill is 84x34 px of one colour.
+// doAtBottom clicks at an x, a fixed number of pixels above the FRAME's bottom edge.
+//
+// IT WAS DECLARED AND NEVER DISPATCHED, which made it the worst kind of key: eight nixos steps write
+// `at_bottom: [1327, 15]` and the executor answered `no implementation for this step's keys`. A file
+// that loads, validates and then fails at run time on a key the vocabulary advertises.
+//
+// WHY A KEY AT ALL RATHER THAN A PLAIN COORDINATE: a wizard's `Next` sits a fixed distance above the
+// BOTTOM OF THE WINDOW, and the window's height is what changes between pages - Calamares' footer
+// moves from 751 to 872 depending on how tall the content above it is. A plain y would have to be
+// re-measured per page; this does not. MEASURED on nixos: every one of the eight is `[1327, 15]`,
+// against a footer at y=1065 in a 1080 frame - so 15 from the bottom is 1065.
+//
+// THE FRAME, NOT A SCAN FOR THE WINDOW. `at_window` tried to find the window's edge and its own
+// comment records four failed attempts at the SCAN rather than at the button. This is the case where
+// there is nothing to scan: the wizard's footer is at the screen's bottom.
+func (e *Executor) doAtBottom(s walk.Step) error {
+	pair, ok := s.Spec["at_bottom"].([]any)
+	if !ok || len(pair) != 2 {
+		return fail(s.Name, "`at_bottom:` must be [x, dy] - an x, and how many pixels above the "+
+			"bottom edge to click")
+	}
+	x, okX := toFloat(pair[0])
+	dy, okY := toFloat(pair[1])
+	if !okX || !okY {
+		return fail(s.Name, "`at_bottom:` must be two numbers")
+	}
+	f, err := e.Driver.Frame()
+	if err != nil {
+		return fail(s.Name, "reading the frame to find its bottom edge: %v", err)
+	}
+	_, h := f.Size()
+	y := h - int(dy)
+	if y < 0 {
+		y = 0
+	}
+	e.Driver.Log(fmt.Sprintf("  clicking (%d, %d): %g above the bottom of a %d-pixel frame",
+		int(x), y, dy, h))
+	if err := e.Driver.Click(int(x), y); err != nil {
+		return fail(s.Name, "%v", err)
+	}
+	return e.settle(s)
+}
+
 func (e *Executor) doAtButton(s walk.Step) error {
 	r, ok := rectOf(s, "at_button")
 	if !ok {

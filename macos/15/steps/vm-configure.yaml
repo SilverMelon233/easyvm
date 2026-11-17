@@ -167,7 +167,7 @@ steps:
   timeout: 120
 - name: write the launcher
   write: launcher
-  family: macos
+  os: macos
   timeout: 60
 - name: write the login agent plist
   write: macos_agent_plist

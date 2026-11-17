@@ -297,6 +297,15 @@ func (e *Executor) runOne(s walk.Step) error {
 		return e.doSSH(s)
 	case s.Has("repeat_until"):
 		return e.doRepeatUntil(s)
+	case s.Has("when"):
+		// A GATE, like `unless:` and its mirror: it reads the screen, then re-enters the dispatcher
+		// with the gate removed so the step's own action runs.
+		return e.doWhen(s)
+	// `do:` IS THE PANE MODEL'S ACTION LIST, and it is an ORDINARY STEP SHAPE - a list run in order
+	// under one name, which is what a `loop:`'s `do:` and a `then:` branch already are. It had no
+	// dispatcher branch at all, so 8 macOS steps that write it did nothing.
+	case s.Has("do"):
+		return e.doActionList(s)
 	case s.Has("unless"), s.Has("unless_any"):
 		if err := e.doUnless(s); err != nil {
 			return err
@@ -355,6 +364,8 @@ func (e *Executor) runOne(s walk.Step) error {
 	// the wrong side of the line.
 	case s.Has("at_color"):
 		return e.doAtColor(s)
+	case hasKey(s, "at_bottom"):
+		return e.doAtBottom(s)
 	case hasKey(s, "at_button"):
 		return e.doAtButton(s)
 	case s.Has("expect_any") || s.Has("expect"):
@@ -415,7 +426,8 @@ func (e *Executor) dispatchRest(s walk.Step) error {
 	// A COPY WITHOUT THE GATE, so dispatchRest cannot recurse.
 	rest := walk.Step{Index: s.Index, Name: s.Name, Spec: make(map[string]any, len(s.Spec))}
 	for k, v := range s.Spec {
-		if k == "unless" || k == "unless_any" || k == "region" || k == "region_at" || k == "scale" {
+		if k == "unless" || k == "unless_any" || k == "when" ||
+			k == "region" || k == "region_at" || k == "scale" {
 			continue
 		}
 		rest.Spec[k] = v

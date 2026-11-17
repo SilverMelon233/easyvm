@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/easydev-org/easyvm/internal/step"
 )
 
 // EVERY KEY CLAIMED HERE MUST HAVE A BRANCH IN THE DISPATCHER.
@@ -229,5 +231,47 @@ func TestDoRunsItsActions(t *testing.T) {
 	if !strings.Contains(exSrc, `case hasKey(s, "do"):`) {
 		t.Fatal("the dispatcher has no `do` branch, so the step reports `no implementation for this " +
 			"step's keys` - measured on macos-ssh")
+	}
+}
+
+// THE PANE MODEL WAS DECLARED AND NEVER DISPATCHED, AND THIS IS THE GUARD AGAINST IT COMING BACK.
+//
+// MEASURED: `macos/15/steps/sequoia.yaml` writes `when:` 16 times and `do:` 8 times. `runOne` had no
+// branch for either, so every one of those steps fell to the switch's last arm and returned
+// `no implementation for this step's keys` — the macOS Setup Assistant walk could not run at all, and
+// nothing said so because nothing ran it.
+//
+// A KEY THAT LOADS AND THEN FAILS AT RUN TIME IS WORSE THAN A REFUSED KEY: the file is accepted, the
+// stage starts, and the failure arrives twenty minutes in on the wrong step. So these two are named
+// here explicitly rather than trusting the general test above to notice a third time.
+func TestThePaneModelKeysAreDispatched(t *testing.T) {
+	for _, key := range []string{"when", "do"} {
+		found := false
+		for _, k := range ExecutableKeys() {
+			if k == key {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("`%s:` is not in ExecutableKeys, so `run` would refuse a file that writes it - "+
+				"and before this was added, the executor answered `no implementation for this "+
+				"step's keys` for the 24 steps of macOS's setup walk", key)
+		}
+	}
+}
+
+// AND THE KEYS THAT WERE ONLY EVER PART OF ITS STATE MACHINE ARE GONE.
+//
+// `once:`, `end:` and `stuck_after:` were the rest of the pane model: a pane answered at most once, a
+// file's end condition, and a stuck timer. Each was declared, documented, and never implemented.
+// Deleting them is the point of "no redundancy" — a vocabulary that keeps a word nobody can honour is
+// a vocabulary a reader has to check against the source rather than trust.
+func TestTheDeadPaneStateMachineKeysAreGone(t *testing.T) {
+	for _, key := range []string{"once", "end", "stuck_after", "until_any"} {
+		if _, ok := step.Keys[key]; ok {
+			t.Errorf("`%s:` is declared again. It was part of the pane state machine, it had no "+
+				"dispatcher branch, and no file uses it", key)
+		}
 	}
 }

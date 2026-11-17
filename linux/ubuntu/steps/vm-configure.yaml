@@ -196,7 +196,7 @@ steps:
   timeout: 120
 - name: write the launcher
   write: launcher
-  family: linux
+  os: linux
   timeout: 60
 - name: copy the launcher in
   scp:

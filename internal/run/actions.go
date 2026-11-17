@@ -36,9 +36,6 @@ func (e *Executor) doBoot(s walk.Step) error {
 	// landing on the wrong screen.
 	if running, ok := m.(interface{ IsRunning() bool }); ok && running.IsRunning() {
 		want := s.Get("os")
-		if want == "" {
-			want = s.Get("family")
-		}
 		if want != "" {
 			if named, ok := m.(interface{ OS() string }); ok {
 				if have := named.OS(); have != "" && have != want {
@@ -50,11 +47,10 @@ func (e *Executor) doBoot(s walk.Step) error {
 		e.Driver.Log(fmt.Sprintf("  already running: %s", s.Name))
 		return nil
 	}
-	// `os:` REPLACED `family:`, and both are read so a file that has not been renamed still runs.
+	// `family:` WAS THE SAME KEY UNDER ANOTHER NAME and is gone: MEASURED 15 uses against `os:`'s
+	// 56, every one of them meaning the same thing, and the reader had to guess which spelling a
+	// given file used. `os:` is the name.
 	osName := s.Get("os")
-	if osName == "" {
-		osName = s.Get("family")
-	}
 	if osName == "" {
 		return fail(s.Name, "a boot step must name `os:` (windows, linux or macos)")
 	}
@@ -415,9 +411,6 @@ func (e *Executor) doDesktop(s walk.Step) error {
 	// `os:` were both empty and the fallback is `windows`. The value of the key is the family, and
 	// every file here writes `desktop: windows|macos|linux` - so reading it is the whole job.
 	family := s.Get("desktop")
-	if family == "" {
-		family = s.Get("desktop_family")
-	}
 	if family == "" {
 		family = s.Get("os")
 	}

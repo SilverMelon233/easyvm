@@ -53,7 +53,7 @@ steps:
   # THE MSI AND ITS DRIVER COME FROM THE SAME ISO ON PURPOSE: the driver's .inf names hardware IDs
   # the MSI's service binds through, and a driver from another release is a device that installs and
   # never starts.
-  family: windows
+  os: windows
   asset: guest_agent
 - name: copy the driver in
   scp:
@@ -192,7 +192,7 @@ steps:
   timeout: 120
 - name: write the launcher
   write: launcher
-  family: windows
+  os: windows
   timeout: 60
 - name: write the task registration script
   write: windows_task

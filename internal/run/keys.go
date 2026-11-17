@@ -28,8 +28,9 @@ func ExecutableKeys() []string {
 		// `settle:` IS BOTH A STEP AND A MODIFIER - it absorbs `wait:` and `wait_after:`, which the
 		// files use 745 times between them.
 		"settle",
+		"when", "do",
 		"unless", "unless_any", "until", "until_any", "until_console", "expect", "expect_any", "at_color",
-		"at_button", "host_log", "run", "disk_settle", "do",
+		"at_button", "at_bottom", "host_log", "run", "disk_settle", "do",
 		"repeat_until",
 		"demo_script",
 		// A DISK EDIT, NOT A GUEST ACTION. It has its own branch because the guest it belongs to has

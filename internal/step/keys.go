@@ -113,14 +113,6 @@ var Keys = map[string]Key{
 			"share, iso, disk, tpm"},
 	"os": {Name: "os", Kind: KindString,
 		Summary: "which family the machine is: windows, macos, linux, android"},
-	"family": {Name: "family", Kind: KindString,
-		Summary: "the older spelling of os, kept for files not yet renamed"},
-	// --- how a boot gets its first instruction -------------------------------------------
-	//
-	// A GUEST HAS TWO INDEPENDENT FACTS: which OS it is, and whether an installer is attached.
-	// `os:` says the first. These say the second, and the presence of one IS the statement - the
-	// same rule `disk:` follows, so a file cannot say two contradictory things about what it
-	// starts.
 	"iso": {Name: "iso", Kind: KindString,
 		Summary: "an installer ISO. Windows and Linux boot it directly; macOS has none and is " +
 			"refused by name if given one"},
@@ -304,8 +296,6 @@ var Keys = map[string]Key{
 			"appeared, for media that boot with no prompt at all"},
 	"until": {Name: "until", Kind: KindWords,
 		Summary: "words that end a wait loop"},
-	"until_any": {Name: "until_any", Kind: KindWordSets,
-		Summary: "a list of word-sets, any one of which ends the wait"},
 	"until_dark": {Name: "until_dark", Kind: KindBool,
 		Summary: "wait until the screen goes black - an installer's own start signal"},
 	"wait_for_change": {Name: "wait_for_change", Kind: KindBool,
@@ -332,10 +322,6 @@ var Keys = map[string]Key{
 		Summary: "save the screen to this path, for a post-mortem nobody had to ask for"},
 	"desktop": {Name: "desktop", Kind: KindMapping,
 		Summary: "wait until a desktop is on screen; options include family and timeout"},
-	"desktop_family": {Name: "desktop_family", Kind: KindString,
-		Summary: "which desktop test to use: macos, windows, linux"},
-
-	// --- the guest over a channel -------------------------------------------------------
 	"ssh": {Name: "ssh", Kind: KindScript,
 		Summary: "a command run over ssh IN the guest; the exit status is the verdict"},
 	"require_ssh": {Name: "require_ssh", Kind: KindBool,
@@ -381,12 +367,6 @@ var Keys = map[string]Key{
 		Summary: "a pane: the words on screen that mean this step applies"},
 	"do": {Name: "do", Kind: KindList,
 		Summary: "a pane's actions, in order, run in one pass"},
-	"once": {Name: "once", Kind: KindBool,
-		Summary: "a pane answered at most ONCE, for a pane whose answer starts a slow process"},
-	"end": {Name: "end", Kind: KindWords,
-		Summary: "a pane file's end condition: the words that mean there is nothing left"},
-	"stuck_after": {Name: "stuck_after", Kind: KindFloat,
-		Summary: "seconds of nothing matching before the walk reports STUCK"},
 	"release": {Name: "release", Kind: KindString,
 		Summary: "which OS release is being driven; the Apple Account pane differs by release"},
 
@@ -704,4 +684,3 @@ func Validate(stepName string, mapping map[string]any) error {
 	}
 	return nil
 }
-

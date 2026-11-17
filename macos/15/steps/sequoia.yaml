@@ -150,7 +150,6 @@ steps:
   - create
   - mac
   - account
-  once: true
   region:
   - 300
   - 300

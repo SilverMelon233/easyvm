@@ -94,6 +94,8 @@ header's own `resolution:`.
 |---|---|---|---|
 | `check` | `{name, text?, colour?, unless?, any_of?, region?}` | ONE capture, every criterion against it, one boolean | 119 |
 | `want` | `{name, all\|any\|not}` | compares `see:` numbers, binds a boolean | **new** |
+| `when` | words | run this step only if the screen says these words | 16 |
+| `do` | list | run these steps in order under one name | 8 |
 | `if` | fact | branches: `{then: [...], else: [...]}` | 19 |
 | `loop` | `{max, do, until}` | repeat `do:` until the fact is true, up to `max` | 79 |
 
@@ -230,7 +232,7 @@ name, and they keep working because the executor reads both.
 | `require` | 22 | `requires:` + the header |
 | `expect`, `expect_any` | 9 | `check: {text: …}` |
 | `until`, `until_any` | 79 | `loop: {until:}` |
-| `family` | 15 | `os:` |
+| `family` | 0 | `os:` — **MIGRATED** |
 | `script_shell`, `script_name` | 32 | `script: {shell:, name:}` |
 | `at_bottom` | 8 | `at_button:` |
 | `skip_when_unfinished` | 5 | `if: finished` |
@@ -241,6 +243,7 @@ name, and they keep working because the executor reads both.
 | `else` as a sibling | 2 | `if: {else: [...]}` |
 | `unless`, `unless_any` | 10 | `check: {unless:}` |
 | `repeat_until` | 0 | `loop:` — **DEAD** |
+| `once`, `end`, `stuck_after`, `until_any` | 0 | the pane state machine — **DELETED** |
 | `wait_for` | 0 | `check: {colour: …}` — **DEAD** |
 | `wait_for_change` | 0 | `check:` + `loop:` — **DEAD** |
 | `until_dark` | 0 | `check: {colour: {mean: {less_than: N}}}` — **DEAD** |
@@ -251,7 +254,8 @@ name, and they keep working because the executor reads both.
 | `press`, `sweep` | 0 | `at_button:`, `loop: {do: [{click: …}]}` — **DEAD** |
 | `demo_script` | 0 | `write:` — **DEAD** |
 | `host_log`, `line_gap`, `adb_serial`, `share_dir`, `end`, `stuck_after`, `as`, `cpus` | 0 | — **DEAD** |
-| `keep_alive` | 0 | the wake is unconditional now, in `wakeTheScreen` — **MIGRATED** |
+| `keep_alive` | 0 | the wake is unconditional now — **MIGRATED** |
+| `desktop_family` | 0 | `desktop:` — **DELETED** |
 
 ## Why 29 keys are retired
 
