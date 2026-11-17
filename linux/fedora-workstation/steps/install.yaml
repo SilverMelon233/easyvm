@@ -647,10 +647,25 @@ steps:
     until:
       fact: up
 
+# THE FREE-SPACE KEBAB IS THE THIRD ROW ONCE THE ROOT PARTITION EXISTS.
+#
+# MEASURED on the list after the shrink, which now has THREE rows:
+#
+#	vda - VirtIO Disk   GPT partitions             y=211 in the 1280 view -> 317 here
+#	vda1                ext4 filesystem  /  136 GB y=242                -> 363
+#	Free space                                     1.44 GB  y=271       -> 407
+#
+# THE FIRST VERSION PRESSED (1186, 405) AND THE SECOND PRESSED (1185, 363) - and the second was a
+# correction in the WRONG DIRECTION: 405 was the third row's kebab on a table with three rows, which
+# is exactly what the shrink leaves behind, and 363 is the ROOT PARTITION's kebab. MEASURED: the menu
+# that opened at 363 read `ext4 filesystem / Edit mount point / Format / Partition / Shrink / Grow /
+# Delete` - a PARTITION's menu, and the press after it landed on the root partition's row.
+#
+# SO THE ROW THAT MATTERS IS NAMED: on a three-row table the free space is the third, at y=407.
 - name: the new free space's menu
   click:
   - 1185
-  - 363
+  - 407
   wait_after: 4
 
 - name: create the ESP
