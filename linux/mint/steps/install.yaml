@@ -234,9 +234,37 @@ steps:
   - 1306
   - 727
   wait_after: 20
-- name: the install runs, as measured
-  wait: 2400
-  keep_alive: true
+# THE INSTALL ENDS WHEN MINT SAYS SO, NOT WHEN FORTY MINUTES HAVE GONE BY.
+#
+# THIS WAS `wait: 2400` - a fixed forty minutes - and it is the one step in the tree that waits on
+# the clock instead of on the machine. MEASURED: the disk stopped growing at 12519 MiB with
+# `Installation Complete` on screen and the step then sat there for the remaining half hour, so a
+# local run took forty minutes to do twenty minutes of work and a CI leg paid the same.
+#
+# THE VERDICT IS THE DIALOG'S OWN WORDS. Ubiquity ends at
+#
+#	Installation Complete
+#	Installation has finished. You can continue testing Linux Mint now, ...
+#
+# - and `Complete` is the token that appears there and nowhere earlier in the run.
+- name: the install finishes
+  loop:
+    max: 120
+    do:
+    - wait: 15
+    ocr:
+      name: finished
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: finished
+      mode: says
+      words: [Complete]
+    until:
+      fact: done
 - name: stop the machine
   shutdown: kill
   timeout: 120
