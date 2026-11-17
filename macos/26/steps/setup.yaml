@@ -172,28 +172,31 @@ steps:
 # A CAPACITY TEST CANNOT TELL THEM APART, and the rows SWAP BETWEEN RUNS, so a position is not a
 # judgement either. `Uninitialized` is a property of the disk that has never been formatted, which is
 # exactly the disk to format.
-- name: read the first disk
-  # MEASURED ON MACOS 26, FULL SCREEN, AND THE ROWS ARE NOT WHERE 15 PUT THEM.
+- name: select the first disk
+  # THE ROWS ARE CLICKED, NOT WALKED, BECAUSE THE ARROW KEYS DO NOT MOVE THIS LIST ON 26.
   #
-  # The sidebar of Disk Utility in the 26 recovery environment, read off the frame this walk
-  # produced, with the text bands found by a pixel scan:
+  # MEASURED: with the recovery volume selected, `key: down` five times left the selection exactly
+  # where it was - the detail pane read "disk2s1 / USB External Physical Volume / Mac OS Extended"
+  # after every attempt, and the loop failed having moved nothing. On 15 the same key walks the list,
+  # which is why the inherited step was written that way.
   #
-  #	y=132   row 1   "Apple Inc. VirtIO Block Media"   Uninitialized   <- the 137 GB target
-  #	y=164   row 2   "Apple Inc. VirtIO Block Media"   (the 268 MB boot image)
-  #	y=202           the "External" group heading
-  #	y=228   row 3   "disk2s1"                          (the recovery volume)
+  # THE THREE ROWS, EACH CLICKED AND READ ON 26 (full screen, this guest):
   #
-  # 15 MEASURED THE SAME ROWS AT y=105/133/184, so 26 sits about 27 px LOWER. THE INHERITED CLICK AT
-  # y=112 LANDED ABOVE ROW 1'S TEXT AND SELECTED NOTHING - the run then failed with the selection
-  # still on `disk2s1`, and the `down` loop walked from wherever the window had left the cursor.
+  #	y=132   Apple Inc. VirtIO Block Media   Uninitialized          <- the 137 GB target
+  #	y=164   Apple Inc. VirtIO Block Media   GUID Partition Map      <- the 268 MB boot image
+  #	y=228   disk2s1                         Mac OS Extended         <- the recovery volume
   #
-  # ROW 1 IS THE TARGET ON THIS RELEASE: the detail pane reads "137.44 GB / Internal / Uninitialized /
-  # disk0", which is the disk to erase. Row 2 is the OpenCore boot image at 268.4 MB.
+  # SO THE TARGET IS ROW 1 AND A CLICK ON IT IS ENOUGH - the mouse works where the keyboard does not,
+  # which is the same finding 15's file records for the sidebar in general.
+  #
+  # AND THE WINDOW OPENS WITH AN UNPREDICTABLE SELECTION: measured with the recovery volume
+  # highlighted on one run and the target on another, so nothing may be assumed about where the
+  # highlight starts.
   click:
   - 200
   - 132
   wait_after: 2
-- name: is the first disk the uninitialised one
+- name: is the selected disk the uninitialised one
   ocr:
     name: details
     # THE NAME AND THE STATE LINE UNDER IT, NOT THE CAPACITY BOX ON THE RIGHT.
@@ -201,9 +204,8 @@ steps:
     # `Uninitialized` IS DRAWN AT ABOUT 12 PX; at `scale: 2` tesseract returned only
     # `Apple Inc. VirtlO Block Media`, so the state line was absent and no check of it could pass.
     #
-    # THE REGION IS TALLER THAN 15'S (100..160) BECAUSE 26 DRAWS THE HEADER LOWER: on the frame above,
-    # the disk's name is at y~140 and the type/state line at y~167 - the 15-era region ended at 160 and
-    # cut the line that this step exists to read.
+    # THE REGION IS TALLER THAN 15'S (100..160) BECAUSE 26 DRAWS THE HEADER LOWER: the disk's name is
+    # at y~140 and the type/state line at y~167, so the 15-era region cut the line this step reads.
     region:
     - 360
     - 105
@@ -220,36 +222,35 @@ steps:
     from: details
     mode: contains
     text: Uninitialized
-- name: step down to the uninitialised disk
-  # `loop:` RUNS `do:` BEFORE `ocr:`, so a loop whose `do:` is "press Down" reads the row AFTER the
-  # move. Row 1 was read by the step above, which is why this loop can start by MOVING - an earlier
-  # version clicked row 1 again inside the loop, so `down` and the click cancelled out.
+- name: select the second disk, when row 1 was the boot image
+  # THE FALLBACK IS A CLICK ON ROW 2, NOT A KEYPRESS. `key: down` moved nothing on this list; a click
+  # on the row selects it, which is measured above.
   if: uninitialised
   else:
-    - loop:
-        max: 4
-        do:
-        - key: down
-        - wait: 1
-        ocr:
-          name: details
-          region:
-          - 360
-          - 105
-          - 1100
-          - 200
-          region_at:
-          - 1920
-          - 1080
-          scale: 4
-          wait: 0
-        check:
-          name: uninitialised
-          from: details
-          mode: contains
-          text: Uninitialized
-        until:
-          fact: uninitialised
+    - name: click row 2
+      click:
+      - 200
+      - 164
+      wait_after: 2
+    - name: is the second disk the uninitialised one
+      ocr:
+        name: details
+        region:
+        - 360
+        - 105
+        - 1100
+        - 200
+        region_at:
+        - 1920
+        - 1080
+        scale: 4
+        wait: 0
+    - name: the second disk is the uninitialised one
+      check:
+        name: uninitialised
+        from: details
+        mode: contains
+        text: Uninitialized
 - name: erase - open the sheet
   # THE CLICK IS REPEATED UNTIL THE SHEET IS READ, BECAUSE A CLICK ON A TOOLBAR THAT IS STILL DRAWING
   # IS DROPPED. Full screen, the Erase button is at (1681, 57).
