@@ -60,6 +60,16 @@ type Rect struct {
 	// a screen ruler gives; the newer form prefers fractions because they cannot be wrong at another
 	// size. Keeping both in one struct means one place converts, rather than every reader.
 	Pixels bool
+	// AtW, AtH is THE SCREEN THE PIXELS WERE WRITTEN FOR - the file's `rect_at: [w, h]`.
+	//
+	// IT IS NOT THE FRAME'S SIZE, AND CONFLATING THE TWO WAS A REAL FAILURE: a macos recovery frame is
+	// 640x480 and its rects were measured at 1920x1080, so scaling them by the FRAME asked for a
+	// 1400-wide crop of a 640-wide image -
+	//
+	//	crop [760, 200, 1400, 560] is not inside a 640x480 frame
+	//
+	// Zero means the file named no size, and the frame is the only answer available.
+	AtW, AtH int
 }
 
 // FullWidth is the whole frame's width, which is what a panel test measures.
@@ -77,8 +87,12 @@ func Measure(img image.Image, r Rect) Reading {
 	// same struct carries both, and this is the one place that knows the frame's size.
 	from, to, xf, xt := r.From, r.To, r.XFrom, r.XTo
 	if r.Pixels {
-		from, to = r.From/float64(h), r.To/float64(h)
-		xf, xt = r.XFrom/float64(w), r.XTo/float64(w)
+		aw, ah := r.AtW, r.AtH
+		if aw <= 0 || ah <= 0 {
+			aw, ah = w, h
+		}
+		from, to = r.From/float64(ah), r.To/float64(ah)
+		xf, xt = r.XFrom/float64(aw), r.XTo/float64(aw)
 	}
 	y0 := b.Min.Y + int(float64(h)*from)
 	y1 := b.Min.Y + int(float64(h)*to)

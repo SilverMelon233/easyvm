@@ -52,7 +52,8 @@ func (e *Executor) doSee(s walk.Step) error {
 		}
 	}
 
-	rect, err := parseRect(rectRaw)
+	at, _ := pairAt(s)
+	rect, err := parseRectAt(rectRaw, at)
 	if err != nil {
 		return fail(s.Name, "%v", err)
 	}
@@ -92,7 +93,8 @@ func (e *Executor) doSee(s walk.Step) error {
 // seeText reads a rect with OCR. It exists so a `see:` step can produce WORDS as well as numbers,
 // which is what makes `see:` a generalisation of `ocr:` rather than a second mechanism beside it.
 func (e *Executor) seeText(s walk.Step, name string, rectRaw any) error {
-	rect, err := parseRect(rectRaw)
+	at, _ := pairAt(s)
+	rect, err := parseRectAt(rectRaw, at)
 	if err != nil {
 		return fail(s.Name, "%v", err)
 	}
@@ -114,6 +116,9 @@ func (e *Executor) seeText(s walk.Step, name string, rectRaw any) error {
 	if v, ok := toFloat(s.Spec["scale"]); ok && v > 0 {
 		scale = int(v)
 	}
+	// THE RECT ALREADY CARRIES `rect_at:`, so the crop is placed on the screen the file measured it
+	// on rather than on whatever size this frame arrived at - a macos recovery frame is 640x480 and
+	// its rects were written at 1920x1080.
 	words, err := e.readWords(img, rect, scale)
 	if err != nil {
 		return fail(s.Name, "%v", err)
@@ -412,6 +417,12 @@ func (e *Executor) lookupNumber(name string) (float64, error) {
 // size, and the files record what that costs: `click (936, 628) is a coordinate measured at 1920x1080
 // but the framebuffer is 640x480`. A fraction means the same place at every size.
 func parseRect(raw any) (screen.Rect, error) {
+	return parseRectAt(raw, [2]int{})
+}
+
+// parseRectAt is `parseRect` for a step that also says `rect_at:` - the screen its pixels were
+// written for. Without it a pixel rect is scaled by the frame, which is wrong whenever the two differ.
+func parseRectAt(raw any, at [2]int) (screen.Rect, error) {
 	switch v := raw.(type) {
 	case string:
 		return parseRectWords(v)
@@ -447,6 +458,7 @@ func parseRect(raw any) (screen.Rect, error) {
 		// knows and this function does not - so it is returned unconverted and the caller scales it.
 		return screen.Rect{
 			From: f[1], To: f[3], XFrom: f[0], XTo: f[2], Pixels: true,
+			AtW: at[0], AtH: at[1],
 		}, nil
 	}
 	return screen.Rect{}, fmt.Errorf("`rect:` must be a name like `bottom 4.5%%` or a list of " +
