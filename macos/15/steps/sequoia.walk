@@ -1,7 +1,21 @@
 walkthrough "macos 15 sequoia setup assistant"
   resolution 1920x1080
   password admin
-  var shutdown == {default: ssh, from: args.shutdown}
+  # `kill` IS THE DEFAULT, BECAUSE THIS STAGE NEVER OPENS AN SSH CONNECTION.
+  #
+  # `shutdown: ssh` ASKS THE GUEST OVER THE CHANNEL THE SSH STEPS USE, and this file has none: it drives
+  # the first-boot wizard by clicking, which is what it exists to do. MEASURED on run 44182571223, the
+  # first run to answer all twenty-five steps:
+  #
+  #	=== stop the machine
+  #	  stopping with method "ssh"
+  #	  could not open an ssh connection: dial tcp 172.30.0.1:2222: connect: connection refused
+  #	  stop the machine: `shutdown: ssh` needs a connection, and there is none
+  #
+  # THE WORK WAS ALREADY DONE - 24 of 25 steps answered, the wizard walked end to end. The only thing
+  # wrong was the way the machine was asked to stop, and `kill` needs no channel: the run is on a
+  # throwaway overlay, so there is nothing to flush that a clean poweroff would protect.
+  var shutdown == {default: kill, from: args.shutdown}
   var user == {default: vmuser, from: args.user}
   header boot_disk == from_caller
   header boot_poll == 10
