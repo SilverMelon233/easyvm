@@ -542,43 +542,235 @@ steps:
   - 1005
   - 712
   wait_after: 10
-- name: the copy runs until the Setup Assistant appears
-  # NINETY MINUTES, AND `max` IS A COUNT OF ATTEMPTS RATHER THAN MINUTES.
-  #
-  #	270 x 20 s = 90 minutes
-  #
-  # THE ARITHMETIC IS WRITTEN OUT BECAUSE I GOT IT WRONG ONCE: the first version of this change said
-  # `max: 90` and its comment said "thirty minutes", which was right about the arithmetic and wrong
-  # about the request - the step is meant to WAIT NINETY MINUTES, so the count is 270.
-  #
-  # THE OLDER VERSION SAID `max: 1080` (six hours), which was longer than this stage's own job budget
-  # in `macos26.yml` (400 minutes) - a step that used its ceiling would be killed by the runner rather
-  # than fail on its own terms. 90 minutes is inside that budget with room for the erase, the installer
-  # and the publish.
-  #
-  # AND ON 16 GiB THIS STEP CAN LEGITIMATELY USE ALL OF IT: MEASURED, the installer reached "About 1
-  # hour and 31 minutes remaining", wrote 36.6 GiB, and then crawled at ~300 KB/s with all 16 GiB
-  # resident and a byte-identical screen for half an hour. A warm reset recovered it - the same disk
-  # came back reading "About 29 minutes remaining" - so the guest was thrashing rather than stuck, and
-  # the wait is what stands between this step and a published disk.
-  #
-  # THIS STAGE ENDS HERE ON PURPOSE, AND THE WIZARD IT HANDS TO THE ssh STAGE IS NOT ANSWERED IN ONE
-  # PASS. easydev-org/easyvm#3 measured it over two fresh installs and then corrected itself:
-  #
-  #	Setup Assistant does NOT commit every pane as it is answered. Answer the panes up to "Update Mac
-  #	Automatically", reboot, and the APPLE ID PANE COMES BACK - so the second pass re-answers Apple
-  #	ID, Location, Analytics and Choose Your Look, and only after THAT is committed does the wizard
-  #	stop appearing. Two reboots on a fresh install, then a login window and a desktop.
-  #
-  # AND THE PANE THAT FORCES THE REBOOT NEVER ADVANCES: "Update Mac Automatically" draws an enabled
-  # Continue button and a turning spinner, and click, `ret` and `tab`+space all do nothing - measured
-  # over fifteen minutes. A walk that waits on it hangs; a walk that reboots once hangs on its second
-  # appearance, in a state that looks identical to the first hang.
-  #
-  # WHICH IS WHY THIS FILE STOPS AT "the Setup Assistant appears" RATHER THAN TRYING TO DRIVE IT: the
-  # installer's half ends here, and the wizard's half belongs to a stage that can be re-run without
-  # paying for the install again - which is the same reason `macos15` splits setup from ssh.
+- name: the copy runs, look 1 of at most 3
   loop:
+    # NINETY MINUTES: 270 x 20 s. THE CEILING IS A LOOP'S ATTEMPTS, NOT A WALL CLOCK.
+    #
+    # AND THE LOOP RUNNING OUT IS NOT THE END: when it spends its attempts the step AFTER this one
+    # RESETS THE GUEST AND THE NEXT LOOK STARTS OVER. MEASURED, TWICE: a guest that has stopped making
+    # progress comes back into the SAME install and moves again - "About 1 hour and 31 minutes
+    # remaining" before a reset, "About 29 minutes remaining" after.
+    #
+    # THE ALTERNATIVE WAS ONE LONGER LOOP AND IT DOES NOT WORK HERE: at 16 GiB the installer reaches
+    # 36.62 GiB in about five minutes and then crawls at ~300 KB/s with four vCPUs pegged and 15.9 GiB
+    # resident, and IT STAYS THERE. A loop of 270 attempts measured end to end:
+    #
+    #	07:00  step begins
+    #	07:05  disk.qcow2 reaches 36.62 GiB, and its mtime never changes again
+    #	08:20  the installer's pane still reads "About 1 hour and 26 minutes remaining"
+    #	08:41  the 270 attempts are spent and the step fails
+    #
+    # so a single ninety-minute wait is not enough for this install, and a reset is what makes the next
+    # ninety minutes different from the first.
+    max: 270
+    do:
+    - wait: 20
+    ocr:
+      name: screen
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - select
+        - your
+        - country
+        - or
+        - region
+      - - how
+        - do
+        - you
+        - want
+        - to
+        - connect
+        - to
+        - the
+        - internet
+      - - transfer
+        - your
+        - information
+        - to
+        - this
+        - mac
+      - - choose
+        - a
+        - wireless
+        - network
+      - - sign
+        - in
+        - with
+        - your
+        - apple
+        - id
+    until:
+      fact: done
+- name: reset the guest, because ninety minutes of this installer is not enough
+  # A WARM RESET, NOT A STOP AND START. MEASURED: the same disk rebooted came back into the same
+  # install and moved again, where it had been frozen on one frame for half an hour. `reboot:` is
+  # qemu's own reset, so the disk keeps every write and the boot image, recovery image and target stay
+  # attached; `WriteConfig` sets ShowPicker=false and Timeout=0, so OpenCore boots the disk with no
+  # menu to wait at.
+  #
+  # IT ALSO COSTS NOTHING WHEN THE INSTALL IS ALREADY DONE: the guest comes back to the Setup
+  # Assistant from the disk it just wrote, which is what the look after this one is looking for.
+  reboot: true
+  timeout: 300
+- name: wait for the guest to be drawing again after the reset
+  # `matches: '.'` IS "A SESSION IS DRAWN" - the same test this repository uses elsewhere. Without this
+  # the next look's `ocr:` can land during the boot and read an empty frame, which would burn an
+  # attempt and look identical to "not the Setup Assistant yet".
+  loop:
+    max: 40
+    do:
+    - wait: 10
+    ocr:
+      name: back
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: anything
+      from: back
+      mode: matches
+      pattern: '.'
+    until:
+      fact: anything
+- name: the copy runs, look 2 of at most 3
+  loop:
+    # NINETY MINUTES: 270 x 20 s. THE CEILING IS A LOOP'S ATTEMPTS, NOT A WALL CLOCK.
+    #
+    # AND THE LOOP RUNNING OUT IS NOT THE END: when it spends its attempts the step AFTER this one
+    # RESETS THE GUEST AND THE NEXT LOOK STARTS OVER. MEASURED, TWICE: a guest that has stopped making
+    # progress comes back into the SAME install and moves again - "About 1 hour and 31 minutes
+    # remaining" before a reset, "About 29 minutes remaining" after.
+    #
+    # THE ALTERNATIVE WAS ONE LONGER LOOP AND IT DOES NOT WORK HERE: at 16 GiB the installer reaches
+    # 36.62 GiB in about five minutes and then crawls at ~300 KB/s with four vCPUs pegged and 15.9 GiB
+    # resident, and IT STAYS THERE. A loop of 270 attempts measured end to end:
+    #
+    #	07:00  step begins
+    #	07:05  disk.qcow2 reaches 36.62 GiB, and its mtime never changes again
+    #	08:20  the installer's pane still reads "About 1 hour and 26 minutes remaining"
+    #	08:41  the 270 attempts are spent and the step fails
+    #
+    # so a single ninety-minute wait is not enough for this install, and a reset is what makes the next
+    # ninety minutes different from the first.
+    max: 270
+    do:
+    - wait: 20
+    ocr:
+      name: screen
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - select
+        - your
+        - country
+        - or
+        - region
+      - - how
+        - do
+        - you
+        - want
+        - to
+        - connect
+        - to
+        - the
+        - internet
+      - - transfer
+        - your
+        - information
+        - to
+        - this
+        - mac
+      - - choose
+        - a
+        - wireless
+        - network
+      - - sign
+        - in
+        - with
+        - your
+        - apple
+        - id
+    until:
+      fact: done
+- name: reset the guest again, for the same reason and with the same measurement behind it
+  reboot: true
+  timeout: 300
+- name: wait for the guest to be drawing again after the second reset
+  loop:
+    max: 40
+    do:
+    - wait: 10
+    ocr:
+      name: back2
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: anything2
+      from: back2
+      mode: matches
+      pattern: '.'
+    until:
+      fact: anything2
+- name: the copy runs, look 3 of at most 3
+  loop:
+    # NINETY MINUTES: 270 x 20 s. THE CEILING IS A LOOP'S ATTEMPTS, NOT A WALL CLOCK.
+    #
+    # AND THE LOOP RUNNING OUT IS NOT THE END: when it spends its attempts the step AFTER this one
+    # RESETS THE GUEST AND THE NEXT LOOK STARTS OVER. MEASURED, TWICE: a guest that has stopped making
+    # progress comes back into the SAME install and moves again - "About 1 hour and 31 minutes
+    # remaining" before a reset, "About 29 minutes remaining" after.
+    #
+    # THE ALTERNATIVE WAS ONE LONGER LOOP AND IT DOES NOT WORK HERE: at 16 GiB the installer reaches
+    # 36.62 GiB in about five minutes and then crawls at ~300 KB/s with four vCPUs pegged and 15.9 GiB
+    # resident, and IT STAYS THERE. A loop of 270 attempts measured end to end:
+    #
+    #	07:00  step begins
+    #	07:05  disk.qcow2 reaches 36.62 GiB, and its mtime never changes again
+    #	08:20  the installer's pane still reads "About 1 hour and 26 minutes remaining"
+    #	08:41  the 270 attempts are spent and the step fails
+    #
+    # so a single ninety-minute wait is not enough for this install, and a reset is what makes the next
+    # ninety minutes different from the first.
     max: 270
     do:
     - wait: 20
