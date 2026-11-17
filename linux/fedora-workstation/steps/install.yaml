@@ -35,109 +35,75 @@ steps:
   timeout: 5400
   poll: 5
   keep_alive: true
-- name: wait for the anaconda window
-  loop:
-    max: 60
-    do:
-    - click:
-      - 420
-      - 300
-      wait_after: 5
-    ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
-      scale: 1
-      wait: 0
-    check:
-      name: done
-      from: screen
-      mode: says_any
-      words:
-      - - installation
-        - method
-      - - installation
-        - summary
-      - - let's
-        - install
-    until:
-      fact: done
-- name: install fedora linux
-  wait_after: 3
-  do:
-  - click:
-    - 838
-    - 708
-    wait_after: 3
-  - click:
-    - 838
-    - 708
-    wait_after: 3
-- name: install fedora linux (again, if anaconda is not up)
-  unless:
-  - installation
-  - method
-  wait_after: 25
-  do:
-  - click:
-    - 838
-    - 708
-    wait_after: 3
-  - click:
-    - 838
-    - 708
-    wait_after: 3
-- name: install fedora linux (and once more)
-  unless:
-  - installation
-  - method
-  wait_after: 30
-  do:
-  - click:
-    - 838
-    - 708
-    wait_after: 3
-  - click:
-    - 838
-    - 708
-    wait_after: 3
-- name: anaconda is up
+# FEDORA 45's ANACONDA IS A WEB UI, AND THIS STAGE STILL WALKED THE Qt WIZARD.
+#
+# MEASURED: `wait for the anaconda window` spent its whole 60-attempt budget with this on screen:
+#
+#	Welcome to Fedora Linux
+#	  This live media can be used to install Fedora Linux or as a temporary system.
+#	  Installation can be started at any time by launching the install app.
+#	  [ Install Fedora Linux... ]   [ Not Now ]
+#
+# - the live session's OWN WELCOME DIALOG, which has to be answered before anything opens. The loop
+# waited for words from the old wizard (`installation method`, `installation summary`) and clicked
+# (420,300), which is the wallpaper behind that dialog; neither could ever change the screen.
+#
+# AND WHEN IT DOES OPEN IT IS A BROWSER, NOT A WINDOW: `Waiting for 127.0.0.1...` and then a
+# web page whose first screen says `Welcome. Let's install Fedora Linux now.` - so the words this
+# stage waits for afterwards are the WEB UI's, not the Qt one's.
+- name: answer the live session's welcome dialog
   loop:
     max: 30
     do:
-    - click:
-      - 420
-      - 300
-      wait_after: 10
+    - wait: 5
     ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
+      name: welcome_dialog
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
       scale: 1
       wait: 0
     check:
-      name: done
-      from: screen
+      name: offered
+      from: welcome_dialog
       mode: says_any
       words:
-      - - installation
-        - method
-      - - let's
-        - install
+      - - Welcome
+      - - Install
     until:
-      fact: done
+      fact: offered
+
+# THE BUTTON IS AT (830, 698): its box spans x=488..617, y=455..475 in the 1280-wide view, so its
+# centre is (553, 465) there. MEASURED on this dialog's own frame.
+- name: launch the installer
+  click:
+  - 830
+  - 698
+  wait_after: 25
+
+- name: anaconda's web ui is up
+  loop:
+    max: 60
+    do:
+    - wait: 10
+    ocr:
+      name: anaconda
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: ready
+      from: anaconda
+      mode: says_any
+      # ONE TOKEN PER SET. The web UI's first page reads `Welcome. Let's install Fedora Linux now.`
+      # - `Welcome` alone is what it, the storage page and the review page all carry.
+      words:
+      - - Welcome
+      - - Installation
+      - - Storage
+    until:
+      fact: ready
+
 - name: welcome
   click:
   - 729
