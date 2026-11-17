@@ -234,12 +234,14 @@ steps:
       name: done
       from: screen
       mode: says_any
+      # ONE TOKEN PER SET, because `says_any` asks whether EVERY word in a set is present and OCR
+      # returns this pane's heading in shapes that split differently run to run - `Choose Account
+      # Password` on one frame, `ChooseAccountPassword` on another, `Account Password` on a third.
+      # MEASURED on the CI leg: both multi-word sets missed for 45 attempts on a page that was up.
       words:
       - - Choose
-        - Account
-        - Password
-      - - Account
-        - Password
+      - - Password
+      - - Confirm
     until:
       fact: done
 - name: dismiss anything a stray click opened
