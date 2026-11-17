@@ -274,6 +274,27 @@ steps:
   click: [527, 517]
   wait_after: 6
 
+- name: the partitions page settles after the filesystem list closes
+  loop:
+    max: 24
+    do:
+    - wait: 10
+    ocr:
+      name: settle
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
+    check:
+      name: here
+      from: settle
+      mode: says_any
+      words:
+      - - partition
+      - - erase
+    until:
+      fact: here
+
 - name: the page after choosing ext4
   ocr:
     name: fs
@@ -319,6 +340,27 @@ steps:
 - name: next from packages
   click: [1356, 793]
   wait_after: 12
+
+- name: the users page arrives before anything is typed into it
+  loop:
+    max: 30
+    do:
+    - wait: 10
+    ocr:
+      name: settle
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
+    check:
+      name: here
+      from: settle
+      mode: says_any
+      words:
+      - - password
+      - - name
+    until:
+      fact: here
 
 - name: the users page
   ocr:
@@ -377,6 +419,27 @@ steps:
 - name: next from users
   click: [1356, 793]
   wait_after: 10
+
+- name: the summary page arrives before install is clicked
+  loop:
+    max: 30
+    do:
+    - wait: 10
+    ocr:
+      name: settle
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
+    check:
+      name: here
+      from: settle
+      mode: says_any
+      words:
+      - - summary
+      - - install
+    until:
+      fact: here
 
 - name: the summary page
   ocr:

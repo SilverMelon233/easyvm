@@ -292,6 +292,27 @@ steps:
   click: [1410, 878]
   wait_after: 10
 
+- name: the summary page arrives before install is clicked
+  loop:
+    max: 30
+    do:
+    - wait: 10
+    ocr:
+      name: settle
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
+    check:
+      name: here
+      from: settle
+      mode: says_any
+      words:
+      - - summary
+      - - install
+    until:
+      fact: here
+
 - name: the summary page
   ocr:
     name: summary
