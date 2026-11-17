@@ -198,14 +198,79 @@ steps:
 # with it. A click at 753 lands on `The numbers and dates locale will be set to ...` - which selects a
 # TIMEZONE on the map rather than advancing, and that is how a run reached Kerguelen.
 
+- name: the location page arrives after welcome
+  loop:
+    max: 30
+    do:
+    - wait: 10
+    ocr:
+      name: at_location
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
+    check:
+      name: here
+      from: at_location
+      mode: says_any
+      words:
+      - - location
+      - - timezone
+      - - region
+    until:
+      fact: here
+
 - name: next from location
   click: [1356, 791]
   wait_after: 8
 
 # Keyboard -> Bootloader. The Generic 105-key PC and Default layout are the defaults.
+- name: the keyboard page arrives after location
+  loop:
+    max: 30
+    do:
+    - wait: 10
+    ocr:
+      name: at_keyboard
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
+    check:
+      name: here
+      from: at_keyboard
+      mode: says_any
+      words:
+      - - keyboard
+    until:
+      fact: here
+
 - name: next from keyboard
   click: [1356, 834]
   wait_after: 8
+
+- name: the bootloader page arrives after keyboard
+  loop:
+    max: 30
+    do:
+    - wait: 10
+    ocr:
+      name: at_bootloader
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
+    check:
+      name: here
+      from: at_bootloader
+      mode: says_any
+      words:
+      - - bootloader
+      - - grub
+      - - refind
+      - - systemd-boot
+    until:
+      fact: here
 
 - name: the bootloader page
   ocr:
@@ -246,6 +311,28 @@ steps:
   click: [1356, 791]
   wait_after: 10
 
+- name: the partitions page arrives after the bootloader
+  loop:
+    max: 30
+    do:
+    - wait: 10
+    ocr:
+      name: at_partitions
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
+    check:
+      name: here
+      from: at_partitions
+      mode: says_any
+      words:
+      - - erase
+      - - partition
+      - - manual
+    until:
+      fact: here
+
 - name: select erase disk
   click: [533, 364]
   wait_after: 8
@@ -280,14 +367,14 @@ steps:
     do:
     - wait: 10
     ocr:
-      name: settle
+      name: at_partitions_again
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
       name: here
-      from: settle
+      from: at_partitions_again
       mode: says_any
       words:
       - - partition
@@ -347,14 +434,14 @@ steps:
     do:
     - wait: 10
     ocr:
-      name: settle
+      name: at_users
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
       name: here
-      from: settle
+      from: at_users
       mode: says_any
       words:
       - - password
@@ -426,14 +513,14 @@ steps:
     do:
     - wait: 10
     ocr:
-      name: settle
+      name: at_summary
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
       name: here
-      from: settle
+      from: at_summary
       mode: says_any
       words:
       - - summary
