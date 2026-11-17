@@ -199,6 +199,26 @@ jobs:
         with:
           ref: ${{ inputs.branch }}
 
+      # THE TESTER STAGE INHERITS FROM `runtime`, AND `runtime` COPIES `dist/easyvm`. MEASURED on run
+      # 44078552324, when this job was extracted and the build left behind:
+      #
+      #	ERROR: failed to calculate checksum of ref ...: "/dist/easyvm": not found
+      #
+      # - so the binary is built here too. It is the same `go build` the image job does, and the module
+      # cache makes it seconds rather than minutes.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: build the binary the tester stage inherits
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" -o dist/easyvm ./cmd/easyvm
+          chmod 0755 dist/easyvm
+
       - uses: docker/setup-buildx-action@v3
 
       - name: the unit tests, in the machine they describe
