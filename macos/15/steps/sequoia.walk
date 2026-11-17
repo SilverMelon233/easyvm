@@ -18,6 +18,27 @@ walkthrough "macos 15 sequoia setup assistant"
     boot == true
     os == macos
     timeout == 900
+  # THE GUEST NEEDS MINUTES BEFORE THE WIZARD IS ON SCREEN, AND NOTHING WAS WAITING FOR IT.
+  #
+  # THIS FILE DECLARES `boot_poll: 10` AND `boot_timeout: 1800` AT THE TOP, and NEITHER HAS AN
+  # EXECUTOR: the two names exist only in the documentation key list and in the emitter's keep-list.
+  # So the first `when:` below ran the instant qemu started, read the OpenCore screen, and found no
+  # pane - and the same for every step after it:
+  #
+  #	read screen: 1 word(s): support.apple.com/mac/startup
+  #	the apple account pane is gone [check]: done = false
+  #	  (mode says_any: none of "update automatically" or "choose a look" or "welcome to mac"
+  #	   in "support.apple.com/mac/startup")
+  #
+  # MEASURED on run 44147045702. THE DISK IS FINE: `macos15` boots to a desktop in the ssh leg, and
+  # the qemu command line here is byte-identical to that one - the only difference was the wait.
+  #
+  # THE WAIT IS A `loop:` BECAUSE THAT IS THE VOCABULARY: a reading, a condition, a ceiling. 180
+  # attempts of 10 seconds is the `boot_timeout: 1800` and `boot_poll: 10` the header asked for,
+  # written where they can actually run.
+  step "wait for the first wizard pane"
+    loop == {check: {from: boot_screen, mode: says_any, name: up, words: [[analytics, improve], [privacy, fundamental], [spoken, languages], [transfer, data], [country, region], [create, mac, account], [welcome, mac], [look, appearance]]}, do: [{settle: 10}], max: 180, see: {name: boot_screen, of: [text], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 0}, until: {fact: up}}
+    timeout == 2400
   step analytics
     do == [{click: [808, 513], settle: 3}, {click: [1306, 810], settle: 10}]
     when == [analytics, improve]
