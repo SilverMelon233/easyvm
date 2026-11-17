@@ -2686,3 +2686,85 @@ func stepsOf(rel string, t *testing.T, raw []any) []Step {
 	}
 	return out
 }
+
+// A LOOP WHOSE `until:` CAN NEVER HOLD IS A WAIT THAT ENDS BY FAILING.
+//
+// MEASURED, written to mean "press this a few times and move on":
+//
+//	- name: the session is kept awake with a pointer nudge
+//	  loop:
+//	    max: 3
+//	    do: [{click: [12, 12], wait_after: 4}]
+//	    ocr: {name: awake, ...}
+//	    check: {name: never, from: awake, mode: says, words: [zzzzneveraword]}
+//	    until: {fact: never}
+//
+// and it failed exactly as written:
+//
+//	the session is kept awake with a pointer nudge: the loop ran 3 attempt(s) and the condition
+//	never held: ... [until]: the boolean "never" is false
+//
+// `max:` IS A CEILING ON ATTEMPTS, NOT A COUNT: a loop repeats until its condition holds and gives up
+// after `max` tries, so a condition that never holds is a failure with a delay. A step that should
+// simply act a few times is a few plain steps.
+//
+// THE CHECK IS THE SENTINEL ITSELF: `zzzz`-style words exist nowhere else in the tree, and their
+// only purpose is to be unmatched.
+func TestNoLoopWaitsOnAWordThatCannotAppear(t *testing.T) {
+	root := filepath.Join("..", "..")
+	var files []string
+	for _, pat := range []string{
+		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
+		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
+		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
+		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
+		filepath.Join(root, "android", "*", "steps", "*.yaml"),
+	} {
+		matches, err := filepath.Glob(pat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, matches...)
+	}
+
+	loops := 0
+	for _, path := range files {
+		rel, _ := filepath.Rel(root, path)
+		f, err := Load(path, nil)
+		if err != nil {
+			continue
+		}
+		for _, s := range f.Steps {
+			lp, ok := s.Spec["loop"].(map[string]any)
+			if !ok {
+				continue
+			}
+			loops++
+			check, ok := lp["check"].(map[string]any)
+			if !ok {
+				continue
+			}
+			raw, _ := check["words"].([]any)
+			for _, entry := range raw {
+				var words []any
+				switch v := entry.(type) {
+				case []any:
+					words = v
+				default:
+					words = []any{v}
+				}
+				for _, w := range words {
+					if str, ok := w.(string); ok && strings.HasPrefix(strings.ToLower(str), "zzzz") {
+						t.Errorf("%s: %q: the loop waits on the sentinel %q, which is in this tree "+
+							"only to be unmatched - so its `until:` can never hold and the loop ends "+
+							"by failing after `max:` attempts. If the step should simply act a few "+
+							"times, it is a few plain steps", rel, s.Name, str)
+					}
+				}
+			}
+		}
+	}
+	if loops == 0 {
+		t.Fatal("no `loop:` found, so this test checked nothing")
+	}
+}

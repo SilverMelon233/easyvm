@@ -42,31 +42,26 @@ steps:
 # live session's blanking had fired while blivet-gui was loading. `keep_alive` on the desktop wait
 # covers THAT WAIT ONLY; everything after it is unprotected, and this wizard has long quiet pages.
 #
-# IT IS A POINTER NUDGE RATHER THAN `xset` BECAUSE `run:` TYPES INTO A TERMINAL and this live session
-# does not put one on screen - the same reason the file clicks a desktop icon to start Anaconda. A
-# moving pointer resets the idle timer on every desktop, and it is what `keep_alive` itself does.
-- name: the session is kept awake with a pointer nudge
-  loop:
-    max: 3
-    do:
-    - click:
-      - 12
-      - 12
-      wait_after: 4
-    ocr:
-      name: awake
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
-      wait: 1
-    check:
-      name: never
-      from: awake
-      mode: says
-      words:
-      - - zzzzneveraword
-    until:
-      fact: never
+# IT IS A POINTER NUDGE AND NOT `xset`, because `run:` TYPES INTO A TERMINAL and this live session
+# does not put one on screen - the same reason the file clicks a desktop icon rather than running
+# `anaconda`. A pointer that moves resets the idle timer on every desktop.
+#
+# A LOOP CANNOT EXPRESS "WAIT A WHILE": its `until:` has to become true, and a loop whose condition is
+# always false ends by failing - MEASURED, `the session is kept awake with a pointer nudge: the loop
+# ran 3 attempt(s) and the condition never held`. So these are plain steps, one press each, and the
+# pauses between them are what keep the timer reset across the wizard's quiet pages.
+- name: a pointer nudge, so the idle timer starts again
+  click:
+  - 12
+  - 12
+  wait_after: 20
+
+- name: another, while the editor loads
+  click:
+  - 24
+  - 24
+  wait_after: 20
+
 # FEDORA 45's ANACONDA IS A WEB UI, AND THIS STAGE STILL WALKED THE Qt WIZARD.
 #
 # MEASURED: `wait for the anaconda window` spent its whole 60-attempt budget with this on screen:
