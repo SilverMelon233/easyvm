@@ -346,11 +346,57 @@ steps:
 
 # THE TYPE LIST IS NOT TOUCHED: ITS DEFAULT IS EXT4, MEASURED. A click into it would be a step that
 # can only make things worse - the list is opened and a wrong entry is one row away.
+# THE `Create` BUTTON IS THE DIALOG'S ONLY ORANGE FILL, SO IT IS FOUND BY ITS COLOUR.
+#
+# MEASURED off the hand run's own frame: the button's orange pixels span x=406..474, y=610..644, so
+# its centre is (440, 627). The file had (456, 627) - sixteen pixels right, on the button's rounded
+# edge - and a press there was reported as done while the dialog stayed open, which is why the disk
+# ended up showing `Free space  137 GB` and the failure only appeared later as
+# `Storage requirements not met`.
+#
+# A COLOUR IS A FACT THE DIALOG DRAWS: orange is not used anywhere else on this page, and
+# `at_color` clicks the centre of the largest blob of it wherever the dialog has moved to.
 - name: create it, taking the dialog's own ext4 default
-  click:
-  - 456
-  - 627
+  at_color:
+  - 240
+  - 105
+  - 62
+  color_region:
+  - 300
+  - 550
+  - 700
+  - 700
   wait_after: 8
+
+# THE PARTITION HAS TO EXIST BEFORE IT CAN BE SHRUNK, AND A MISSED `Create` LOOKS LIKE NOTHING.
+#
+# MEASURED: this run reported every click as done and ended with the disk still showing
+# `Free space  137 GB` - the create and the shrink had both been pressed into a dialog that was
+# already closed, or into a page that had not yet redrawn. The failure surfaced far away, as
+# `Storage requirements not met / Failed to find a suitable stage1 device`.
+#
+# SO EACH PARTITION IS CHECKED BY ITS OWN ROW: `vda1` and `vda2` appear in the table only when the
+# dialog's Create actually took.
+- name: the root partition exists
+  loop:
+    max: 20
+    do:
+    - wait: 4
+    ocr:
+      name: part1
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 1
+    check:
+      name: there
+      from: part1
+      mode: says_any
+      words:
+      - - vda1
+      - - ext4
+    until:
+      fact: there
 
 - name: the root partition's menu, to make room for the ESP
   click:
@@ -379,9 +425,15 @@ steps:
   wait_after: 2
 
 - name: confirm the shrink
-  click:
-  - 456
-  - 337
+  at_color:
+  - 240
+  - 105
+  - 62
+  color_region:
+  - 300
+  - 280
+  - 700
+  - 400
   wait_after: 8
 
 - name: the new free space's menu
@@ -416,10 +468,37 @@ steps:
   wait_after: 2
 
 - name: create it, and the mount point is filled in for us
-  click:
-  - 456
-  - 566
+  at_color:
+  - 240
+  - 105
+  - 62
+  color_region:
+  - 300
+  - 500
+  - 700
+  - 700
   wait_after: 10
+
+- name: the ESP exists
+  loop:
+    max: 20
+    do:
+    - wait: 4
+    ocr:
+      name: part2
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 1
+    check:
+      name: there
+      from: part2
+      mode: says_any
+      words:
+      - - vda2
+      - - EFI
+    until:
+      fact: there
 
 - name: back to the installer
   click:
