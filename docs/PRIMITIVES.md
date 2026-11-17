@@ -151,8 +151,7 @@ right only for a whole region that is one sentence.
 | `requires` | `[ssh, qga, share, …]` | are its capabilities there? | 21 |
 | `timeout` | seconds | how long may the whole step take? | 533 |
 | `settle` | seconds | how long to wait with **no fact** to wait on | 818 |
-| `poll` | seconds | how often does a wait look? | 22 |
-| `keep_alive` | bool | keep the screen awake while waiting? | 25 |
+| `poll` | seconds | how often does a wait look? **only when not the default** | 1 |
 | `type_gap` | seconds | how fast to type? | 16 |
 | `terminal_wait` | seconds | open a terminal first, then wait this long | 68 |
 | `clear` | bool | select-all and clear the field before typing | 17 |
@@ -252,6 +251,7 @@ name, and they keep working because the executor reads both.
 | `press`, `sweep` | 0 | `at_button:`, `loop: {do: [{click: …}]}` — **DEAD** |
 | `demo_script` | 0 | `write:` — **DEAD** |
 | `host_log`, `line_gap`, `adb_serial`, `share_dir`, `end`, `stuck_after`, `as`, `cpus` | 0 | — **DEAD** |
+| `keep_alive` | 0 | the wake is unconditional now, in `wakeTheScreen` — **MIGRATED** |
 
 ## Why 29 keys are retired
 

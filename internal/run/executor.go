@@ -741,6 +741,31 @@ func (e *Executor) target() guest.Target {
 // A STEP THAT CAN WAIT ON A FACT SHOULD. The validator reports a `settle:` followed by a `check:` of
 // the same region, because a timed guess is what failed cachyos and endeavouros on CI: the number was
 // right on the measuring machine and wrong on the runner.
+// settle waits out a step's own pause — the time between an action and the screen being ready.
+//
+// `settle:` IS A MODIFIER AND NOT A WAIT, AND THE DIFFERENCE IS MEASURED RATHER THAN STYLISTIC.
+//
+// A `settle:` is a SHORT pause after an action, and a blind `time.Sleep` is right for it: 640 of the
+// 738 pauses in these 57 files ride on an action step, and 534 are ten seconds or less. There is
+// nothing to interrupt and nothing to measure - the action just happened and the pane needs a moment.
+//
+// `wait:` IS A STEP OF ITS OWN AND MUST STAY ONE when the pause is long, because `doWait` is the
+// thing that listens for `easyvm stop`: it polls `ShouldStop` every five seconds. A `settle:` of
+// 2400 seconds - which `ghostbsd`'s `installation runs` really is - would be a WALL, and the files
+// record what that cost:
+//
+//	status: running step 22/25 "installation runs"
+//	REFUSED: a run is already in progress (step "installation runs"); stop it first
+//
+// and the only way out was to kill PID 1 and restart the container, throwing away the machine with
+// it. SO THE RULE IS:
+//
+//	`settle: N` on an action step   N is short, and there is nothing to wait FOR
+//	`- settle: N` as its own step   long, and interruptible through `doWait`
+//
+// THE NAME IS THE SAME IN BOTH POSITIONS so a file does not have to know which is which, and this
+// function is why: a step whose only key is `settle:` is dispatched to `doWait`, which polls. A
+// `settle:` beside a `click:` never reaches here for longer than the pause it asked for.
 func (e *Executor) settle(s walk.Step) error {
 	value, err := s.Float("settle", 0)
 	if err != nil {
@@ -754,7 +779,21 @@ func (e *Executor) settle(s walk.Step) error {
 	if value <= 0 {
 		return nil
 	}
-	time.Sleep(time.Duration(value * float64(time.Second)))
+	// A MODIFIER'S PAUSE IS STILL INTERRUPTIBLE. `time.Sleep` here made `easyvm stop` a suggestion
+	// for the length of the pause, and this repository has already paid for that: a 1800-second
+	// `wait:` was a wall and the only way out was to kill PID 1.
+	//
+	// SO THIS POLLS, in five-second steps, exactly as `doWait` does. The cost is a few more wakeups;
+	// the difference is that a stop between two of them is honoured. That is why the validator can
+	// allow a `settle:` beside an action at all.
+	deadline := time.Now().Add(time.Duration(value * float64(time.Second)))
+	for time.Now().Before(deadline) {
+		if e.ShouldStop != nil && e.ShouldStop() {
+			e.Driver.Log("  stopping the pause as asked")
+			return errStopped
+		}
+		time.Sleep(minDuration(5*time.Second, time.Until(deadline)))
+	}
 	return nil
 }
 

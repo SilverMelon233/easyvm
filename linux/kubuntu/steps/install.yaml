@@ -62,8 +62,6 @@ steps:
 - name: wait for the installer's launcher
   desktop: linux/kubuntu
   timeout: 5400
-  poll: 5
-  keep_alive: true
 
 # THE TWO BUTTONS, MEASURED OFF THE FRAME by scanning row y=844 for runs of brighter pixels:
 #
@@ -298,8 +296,6 @@ steps:
   disk_settle: 300
   disk_min_mb: 4000
   timeout: 3600
-  poll: 20
-  keep_alive: true
 
 - name: the install is done
   loop:

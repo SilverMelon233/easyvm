@@ -327,11 +327,10 @@ func (e *Executor) doDiskSettle(s walk.Step) error {
 			return nil
 		}
 		lastSize = size
-		if s.Has("keep_alive") {
-			// A GUEST THAT BLANKS ITS OWN SCREEN wakes on a click, and a blank screen during an
-			// install is normal rather than a failure.
-			_ = e.Driver.Click(400+(int(time.Since(start).Seconds())%40), 300)
-		}
+		// A GUEST THAT BLANKS ITS OWN SCREEN wakes on a click, and a blank screen during an
+		// install is normal rather than a failure. UNCONDITIONAL, because `keep_alive:` was `true`
+		// in all 25 places it appeared - see `wakeTheScreen`.
+		wakeTheScreen(e)
 		time.Sleep(poll)
 	}
 	return failWithScreen(s.Name, e.Driver,

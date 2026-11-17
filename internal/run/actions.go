@@ -602,6 +602,11 @@ func (e *Executor) doDesktop(s walk.Step) error {
 				time.Since(start).Round(time.Second), lastStats.Explain()))
 			return nil
 		}
+		// A GUEST THAT BLANKS ITS OWN SCREEN WAKES ON INPUT, and a blank screen during a boot is
+		// normal rather than a failure. THIS IS UNCONDITIONAL NOW, because it used to be behind
+		// `keep_alive:` and that key was written `true` in all 25 places it appeared - a switch
+		// nobody ever set to false is not a switch, it is the behaviour.
+		wakeTheScreen(e)
 		time.Sleep(poll)
 	}
 	return failWithScreen(s.Name, e.Driver,
@@ -1344,4 +1349,19 @@ func resolutionOf(f *walk.File) [2]int {
 		return f.Resolution
 	}
 	return [2]int{1920, 1080}
+}
+
+// wakeTheScreen nudges the guest with a click so a blanked display comes back.
+//
+// IT MOVES EACH TIME, because a click at exactly the same place twice is a double-click to some
+// toolkits and would open whatever is under it. The x walks a 40-pixel band, which is enough to be a
+// different position and small enough to stay on the wallpaper of every desktop here.
+//
+// THE COST IS ONE CLICK PER POLL, and it is paid by both waits that use it: a `desktop:` polling
+// every five seconds and a `disk_settle:` every twenty. That is deliberate - this is what makes an
+// unattended wait survive a screen saver, and `keep_alive:` used to make it OPTIONAL while every one
+// of its 25 uses said yes.
+func wakeTheScreen(e *Executor) {
+	x := 400 + int(time.Now().UnixNano()/int64(time.Second))%40
+	_ = e.Driver.Click(x, 300)
 }

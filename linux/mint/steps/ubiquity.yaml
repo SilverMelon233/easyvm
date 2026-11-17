@@ -83,4 +83,3 @@ steps:
   settle: 20
 - name: install
   wait: 2400
-  keep_alive: true

@@ -33,8 +33,6 @@ steps:
 - name: wait for the live desktop
   desktop: linux/kde
   timeout: 5400
-  poll: 5
-  keep_alive: true
 - name: open yast2
   double:
   - 267
@@ -135,7 +133,6 @@ steps:
   settle: 25
 - name: the install runs, as measured
   wait: 1800
-  keep_alive: true
 - name: stop the machine
   shutdown: kill
   timeout: 120

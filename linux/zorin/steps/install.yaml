@@ -33,8 +33,6 @@ steps:
 - name: wait for the live desktop
   desktop: linux/gnome
   timeout: 5400
-  poll: 5
-  keep_alive: true
 - name: wait for the installer to put itself up
   loop:
     max: 120
@@ -343,7 +341,6 @@ steps:
   settle: 20
 - name: the install runs, as measured
   wait: 2400
-  keep_alive: true
 - name: stop the machine
   shutdown: kill
   timeout: 120

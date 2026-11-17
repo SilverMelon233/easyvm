@@ -318,8 +318,10 @@ var Keys = map[string]Key{
 		Summary: "seconds between looks in an until: loop"},
 	"timeout": {Name: "timeout", Kind: KindInt,
 		Summary: "seconds the step may run before it is a failure"},
-	"keep_alive": {Name: "keep_alive", Kind: KindBool,
-		Summary: "click harmlessly between polls, for a guest that blanks its own screen"},
+	// `keep_alive:` IS GONE. It was written `true` in all 25 places it appeared and never once
+	// `false`, so it was not a switch - it was the behaviour, spelled as an option. A screen that
+	// blanks during a boot is normal, and both waits that need to survive it now wake it
+	// unconditionally: see `wakeTheScreen` in internal/run.
 	"region": {Name: "region", Kind: KindRect,
 		Summary: "crop [x0, y0, x1, y1] before reading, for until/expect"},
 	"region_at": {Name: "region_at", Kind: KindPair,
@@ -670,6 +672,28 @@ var Keys = map[string]Key{
 // is renamed in the same commit as the vocabulary, so a stale name is not a user to be guided - it is
 // a file that was not updated, and "unknown key" is the correct answer for it. A compatibility table
 // with no external consumer is a second place the vocabulary is written down, and the two drift.
+// THE BLIND-SLEEP RULE WAS RIGHT FOR ONE COMMIT AND IS NOW WRONG, AND SAYING SO IS THE POINT.
+//
+// `settle:` used to be `time.Sleep` and did not poll `ShouldStop`, so a long pause beside an action
+// was a wall: `easyvm stop` sets a flag and nothing reads it until the pause ends. This validator
+// therefore refused anything over ten seconds, and it did its job by failing all 24 linux files at
+// once - because the migration in the previous commit had converted every `wait_after:` to `settle:`,
+// including the twenty-second ones.
+//
+// THE FIX WAS IN `settle` RATHER THAN IN THE FILES: it polls in five-second steps now, exactly as
+// `doWait` does, so ANY length is interruptible and there is nothing left to refuse. A validator that
+// kept the rule would be forcing files to split a pause in two to satisfy a limit whose reason no
+// longer exists - which is how a validator becomes a tax.
+//
+// actionKeys are the keys that make a step DO something, so a `settle:` beside one is a pause and not
+// a wait.
+var actionKeys = []string{"click", "double", "at_button", "at_color", "key", "type", "run", "ssh",
+	"scp", "script", "adb", "write", "share_serve", "share_mount", "boot", "reboot", "shutdown",
+	"disk", "record", "compress", "esp_fallback", "screenshot", "ocr", "see", "check", "want", "loop",
+	"if", "desktop", "require_ssh"}
+
+// Validate refuses a key the vocabulary does not have, and a blind pause long enough that stopping
+// the machine would not work.
 func Validate(stepName string, mapping map[string]any) error {
 	for key := range mapping {
 		if _, ok := Keys[key]; ok {
@@ -680,3 +704,4 @@ func Validate(stepName string, mapping map[string]any) error {
 	}
 	return nil
 }
+

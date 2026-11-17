@@ -36,7 +36,6 @@ steps:
 - name: wait for the desktop
   desktop: linux
   timeout: 900
-  poll: 5
 - name: focus the desktop
   click:
   - 960

@@ -55,12 +55,9 @@ steps:
 - name: wait for the live desktop
   desktop: linux/kde
   timeout: 5400
-  poll: 5
-  keep_alive: true
 
 - name: let the desktop settle
   wait: 15
-  keep_alive: true
 
 # CACHYOS HELLO IS THE FIRST WINDOW, AND `Launch installer` IS A BUTTON INSIDE IT - ONCE, NOT TWICE.
 #
@@ -572,8 +569,6 @@ steps:
   disk_settle: 300
   disk_min_mb: 4000
   timeout: 3600
-  poll: 20
-  keep_alive: true
 
 - name: the install is done
   loop:

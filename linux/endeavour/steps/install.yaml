@@ -35,12 +35,9 @@ steps:
 - name: wait for the live desktop
   desktop: linux/kde
   timeout: 5400
-  poll: 5
-  keep_alive: true
 
 - name: let the desktop settle
   wait: 15
-  keep_alive: true
 
 # THE WELCOME WINDOW IS `Welcome v26.7.2-1 [ISO: 2026.08.15]` AND ITS `Start the Installer` BUTTON IS
 # AT (748, 431), measured on the frame. ONE CLICK: unlike CachyOS Hello's, this opens a dialog rather
@@ -352,8 +349,6 @@ steps:
   disk_settle: 300
   disk_min_mb: 4000
   timeout: 3600
-  poll: 20
-  keep_alive: true
 
 - name: the install is done
   loop:

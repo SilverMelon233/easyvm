@@ -33,8 +33,6 @@ steps:
 - name: wait for the live desktop
   desktop: linux/gnome
   timeout: 5400
-  poll: 5
-  keep_alive: true
 - name: wait for the anaconda window
   loop:
     max: 60
@@ -178,8 +176,6 @@ steps:
   disk_settle: 180
   disk_min_mb: 512
   timeout: 3600
-  poll: 20
-  keep_alive: true
 - name: exit to the live desktop
   click:
   - 963

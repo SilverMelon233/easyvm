@@ -33,11 +33,8 @@ steps:
 - name: wait for the live desktop
   desktop: linux/kde
   timeout: 5400
-  poll: 5
-  keep_alive: true
 - name: let the desktop settle
   wait: 15
-  keep_alive: true
 - name: open the installer
   double:
   - 960

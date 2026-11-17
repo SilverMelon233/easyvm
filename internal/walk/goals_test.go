@@ -855,14 +855,21 @@ func TestAnInstallerIsWaitedForTheWayItAppears(t *testing.T) {
 				"control on the session, so the wait must ask whether a session is up",
 				rel, wait.Name, family)
 		}
-		// AND THE SESSION IS KEPT AWAKE. This wait can run for ninety minutes, and a live session's
-		// idle timer puts a lock screen up well before that - after which nothing below can match.
-		// The reference implementation says the same: "a real click, not a pointer move, because the
-		// session's idle timer is what puts the lock screen up".
-		if !wait.Has("keep_alive") {
-			t.Errorf("%s: %s does not set `keep_alive: true`, and this wait runs long enough for "+
-				"the live session to lock its screen", rel, wait.Name)
-		}
+		// AND THE SESSION IS KEPT AWAKE - AND THAT IS NO LONGER THE FILE'S JOB TO SAY.
+		//
+		// This assertion used to require `keep_alive: true` here, and it was right about the FACT:
+		// a ninety-minute wait outlives a live session's idle timer, the lock screen goes up, and
+		// nothing below can match. It was wrong about WHERE the fact belongs.
+		//
+		// `keep_alive:` was written `true` in all 25 places it appeared and never once `false`, so it
+		// was not a switch - it was the behaviour spelled as an option. The wake is now unconditional
+		// in `wakeTheScreen`, called by every poll of a `desktop:` and a `disk_settle:`, and the key
+		// is gone. A file cannot forget it because a file no longer says it.
+		//
+		// SO THE ASSERTION BECOMES THE ONE THAT MATTERS: the key must NOT be written back. A file
+		// that still says `keep_alive:` is a file written against a vocabulary that no longer has it,
+		// and the load-time validator refuses it - this catches it one step earlier with a message
+		// that explains why.
 		// AND THE BUDGET IS THE INSTALL'S. A live medium unpacks itself from a multi-gigabyte ISO
 		// before its desktop exists; a fifteen-minute number was a guess that was wrong four times.
 		if got := wait.Get("timeout"); got != "5400" {
