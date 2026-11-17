@@ -82,6 +82,23 @@ func says(words []string, want []string) bool {
 	return true
 }
 
+// readWords reads a screen.Rect with OCR, which is what lets a `see:` step produce WORDS as well as
+// numbers. The rect is a FRACTION, so it is converted to pixels against the frame that arrived - the
+// same protection `region:` gets from `region_at:`, without the key.
+func (e *Executor) readWords(img image.Image, r screen.Rect) ([]string, error) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	region := [4]int{
+		int(float64(w) * r.XFrom), int(float64(h) * r.From),
+		int(float64(w) * r.XTo), int(float64(h) * r.To),
+	}
+	cropped, err := screen.Crop(img, region, 3)
+	if err != nil {
+		return nil, err
+	}
+	return e.readCrop(cropped, "see")
+}
+
 // readScreen captures a frame and reads it, cropping when the step says so.
 //
 // THE CROP IS DONE IN GO RATHER THAN WITH AN EXTERNAL TOOL. `lib/assistant.py` used Pillow for this,

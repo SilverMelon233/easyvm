@@ -94,6 +94,14 @@ type Executor struct {
 	// what makes them separate steps: a loop can check two different questions of one reading, and a
 	// failure names WHICH question came back false.
 	facts map[string]bool
+
+	// numbers is what a `see:` step MEASURED, by `<readname>.<measurement>` - `bottom.spread`,
+	// `body.mean`. It is the fourth store, and the one that makes a picture a VALUE rather than a Go
+	// function: a `want:` compares these without touching the screen, and a number that is not here
+	// is a typo rather than a zero.
+	//
+	// THE ZERO VALUE IS USABLE, like `seen` and `facts` above.
+	numbers map[string]float64
 }
 
 // Result is the whole walkthrough's outcome.
@@ -268,6 +276,13 @@ func (e *Executor) runOne(s walk.Step) error {
 	// from that name without touching the screen. Both are separate steps on purpose - see ocr.go.
 	case s.Has("ocr"):
 		return e.doOCR(s)
+	case s.Has("see"):
+		// `see:` MEASURES AND BINDS NUMBERS; it decides nothing. `want:` answers from them. The two
+		// are the generalisation of `ocr:`+`check:` from words to any measurement, and they are the
+		// reason a desktop test no longer needs a function in the binary.
+		return e.doSee(s)
+	case s.Has("want"):
+		return e.doWant(s)
 	case s.Has("check"):
 		return e.doCheck(s)
 	case s.Has("loop"):

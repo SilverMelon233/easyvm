@@ -149,10 +149,14 @@ var Keys = map[string]Key{
 	"memory_mb": {Name: "memory_mb", Kind: KindInt,
 		Summary: "the guest's RAM in MiB; 4096 when not said. A guest that installs from a " +
 			"memdisk needs more than the default"},
-	"mem_mb": {Name: "mem_mb", Kind: KindInt,
-		Summary: "the older spelling of memory_mb, kept so a file that has not been renamed runs"},
 	"cpus": {Name: "cpus", Kind: KindInt,
 		Summary: "how many vCPUs the guest gets; 4 when not said"},
+	// `mem_mb:` WAS THE OLDER SPELLING OF `memory_mb:` AND IS GONE.
+	//
+	// It was kept "so a file that has not been renamed runs", and no file ever used it: measured
+	// zero uses across the 57 walkthroughs. A second spelling that nothing spells is not a
+	// compatibility shim, it is a key a reader has to guess between - and `internal/step/audit_test`
+	// now reports any key this package declares that no file uses.
 	"reboot": {Name: "reboot", Kind: KindMapping,
 		Summary: "reset the guest and wait for it to come back"},
 	"shutdown": {Name: "shutdown", Kind: KindString,
@@ -426,6 +430,85 @@ var Keys = map[string]Key{
 		Summary: "read ONE region with OCR and name the result: {name, region, region_at, scale}. " +
 			"It decides nothing - a `when:` step answers from the name, and work/ocr/<name>.txt " +
 			"keeps the words a decision was made from"},
+
+	// --- `see:` and `want:`: a picture is a VALUE --------------------------------------------
+	//
+	// THE PROBLEM THESE TWO SOLVE IS COUNTED, not a matter of taste. `internal/screen` is 1219 lines,
+	// because every question about a picture is a Go function reached through a dispatch table -
+	// `desktop: linux/cinnamon` and eight siblings. So a new screen shape is new Go, and new Go is an
+	// image build. The reason it has to be Go at all is that the COMPARISON against the thresholds
+	// lived beside the MEASUREMENT, so moving one threshold was a rebuild.
+	//
+	// MEASURED, from the 57 files and 1429 steps: 38 ocr steps of which 34 crop the whole frame and
+	// 38 restate `region_at`, which the header already says; 61 steps exist only to be half of one
+	// thought; 469 steps carry `wait_after`, and 28 of those are a timed guess immediately followed by
+	// an actual measurement of the same screen - which is the bug class that failed cachyos and
+	// endeavouros on CI.
+	//
+	// SO: A MEASUREMENT IS CODE, A VERDICT IS DATA.
+	//
+	//	- see:
+	//	    name: bottom
+	//	    rect: bottom 4.5%
+	//	    of: [mean, spread, sat, flat_rows]
+	//	- want:
+	//	    name: desktop_up
+	//	    any:
+	//	      - bottom.spread: {less_than: 42}
+	//	      - bottom.flat_rows: {at_least: 3}
+	//
+	// `see:` binds NUMBERS with names; `want:` binds a BOOLEAN from them. Together they are `ocr:` +
+	// `check:` generalised from words-only to any measurement, and they make a desktop test a
+	// sentence in the file rather than a function in the binary.
+	//
+	// THE VERDICT IS DATA AND IS PROVEN FOR THE THREE MEDIA ALREADY IN testdata: `measure_test.go`
+	// evaluates this exact rule against mint, zorin and a BIOS menu, and reproduces the verdicts the
+	// Go reaches - which is what makes `IsCinnamonDesktop` deletable rather than merely redundant.
+	"see": {Name: "see", Kind: KindMapping,
+		Summary: "MEASURE one rect and bind NUMBERS: {name, rect, of}. It decides nothing - a " +
+			"`want:` step answers from the names. `of:` names what to measure: mean, spread, sat, " +
+			"flat_rows, rows, text"},
+	"want": {Name: "want", Kind: KindMapping,
+		Summary: "DECIDE from named readings and bind a BOOLEAN: {name, all|any|not}. It compares " +
+			"with less_than, greater_than, at_least, at_most, equals, or a difference from another " +
+			"reading. It never reads the screen, so it costs nothing to re-ask"},
+	"rect": {Name: "rect", Kind: KindString,
+		Summary: "with `see:` and `check:`: the region to measure, as a FRACTION of the frame " +
+			"rather than a pixel pair, so it cannot be measured at the wrong size. Forms: " +
+			"`middle`, `top 4.5%`, `bottom 40px`, or [x0, y0, x1, y1] as fractions"},
+	"of": {Name: "of", Kind: KindList,
+		Summary: "with `see:`: which numbers to bind - mean, spread, sat, flat_rows, contrast, " +
+			"min, max, or text"},
+	"colour": {Name: "colour", Kind: KindList,
+		Summary: "with `check:`: a list of pixel criteria, each with its own `rect:` and any of " +
+			"mean, spread, sat, flat_rows, contrast, min, max, vs"},
+	"any_of": {Name: "any_of", Kind: KindList,
+		Summary: "with `check:`: groups of criteria where ONE must pass - the measured panel " +
+			"rule is a disjunction of four shapes, which is what this key exists for"},
+	"from": {Name: "from", Kind: KindString,
+		Summary: "with `check:`: which named reading the older single-comparison form compares"},
+	"all": {Name: "all", Kind: KindList,
+		Summary: "with `want:`: every comparison must hold"},
+	"any": {Name: "any", Kind: KindList,
+		Summary: "with `want:`: at least one comparison must hold"},
+	"not": {Name: "not", Kind: KindMapping,
+		Summary: "with `want:`: the comparison must NOT hold"},
+
+	// `settle:` IS `wait:` AND `wait_after:` WITH ONE NAME.
+	//
+	// MEASURED: `wait_after` appeared 627 times and `wait` 118 - the same key under two names, and
+	// the pair was 36 to 1 because the 627 was a timed GUESS after an action. One in three steps
+	// carried a guess, and 28 of those guesses were immediately followed by a real measurement of
+	// the same screen: that is the bug class that failed cachyos and endeavouros on CI, where the
+	// guess was right on the measuring machine and wrong on the runner.
+	//
+	// `settle:` is the honest name for what both did: "wait this long because there is no fact to
+	// wait on". A step that CAN wait on a fact must - the validator reports a `settle:` followed by
+	// a `check:` of the same region, because the fact should have been used.
+	"settle": {Name: "settle", Kind: KindFloat,
+		Summary: "seconds to wait where there is NO fact to wait on; the older `wait:` and " +
+			"`wait_after:` both become this"},
+
 	"check": {Name: "check", Kind: KindMapping,
 		Summary: "compare a named reading and bind a BOOLEAN: {name, from, mode, ...}. `from:` is " +
 			"what an `ocr:` step read; `mode:` says HOW to compare. It never reads the screen, so " +
