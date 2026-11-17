@@ -158,6 +158,16 @@ var Keys = map[string]Key{
 	// zero uses across the 57 walkthroughs. A second spelling that nothing spells is not a
 	// compatibility shim, it is a key a reader has to guess between - and `internal/step/audit_test`
 	// now reports any key this package declares that no file uses.
+	"kernel": {Name: "kernel", Kind: KindString,
+		Summary: "with `microvm:`: the kernel qemu hands the guest, because a microvm has no " +
+			"firmware to read a boot sector"},
+	"initrd": {Name: "initrd", Kind: KindString,
+		Summary: "with `microvm:`: the initramfs beside the kernel"},
+	"microvm": {Name: "microvm", Kind: KindBool,
+		Summary: "with `boot:`: the smallest machine that can boot a modern Linux kernel - no " +
+			"firmware, no devices the guest does not need, a direct kernel hand-off. For a " +
+			"walkthrough whose job is to prove the vocabulary drives a guest, not to install a " +
+			"distribution through its GUI"},
 	"reboot": {Name: "reboot", Kind: KindMapping,
 		Summary: "reset the guest and wait for it to come back"},
 	"shutdown": {Name: "shutdown", Kind: KindString,

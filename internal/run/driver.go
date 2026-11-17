@@ -167,4 +167,22 @@ type BootSpec struct {
 	// CPUs and MemMB are the machine's size.
 	CPUs  int
 	MemMB int
+	// Kernel and Initrd are the guest's kernel, for a microvm: there is no firmware to read a boot
+	// sector, so the host supplies them.
+	Kernel string
+	Initrd string
+	// MicroVM asks for the smallest machine that can boot a modern Linux kernel: NO FIRMWARE, no
+	// emulated devices the guest does not need, and a direct kernel hand-off.
+	//
+	// IT EXISTS BECAUSE MOST OF WHAT THIS REPOSITORY DOES NEEDS A FULL MACHINE AND ALMOST NOTHING
+	// ELSE DOES. A UEFI boot, a virtio disk, a VGA adapter and a USB tablet are all required to
+	// drive a DISTRIBUTION INSTALLER through its GUI; a walkthrough that only has to prove "the
+	// vocabulary drives a guest and the guest answers" pays for every one of them and needs none.
+	// MEASURED on the kubuntu install: 4 GiB of RAM, 128 GiB of disk, and forty minutes, to run
+	// thirty-eight steps.
+	//
+	// A MICROVM IS THE SAME ENGINE AND A SMALLER MACHINE, not a second path: the daemon still owns
+	// one qemu, the dispatcher still reads the screen, and `see:`/`want:` still decide. Only the
+	// qemu arguments differ.
+	MicroVM bool
 }

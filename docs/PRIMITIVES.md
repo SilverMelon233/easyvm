@@ -175,6 +175,8 @@ the measuring machine and wrong on the runner.
 | `os` | `boot` | `linux` `windows` `macos` `freebsd` `android` | 56 |
 | `cpu` | `boot` | N vCPUs (always `-cpu Skylake-Client-v4`) | 0 |
 | `memory_mb` | `boot` | MiB of RAM | 7 |
+| `microvm` | `boot` | the smallest machine: no firmware, no PCIe, no VGA | new |
+| `kernel`, `initrd` | `boot` | the kernel qemu hands a microvm, because there is no boot sector | new |
 | `iso` | `boot` | the installer medium | 56 |
 | `recovery` | `boot` | macOS's recovery image | 0 |
 | `answer_cd`, `driver_cd` | `boot` | Windows' extra media | 2 |

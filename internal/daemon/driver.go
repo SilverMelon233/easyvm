@@ -315,6 +315,21 @@ func (d *Driver) sendStrokes(conn *qmp.Conn, strokes []keys.Stroke, perChar time
 // four frames of headroom.
 const DefaultVideoDevice = "VGA,xres=1920,yres=1080,vgamem_mb=32"
 
+// machineType is the qemu machine this boot asks for.
+//
+// `q35` IS THE FULL MACHINE and the default: PCIe, an IDE controller for the CD-ROM, a USB
+// controller for the tablet, a VGA adapter. Every distribution installer here needs all of it.
+//
+// `microvm` IS THE SMALL ONE: virtio-mmio devices and a serial line, no PCIe, no IDE, no USB, no
+// VGA. A `microvm:` boot says so on its step, because a file may install a distribution and then
+// verify the result in the same run, and only the verification wants the small machine.
+func machineType(boot machine.Boot) string {
+	if boot.MicroVM {
+		return "microvm,accel=kvm,pcie=off"
+	}
+	return "q35,accel=kvm,vmport=off"
+}
+
 // --- the guest ------------------------------------------------------------------------
 
 // Guest is the connection a step addresses the guest through, or nil when none could be made.
@@ -517,6 +532,9 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		ISO:          spec.ISO,
 		AnswerCD:     spec.AnswerCD,
 		DriverCD:     spec.DriverCD,
+		MicroVM:      spec.MicroVM,
+		Kernel:       spec.Kernel,
+		Initrd:       spec.Initrd,
 		Recovery:     spec.Recovery,
 		OpenCoreROM:  spec.OpenCoreROM,
 		OpenCoreVars: spec.OpenCoreVars,
@@ -623,7 +641,18 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		//
 		// THE TABLET IS STILL ATTACHED (`usb-tablet,bus=xhci.0`): this disables the COMPETING handler,
 		// so the events reach the device the walkthrough was measured against.
-		"-machine", "q35,accel=kvm,vmport=off",
+		// A MICROVM IS `microvm` RATHER THAN `q35`, AND THAT IS THE WHOLE DIFFERENCE: no PCIe bus, no
+		// IDE controller, no USB controller, no VGA - only virtio-mmio devices and a serial line.
+		//
+		// IT IS FOR WALKTHROUGHS THAT PROVE THE VOCABULARY RATHER THAN INSTALL A DISTRIBUTION. A
+		// distribution installer needs UEFI, a virtio-blk disk, a VGA adapter and a USB tablet; a
+		// walk whose job is "drive a guest and read its screen" pays for all four and needs none.
+		// MEASURED: the kubuntu install is 4 GiB of RAM, 128 GiB of disk and forty minutes for
+		// thirty-eight steps; the alpine microvm below is 512 MiB, 1 GiB and under two minutes.
+		//
+		// `pcie=off` IS EXPLICIT because qemu's default depends on the machine type, and a machine
+		// that quietly grew a PCIe bus would be the thing this branch exists to avoid.
+		"-machine", machineType(boot),
 		"-cpu", cpu,
 		"-smp", boot.SMP(opts.CPUs),
 		"-m", fmt.Sprint(opts.MemMB),
@@ -765,6 +794,10 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		}
 	}
 	args = append(args, boot.FirmwareArgs(ovmfCode, ovmfVars)...)
+	// A MICROVM GETS ITS KERNEL FROM THE HOST, because there is no firmware to read a boot sector and
+	// no display to fall back to. The two are mutually exclusive by construction: `FirmwareArgs`
+	// returns nothing for a microvm.
+	args = append(args, boot.KernelArgs()...)
 
 	// A RESUME LOADS INSTEAD OF BOOTING, and `-incoming` is what says so.
 	//

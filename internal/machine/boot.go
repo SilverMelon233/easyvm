@@ -105,6 +105,14 @@ type Boot struct {
 	OpenCoreVars string
 	// BootImage is OpenCore's own disk image, the one the firmware boots first.
 	BootImage string
+	// MicroVM asks for the smallest machine that boots a modern Linux kernel: qemu's `microvm`
+	// machine type, no PCIe, no IDE, no USB, no VGA.
+	MicroVM bool
+	// Kernel and Initrd are handed to qemu directly, which is how a microvm starts: there is no
+	// firmware to read a boot sector, so the host supplies the kernel the guest runs.
+	Kernel string
+	Initrd string
+
 	// Incoming is a migration stream to restore instead of booting. See the -incoming arguments in
 	// Boot.StorageArgs' caller: it is not a device, it is the machine's starting state.
 	Incoming string
@@ -562,6 +570,12 @@ func (b Boot) Discardable() bool { return !b.installing() }
 // like OVMF, which is why it appears here rather than in the storage section - and why a macOS guest
 // given OVMF's files in these slots boots to a crossed-out circle.
 func (b Boot) FirmwareArgs(ovmfCode, ovmfVars string) []string {
+	// A MICROVM HAS NO FIRMWARE. It boots a kernel the host hands it, which is the whole point of the
+	// machine type: no pflash, no boot order, no UEFI, and one fewer thing that can fail before the
+	// guest is up.
+	if b.MicroVM {
+		return nil
+	}
 	if b.OS.IsMacOS() {
 		return []string{
 			"-drive", "if=pflash,format=raw,readonly=on,file=" + b.OpenCoreROM,
@@ -820,4 +834,26 @@ func (b Boot) MediaList() string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// KernelArgs hands the guest its kernel directly, which is how a microvm boots.
+//
+// A `microvm` MACHINE HAS NO FIRMWARE, so there is no boot sector for a disk to carry and nothing to
+// read an El Torito image. The kernel comes out of the medium the host already has, and qemu starts
+// it - which is exactly the mechanism `os: android` used before this, and the comment in this file
+// records why it was the wrong answer THERE: Android's own boot chain is what its install proves. A
+// microvm is the opposite case: the walkthrough proves the VOCABULARY, not a boot loader.
+func (b Boot) KernelArgs() []string {
+	if b.Kernel == "" {
+		return nil
+	}
+	args := []string{"-kernel", b.Kernel}
+	if b.Initrd != "" {
+		args = append(args, "-initrd", b.Initrd)
+	}
+	// `console=ttyS0` IS NOT DECORATION: a microvm has no display, so its only output is the serial
+	// line, and without this the kernel writes to a VGA adapter that does not exist and the console
+	// stays empty - which reads as "the guest never booted".
+	args = append(args, "-append", "console=ttyS0 root=/dev/vda rw")
+	return args
 }

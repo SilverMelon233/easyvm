@@ -138,7 +138,16 @@ func Load(path string, overrides map[string]string) (*File, error) {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var doc map[string]any
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	// A `.walk` FILE IS CONVERTED TO THE SAME DOCUMENT THE YAML DECODER WOULD PRODUCE, so everything
+	// below this line - validation, the dispatcher, the measurements - is unaware of the format. The
+	// extension decides, and it is the only place the two differ.
+	if isWalkFile(path) {
+		converted, err := WalkToYAML(string(raw))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		doc = converted
+	} else if err := yaml.Unmarshal(raw, &doc); err != nil {
 		// A DUPLICATE KEY IS A WORKFLOW THE RUNNER REFUSES TO LOAD, and `yaml.Unmarshal` keeps the
 		// last one silently. That happened: a second `outputs:` block made GitHub reject the
 		// whole workflow while every local check passed. yaml.v3 reports it, so the error is
@@ -425,4 +434,13 @@ func validateDocument(doc map[string]any) error {
 func has(mapping map[string]any, key string) bool {
 	_, ok := mapping[key]
 	return ok
+}
+
+// isWalkFile reports whether a path is the sentence format rather than YAML.
+//
+// THE EXTENSION IS THE ONLY SWITCH, and it is deliberately unambiguous: `.walk` or nothing. A file
+// named `.yaml` is parsed as YAML even if it happens to read like prose, because a loader that
+// guessed would make every parse error a question about which grammar it was in.
+func isWalkFile(path string) bool {
+	return strings.HasSuffix(path, ".walk")
 }

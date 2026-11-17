@@ -97,6 +97,19 @@ func (e *Executor) doBoot(s walk.Step) error {
 	if n, err := s.Float("cpus", 0); err == nil && n > 0 {
 		spec.CPUs = int(n)
 	}
+	// `microvm: true` SELECTS THE SMALLEST MACHINE, and it is a property of the step rather than of
+	// the file because a file may install a distribution and then verify it in the same run.
+	if v, ok := s.Spec["microvm"].(bool); ok && v {
+		spec.MicroVM = true
+		spec.Kernel = e.assetPath(s.Get("kernel"))
+		spec.Initrd = e.assetPath(s.Get("initrd"))
+		if spec.CPUs == 0 {
+			spec.CPUs = 1
+		}
+		if spec.MemMB == 0 {
+			spec.MemMB = 512
+		}
+	}
 	// THE OPENCORE FILES ARE NEEDED BY EVERY MACOS BOOT, AND ONLY SOME OF THEM ATTACH THE
 	// RECOVERY IMAGE. They are built from it - Apple's APFS driver comes out of that image - but
 	// that is HOST work done by an earlier step, and the guest is not given the image on an
