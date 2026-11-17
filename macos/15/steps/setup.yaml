@@ -42,12 +42,12 @@ steps:
 - name: the recovery menu's rows
   ocr:
     name: recovery
-    region:
+    rect:
     - 760
     - 200
     - 1400
     - 560
-    region_at:
+    rect_at:
     - 1920
     - 1080
     scale: 6
@@ -56,15 +56,15 @@ steps:
   loop:
     max: 180
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: recovery
-      region:
+      rect:
       - 760
       - 200
       - 1400
       - 560
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 6
@@ -88,12 +88,12 @@ steps:
   click:
   - 837
   - 514
-  wait_after: 3
+  settle: 3
 - name: open disk utility
   click:
   - 1142
   - 586
-  wait_after: 5
+  settle: 5
 
 # THE WINDOW IS MADE FULL SCREEN BEFORE ANYTHING IN IT IS CLICKED, AND THAT IS WHAT MAKES THE
 # COORDINATES FIXED.
@@ -146,7 +146,7 @@ steps:
   - 30
   - 700
   - 400
-  wait_after: 6
+  settle: 6
 # THE DISK IS CHOSEN BY ITS DEVICE NAME, NOT BY ITS SIZE.
 #
 # MEASURED: the sidebar shows the virtio disk TWICE - the whole device and the partition the firmware
@@ -279,7 +279,7 @@ steps:
   click:
   - 200
   - 112
-  wait_after: 2
+  settle: 2
 - name: is the first disk the uninitialised one
   ocr:
     name: details
@@ -287,12 +287,12 @@ steps:
     #
     # `Uninitialized` IS DRAWN AT ABOUT 12 PX; at `scale: 2` tesseract returned only
     # `Apple Inc. VirtlO Block Media`, so the state line was absent and no check of it could ever pass.
-    region:
+    rect:
     - 360
     - 100
     - 1000
     - 160
-    region_at:
+    rect_at:
     - 1920
     - 1080
     scale: 4
@@ -318,15 +318,15 @@ steps:
         max: 4
         do:
         - key: down
-        - wait: 1
+        - settle: 1
         ocr:
           name: details
-          region:
+          rect:
           - 360
           - 100
           - 1000
           - 160
-          region_at:
+          rect_at:
           - 1920
           - 1080
           scale: 4
@@ -377,18 +377,18 @@ steps:
     - click:
       - 1681
       - 57
-    - wait: 3
+    - settle: 3
     ocr:
       name: sheet
       # THE SHEET'S OWN TEXT, MEASURED AT 715,425 - 1210,675 on this 1920x1080 screen. `Erase` appears
       # in the title line ("Erase \"Apple Inc. VirtIO Block Media\"?"), so one word is enough - but two
       # are asked for, because a window title elsewhere could say it too.
-      region:
+      rect:
       - 715
       - 425
       - 1210
       - 675
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -408,34 +408,34 @@ steps:
         - erase
     until:
       fact: sheet_up
-  wait_after: 4
+  settle: 4
 - name: erase - clear the name field
   key: backspace
-  wait_after: 3
+  settle: 3
 - name: erase - name the volume
   click:
   - 960
   - 415
   type: '{{ disk_name }}'
-  wait_after: 4
+  settle: 4
 - name: erase - confirm
   click:
   - 1150
   - 647
-  wait_after: 5
+  settle: 5
 - name: erase - wait for the report
   loop:
     max: 60
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -455,23 +455,23 @@ steps:
   click:
   - 1143
   - 601
-  wait_after: 5
+  settle: 5
 - name: close disk utility
   key: meta_l+q
-  wait_after: 12
+  settle: 12
 - name: the recovery menu is back
   loop:
     max: 60
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: screen
-      region:
+      rect:
       - 760
       - 200
       - 1400
       - 560
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -489,12 +489,12 @@ steps:
   click:
   - 837
   - 333
-  wait_after: 3
+  settle: 3
 - name: open the installer
   click:
   - 1142
   - 586
-  wait_after: 20
+  settle: 20
 # WAIT UNTIL THE PANE IS THERE, NOT FOR A NUMBER OF SECONDS THAT SOMEBODY HOPED WAS ENOUGH.
 #
 # MEASURED ON THIS GUEST, with timestamps off the frames:
@@ -513,7 +513,7 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: instaload
       # THE DIALOG'S OWN TWO LINES, MEASURED ON THE SCREEN THIS RUN PRODUCED.
@@ -530,12 +530,12 @@ steps:
       #
       # 380..500 is empty panel between the icon and the text. A region is a MEASUREMENT, and the
       # previous one was taken from a run whose window sat higher.
-      region:
+      rect:
       - 400
       - 560
       - 1520
       - 700
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -562,21 +562,21 @@ steps:
   click:
   - 960
   - 712
-  wait_after: 5
+  settle: 5
 # THE PANE IS CONFIRMED, NOT ASSUMED. `wait: 60` was measured short at 117 s.
 - name: wait for the licence pane
   loop:
     max: 24
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: licence
-      region:
+      rect:
       - 660
       - 430
       - 1260
       - 700
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -598,7 +598,7 @@ steps:
   click:
   - 1005
   - 713
-  wait_after: 5
+  settle: 5
 # THE SHEET IS A SEPARATE WINDOW, AND ITS OWN AGREE IS THE ONE THAT MATTERS.
 #
 # MEASURED OFF A FRAME OF THE SHEET ITSELF: its two buttons are the light runs y=509..536, `Disagree`
@@ -615,15 +615,15 @@ steps:
   loop:
     max: 12
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: sheet
-      region:
+      rect:
       - 780
       - 330
       - 1140
       - 560
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -644,17 +644,17 @@ steps:
   click:
   - 1018
   - 520
-  wait_after: 10
+  settle: 10
 - name: select the destination card
   click:
   - 850
   - 550
-  wait_after: 5
+  settle: 5
 - name: destination continue
   click:
   - 1005
   - 712
-  wait_after: 10
+  settle: 10
 - name: the copy runs until the Setup Assistant appears
   # `max` IS A COUNT OF ATTEMPTS AND EACH ONE WAITS 20 SECONDS, WHICH IS THE ARITHMETIC THAT MATTERS.
   #
@@ -684,15 +684,15 @@ steps:
     # margin for a node that slows down.
     max: 1080
     do:
-    - wait: 20
+    - settle: 20
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1

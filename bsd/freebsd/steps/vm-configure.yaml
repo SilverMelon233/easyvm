@@ -71,15 +71,15 @@ steps:
   loop:
     max: 40
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: desk
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -104,12 +104,12 @@ steps:
   # them rather than publishing a disk that boots to a prompt.
   ocr:
     name: greeter
-    region:
+    rect:
     - 0
     - 0
     - 1920
     - 1080
-    region_at:
+    rect_at:
     - 1920
     - 1080
     scale: 1

@@ -37,13 +37,17 @@ steps:
   double:
   - 267
   - 34
-  expect_any:
-  - - installation
-  - - upgrade
-  - - language
+  check:
+    name: asserted
+    must: true
+    text:
+      - contains_any:
+          - [installation]
+          - [upgrade]
+          - [language]
   settle: 40
 - name: open yast2 (once more, if it did not)
-  unless_any:
+  when_not_any:
   - - installation
   - - upgrade
   - - language
@@ -132,7 +136,7 @@ steps:
   - 707
   settle: 25
 - name: the install runs, as measured
-  wait: 1800
+  settle: 1800
 - name: stop the machine
   shutdown: kill
   timeout: 120

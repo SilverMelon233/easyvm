@@ -92,15 +92,15 @@ steps:
   loop:
     max: 60
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: pane
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -120,19 +120,19 @@ steps:
   # `Welcome to FreeBSD! Would you like to begin an installation or use the live system?`
   # [ Install ] [ Shell ] [ Live System ]
   key: ret
-  wait_after: 10
+  settle: 10
 - name: keymap - continue with the default
   # `Keymap Selection` -> `>> Continue with default keymap`, preselected.
   key: ret
-  wait_after: 8
+  settle: 8
 - name: hostname
   # `Please choose a hostname for this machine.` - an INPUT FIELD, so the text has to be cleared.
   # The field is focused on arrival; typing appends to nothing because it starts empty.
   type: freebsd
-  wait_after: 2
+  settle: 2
 - name: accept the hostname
   key: ret
-  wait_after: 8
+  settle: 8
 # `PACKAGES (TECH PREVIEW)` IS THE OFFLINE PATH, AND THIS FILE HAD IT BACKWARDS.
 #
 # THE COMMENT HERE USED TO SAY "DISTRIBUTION SETS, NOT PACKAGES: the tech preview path fetches from
@@ -168,7 +168,7 @@ steps:
   # and MEASURED by OCR on the pane, it opens as `Packages (Tech Preview) 1]` - the No button - so a
   # bare Return takes it.
   key: ret
-  wait_after: 10
+  settle: 10
 
 - name: offline, so pkgbase does not reboot before the chroot runs
   # THE CHOICE IS DRIVEN BY WHAT HAPPENS AFTER THE BASE SYSTEM LANDS, NOT BY WHERE IT COMES FROM.
@@ -197,9 +197,9 @@ steps:
   # Ubuntu guest whose desktop reports 95 updates available.
   do:
   - key: right
-    wait_after: 1
+    settle: 1
   - key: ret
-    wait_after: 10
+    settle: 10
 - name: partitioning - automatic ufs
   # THE MENU, AND NOTHING ELSE: THE KEYSTROKE IS SENT BY THE STEP AFTER THIS ONE.
   #
@@ -213,7 +213,7 @@ steps:
   #   closed unseen, and the walk was already somewhere else.
   #
   # WHAT THIS STAGE ASKS FOR, ON THE USER'S INSTRUCTION: `Auto (UFS)`.
-  wait: 12
+  settle: 12
 
 - name: wait for the partitioning menu before choosing on it
   # THE FIRST KEY OF THIS SECTION WAS SENT BLIND, AND THE OCR READ IT BACK.
@@ -234,15 +234,15 @@ steps:
   loop:
     max: 25
     do:
-    - wait: 6
+    - settle: 6
     ocr:
       name: partmenu
-      region:
+      rect:
       - 740
       - 420
       - 1200
       - 660
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -297,9 +297,9 @@ steps:
   # UFS asks neither of those. It partitions, unpacks, and moves on.
   do:
   - key: down
-    wait_after: 1
+    settle: 1
   - key: ret
-    wait_after: 10
+    settle: 10
 
 - name: entire disk, not a shared partition
   # `Auto (UFS)` ASKS THIS BEFORE IT PARTITIONS, AND THE FILE DID NOT KNOW - SO EVERY KEY AFTER THIS
@@ -319,7 +319,7 @@ steps:
   # THIS IS NOT A ZFS PANE. The earlier note in this file blamed it on the ZFS path; `autopart` asks
   # the same question, and the scripted `Auto` mode does not.
   key: ret
-  wait_after: 10
+  settle: 10
 
 - name: partition scheme - GPT, which is what makes this disk UEFI bootable
   # THE SECOND QUESTION `Auto (UFS)` ASKS, AND THE ONE THAT DECIDES WHETHER THE DISK BOOTS.
@@ -341,7 +341,7 @@ steps:
   # THIS PANE BELONGS TO `autopart` AS MUCH AS TO `zfsboot` - the earlier note in this file called it
   # ZFS-only, and that is why it was missing from the UFS path.
   key: ret
-  wait_after: 10
+  settle: 10
 
 - name: wait for the partition editor
   # UFS GOES STRAIGHT FROM THE MENU TO `Partition Editor`, with the layout already made:
@@ -358,15 +358,15 @@ steps:
   loop:
     max: 25
     do:
-    - wait: 6
+    - settle: 6
     ocr:
       name: parted
-      region:
+      rect:
       - 740
       - 350
       - 1260
       - 720
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -411,19 +411,19 @@ steps:
   # buttons means five MOVES only if the focus starts OUTSIDE the row, and it starts on the first.
   do:
   - key: tab
-    wait_after: 1
+    settle: 1
   - key: tab
-    wait_after: 1
+    settle: 1
   - key: tab
-    wait_after: 1
+    settle: 1
   - key: tab
-    wait_after: 1
+    settle: 1
   - key: tab
-    wait_after: 1
+    settle: 1
   - key: tab
-    wait_after: 1
+    settle: 1
   - key: ret
-    wait_after: 10
+    settle: 10
 
 - name: commit the layout
   # `Finish` ASKS ONE MORE QUESTION, AND ITS DEFAULT IS ALREADY THE RIGHT ANSWER.
@@ -438,7 +438,7 @@ steps:
   # `Commit` IS HIGHLIGHTED, so this is a bare Return. `Revert & Exit` would throw away the layout the
   # previous steps just agreed to.
   key: ret
-  wait_after: 15
+  settle: 15
 
 - name: distribution select - accept the default set
   # THE COMPONENT CHECKLIST, WHICH ONLY THE PKGBASE PATH SHOWS, AND ITS CURSOR IS ALREADY ON `OK`.
@@ -457,7 +457,7 @@ steps:
   # WITHOUT THIS RETURN the install never starts: `wait for the install to finish` reads this pane's
   # text for up to forty-five minutes and reports a phrase nobody wrote.
   key: ret
-  wait_after: 15
+  settle: 15
 
 - name: wait for the install to finish
   # The partitioner runs, the base system is extracted, and the installer finally reports
@@ -465,7 +465,7 @@ steps:
   loop:
     max: 180
     do:
-    - wait: 15
+    - settle: 15
     ocr:
       name: done
       # THE DIALOG, NOT THE WHOLE SCREEN, AND `scale: 3` BECAUSE THE TEXT IS SIXTEEN PIXELS.
@@ -483,12 +483,12 @@ steps:
       #
       # (its own misspelling of "password" included, which is why the word list below does not depend
       # on that word alone).
-      region:
+      rect:
       - 600
       - 340
       - 940
       - 580
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 3
@@ -613,23 +613,23 @@ steps:
 # back and no way to tell which half is wrong. The password is set later, in a root shell, with `pw`.
 - name: the root password - first field
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: the root password - tab to the second field
   key: tab
-  wait_after: 1
+  settle: 1
 - name: the root password - second field
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: skip the root password pane
   do:
   - key: tab
-    wait_after: 1
+    settle: 1
   - key: tab
-    wait_after: 1
+    settle: 1
   - key: right
-    wait_after: 1
+    settle: 1
   - key: ret
-    wait_after: 8
+    settle: 8
 
 # --- netconfig -----------------------------------------------------------------------------
 #
@@ -644,7 +644,7 @@ steps:
 # walkthrough does not depend on it.
 - name: network - auto, which is the interface menu's default button
   key: ret
-  wait_after: 15
+  settle: 15
 
 # --- time ----------------------------------------------------------------------------------
 #
@@ -657,16 +657,16 @@ steps:
 # sets it to whenever the bake ran. `Skip` leaves the clock alone, which is the correct answer.
 - name: time zone - the region list opens on UTC, which is the first entry
   key: ret
-  wait_after: 6
+  settle: 6
 - name: time zone - the date box, skipped
   # `--default-no` PUTS THE FOCUS ON `Skip`, so this Return takes it. That is the opposite of the
   # root password pane, where `Skip` needed `right` - the difference is `--default-no`, which
   # preselects the cancel button.
   key: ret
-  wait_after: 4
+  settle: 4
 - name: time zone - the time box, skipped
   key: ret
-  wait_after: 4
+  settle: 4
 
 # --- services ------------------------------------------------------------------------------
 #
@@ -684,7 +684,7 @@ steps:
 # block further down.
 - name: services - sshd is already ticked, so accept the list
   key: ret
-  wait_after: 6
+  settle: 6
 
 # --- hardening -----------------------------------------------------------------------------
 #
@@ -692,7 +692,7 @@ steps:
 # of them and the list is all unchecked, so the `[ OK ]` button accepts an unmodified system.
 - name: hardening - nothing to hide on a throwaway guest, so accept
   key: ret
-  wait_after: 6
+  settle: 6
 
 # --- firmware ------------------------------------------------------------------------------
 #
@@ -701,7 +701,7 @@ steps:
 # machine does not have.
 - name: firmware - skip it
   key: ret
-  wait_after: 10
+  settle: 10
 
 # --- Add User Accounts ---------------------------------------------------------------------
 #
@@ -743,13 +743,13 @@ steps:
   # `left` REACHES `No`, the same rule as the destroy-confirm and the installation-type question.
   do:
   - key: left
-    wait_after: 1
+    settle: 1
   - key: ret
-    wait_after: 8
+    settle: 8
 
 - name: final configuration - Finish is the first entry
   key: ret
-  wait_after: 10
+  settle: 10
 
 # --- the chroot shell ----------------------------------------------------------------------
 #
@@ -766,9 +766,9 @@ steps:
   # reaches Yes. MEASURED on the pane.
   do:
   - key: left
-    wait_after: 1
+    settle: 1
   - key: ret
-    wait_after: 12
+    settle: 12
 
 - name: prove the chroot shell is actually up before typing into it
   # THIS STEP EXISTS BECAUSE NOTHING ELSE IN THE STAGE COULD TELL, AND THAT COST A WHOLE RUN.
@@ -787,15 +787,15 @@ steps:
   loop:
     max: 20
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: chroot
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -847,7 +847,7 @@ steps:
   # THE HEREDOC IS ON ONE PHYSICAL LINE, because `type:` cannot send a newline: `<<<` is not POSIX
   # sh, so the words are separated by a semicolon inside a single-quoted command instead.
   - type: printf '%s' '{{ password }}' | pw usermod root -h0 && echo ROOT_PW_SET
-    wait_after: 10
+    settle: 10
   - key: ret
 - name: create the account
   # `pw useradd` WITH `-h 0` AND A PIPE DOES NOT SET THE PASSWORD, AND THE FIELD IS LEFT AS `*`.
@@ -870,21 +870,21 @@ steps:
   # must not write a credential to a log.
   do:
   - type: pw useradd -n {{ user }} -m -s /bin/csh -G wheel
-    wait_after: 10
+    settle: 10
   - key: ret
   # THE SAME HEREDOC FORM AS THE ROOT PASSWORD ABOVE, and for the same measured reason: the openssl
   # route wrote no hash onto this disk at all.
   - type: printf '%s' '{{ password }}' | pw usermod {{ user }} -h0 && echo PASSWORD_SET
-    wait_after: 10
+    settle: 10
   - key: ret
 - name: prove the account exists
   # THE OUTPUT IS THE EVIDENCE, and a walkthrough that creates an account without reading it back is
   # one that discovers the mistake at the ssh stage instead of here.
   do:
   - type: pw usershow {{ user }}
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
 
 # SSHD REFUSES PASSWORDS UNTIL TOLD OTHERWISE, AND THIS SHELL IS THE ONLY PLACE THAT CAN SAY SO.
 #
@@ -901,24 +901,24 @@ steps:
 - name: allow password authentication over ssh
   do:
   - type: sed -i '' 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 4
+    settle: 4
 
 - name: prove the setting took
   # `grep -c` PRINTS A NUMBER, so the log says `1` rather than only that the command exited 0.
   do:
   - type: grep -c '^PasswordAuthentication yes' /etc/ssh/sshd_config
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
 
 - name: make sure sshd starts at every boot
   do:
   - type: sysrc sshd_enable=YES
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
 
 # SUDO, BECAUSE `su` CANNOT WORK ON AN SSH CHANNEL AND `pkg` NEEDS ROOT.
 #
@@ -989,13 +989,13 @@ steps:
   # address is the one DNS server this shell can use - and it is the same one the DHCP lease hands the
   # installed system.
   - type: echo cHJpbnRmICclc1xuJyAnbmFtZXNlcnZlciAxNzIuMzAuMC4xJyA+IC9ldGMvcmVzb2x2LmNvbmY= | base64 -d | sh
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 3
+    settle: 3
   - type: cat /etc/resolv.conf
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 5
+    settle: 5
 
 - name: point pkg at the network repository, because the disc has no ports packages
   # THE OFFLINE INSTALL LEAVES pkg LOOKING AT THE DISC, AND THE DISC HAS NOTHING THIS STAGE NEEDS.
@@ -1013,10 +1013,10 @@ steps:
   # The command is base64 so no quoting rule can change it in transit.
   do:
   - type: echo cHJpbnRmICclc1xuJyAnRnJlZUJTRDogeycgJyAgdXJsOiAicGtnK2h0dHBzOi8vcGtnLkZyZWVCU0Qub3JnLyR7QUJJfS9xdWFydGVybHkiLCcgJyAgbWlycm9yX3R5cGU6ICJzcnYiLCcgJyAgZW5hYmxlZDogeWVzJyAnfScgPiAvdXNyL2xvY2FsL2V0Yy9wa2cvcmVwb3MvRnJlZUJTRC5jb25m | base64 -d | sh
-    wait_after: 5
+    settle: 5
   - key: ret
   - type: cat /usr/local/etc/pkg/repos/FreeBSD.conf
-    wait_after: 3
+    settle: 3
   - key: ret
 - name: bootstrap pkg, which is a stub until it downloads itself once
   # ON A FRESH FREEBSD `/usr/sbin/pkg` IS A PLACEHOLDER that fetches the real pkg on first use. Inside
@@ -1024,13 +1024,13 @@ steps:
   # says "no network" rather than "sudo did not install".
   do:
   - type: env ASSUME_ALWAYS_YES=yes pkg bootstrap -f
-    wait_after: 4
+    settle: 4
   - key: ret
-    wait_after: 60
+    settle: 60
   - type: pkg -vv
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 6
+    settle: 6
 
 - name: install the desktop, sudo and their packages while this shell is root
   # THIS IS THE ONE PLACE WITH ROOT AND A WORKING NETWORK AT THE SAME TIME, SO EVERYTHING GOES HERE.
@@ -1075,16 +1075,16 @@ steps:
   # gives it the keyboard and the usb-tablet. A session with a display and no input device starts and
   # ignores every click.
   - type: env ASSUME_ALWAYS_YES=yes pkg install -y sudo xorg xf86-video-scfb xf86-input-libinput xfce lightdm lightdm-gtk-greeter
-    wait_after: 4
+    settle: 4
   - key: ret
-    wait_after: 60
+    settle: 60
   # THE POLL IS THE PROOF, NOT THE WAIT. `pkg info` is the package manager's own registration record,
   # which only exists once unpacking finished - a fixed wait is what produced a TRUNCATED sudo earlier
   # in this chain (`Exec format error` three stages later).
   - type: sh -c 'i=0; while [ $i -lt 60 ]; do pkg info xfce >/dev/null 2>&1 && pkg info sudo >/dev/null 2>&1 && break; sleep 10; i=$((i+1)); done; pkg info sudo xfce xorg lightdm 2>&1 | grep -E "^(Name|Version)" | head -8'
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 40
+    settle: 40
 
 - name: prove the desktop actually landed
   # THE ARTIFACT, READ BACK FROM THE DISK THAT WILL BE PUBLISHED. A step count is not a verdict; these
@@ -1095,13 +1095,13 @@ steps:
   #	/usr/local/sbin/lightdm                      the display manager
   do:
   - type: ls -l /usr/local/share/xsessions/xfce.desktop /usr/local/bin/Xorg /usr/local/sbin/lightdm
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 5
+    settle: 5
   - type: ls -l /usr/local/bin/sudo
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
 
 - name: let the account escalate without a password
   # THE MODE IS 0440 BECAUSE SUDO REFUSES A SUDOERS FILE ANYONE ELSE CAN READ, and the DIRECTORY is
@@ -1111,13 +1111,13 @@ steps:
   # sudoers line that names a different one is a permission error at the first privileged command.
   do:
   - type: printf '%s\n' '{{ user }} ALL=(ALL) NOPASSWD:ALL' > /usr/local/etc/sudoers.d/90-{{ user }}
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 3
+    settle: 3
   - type: chmod 0440 /usr/local/etc/sudoers.d/90-{{ user }}
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 3
+    settle: 3
 
 - name: prove sudo works, as the account will use it
   # `su -m {{ user }} -c ...` RUNS IT AS THE ACCOUNT rather than as root, so this is the real question
@@ -1125,9 +1125,9 @@ steps:
   # here instead of hanging at a password prompt in the next stage.
   do:
   - type: su -m {{ user }} -c 'sudo -n id -un'
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 6
+    settle: 6
 
 - name: install the guest agent, which is what lets the host shut this machine down
   # `qemu-guest-agent` IS THE FOURTH SHUTDOWN PATH, and the other three guests all have it.
@@ -1142,14 +1142,14 @@ steps:
   # dropping characters. `type:` has no newline, so it cannot be wrapped either - it gets its own step.
   do:
   - type: env ASSUME_ALWAYS_YES=yes pkg install -y qemu-guest-agent
-    wait_after: 4
+    settle: 4
   - key: ret
-    wait_after: 45
+    settle: 45
   # THE POLL IS THE PROOF, NOT THE WAIT, for the same measured reason as the xfce step above.
   - type: sh -c 'i=0; while [ $i -lt 40 ]; do pkg info qemu-guest-agent >/dev/null 2>&1 && break; sleep 5; i=$((i+1)); done; pkg info qemu-guest-agent 2>&1 | grep -E "^(Name|Version)"'
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 20
+    settle: 20
 
 - name: prove the guest agent's device and enable it at every boot
   # THE PACKAGE IS NOT THE SERVICE. Installing it puts the binary on the disk; `sysrc` is what makes
@@ -1162,17 +1162,17 @@ steps:
   # presence proves the host side is wired the way this stage assumes.
   do:
   - type: sysrc qemu_guest_agent_enable=YES
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
   - type: ls /usr/local/bin/qemu-ga /usr/local/etc/rc.d/qemu-guest-agent
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
   - type: grep qemu_guest_agent /etc/rc.conf
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
 
 - name: tell Xorg to draw through the kernel framebuffer
   # `scfb` HAS TO BE NAMED. Installing `xf86-video-scfb` puts the driver on the disk, but Xorg's
@@ -1185,17 +1185,17 @@ steps:
   # 32-bit colour at the resolution `boot:` sets (1920x1080).
   do:
   - type: mkdir -p /usr/local/etc/X11/xorg.conf.d
-    wait_after: 1
+    settle: 1
   - key: ret
-    wait_after: 2
+    settle: 2
   - type: sh -c 'printf "%s\n" "Section \"Device\"" "    Identifier \"Card0\"" "    Driver \"scfb\"" "EndSection" > /usr/local/etc/X11/xorg.conf.d/10-scfb.conf'
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 3
+    settle: 3
   - type: cat /usr/local/etc/X11/xorg.conf.d/10-scfb.conf
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
 
 - name: enable the desktop at boot
   # THE THREE SWITCHES THAT DECIDE WHETHER A SESSION APPEARS, AND ONE OF THEM IS EASY TO MISS.
@@ -1211,17 +1211,17 @@ steps:
   # twice, on two separate runs, and the log said nothing because the script exited cleanly.
   do:
   - type: sysrc dbus_enable=YES
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 3
+    settle: 3
   - type: sysrc lightdm_enable=YES
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 3
+    settle: 3
   - type: sysrc devfs_system_ruleset=desktop
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 3
+    settle: 3
 
 - name: log in to the desktop automatically
   # A GREETER THAT ASKS FOR A PASSWORD CANNOT BE DRIVEN BY ANYTHING UNATTENDED, and this disk has one
@@ -1269,22 +1269,22 @@ steps:
   # The option tells lightdm to POINT XAUTHORITY AT THE SYSTEM FILE instead of copying it, which
   # removes the copy that fails.
   - type: sh -c 'printf "%s\n" "[Seat:*]" "greeter-session=lightdm-gtk-greeter" "autologin-user={{ user }}" "session-wrapper=/usr/local/etc/lightdm/Xsession" "autologin-user-timeout=0" "user-session=xfce" > /usr/local/etc/lightdm/lightdm.conf'
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 4
+    settle: 4
   - type: cat /usr/local/etc/lightdm/lightdm.conf
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
 
 - name: let the account reach the display and the video devices
   # X NEEDS BOTH. `video` opens /dev/dri and the framebuffer; without it lightdm starts and the session
   # cannot allocate a display. The account is in `wheel` already, from the useradd above.
   do:
   - type: pw groupmod video -m {{ user }}
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
 
 - name: flush the writes before anything else
   # `sync` IS NOT ENOUGH ON THIS DISK, AND THE MEASUREMENT SAYS WHY.
@@ -1310,13 +1310,13 @@ steps:
   # cases, and the second one is what a UFS filesystem needs before its superblock is trusted.
   do:
   - type: sync
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 20
+    settle: 20
   - type: sync
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 20
+    settle: 20
 
 - name: prove the disk is the filesystem this file asked for
   # THE ONE FACT EVERY LATER STAGE RELIES ON, AND IT WAS NEVER CHECKED. A UFS disk works, so nothing
@@ -1324,9 +1324,9 @@ steps:
   # later as `Exec format error` on a binary nobody had touched.
   do:
   - type: sh -c 'df -h / | tail -1; zpool list 2>&1 | head -2'
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 6
+    settle: 6
 
 - name: make the installed system talk on the serial console
   # WITHOUT THIS THE FIRST BOOT OF THE NEW SYSTEM IS SILENT ON ttyu0, AND THE STAGE HANGS.
@@ -1350,22 +1350,22 @@ steps:
   # `boot_multicons` KEEPS THE VGA OUTPUT TOO, so the disk is readable either way.
   do:
   - type: printf '%s\n' 'console="comconsole,vidconsole"' 'boot_multicons="YES"' 'boot_serial="YES"' 'comconsole_speed="115200"' > /boot/loader.conf
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 4
+    settle: 4
   - type: cat /boot/loader.conf
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 4
+    settle: 4
 
 - name: give ttyu0 a login prompt, or the console is readable but not usable
   # `boot_serial` PUTS OUTPUT ON ttyu0; /etc/ttys IS WHAT PUTS A `login:` PROMPT THERE. Without the
   # second, the next stage can read the boot and still cannot log in.
   do:
   - type: awk 'BEGIN{OFS="\t"} /^ttyu0/{print "ttyu0","\"/usr/libexec/getty std.115200\"","vt100","on","secure"; next} {print}' /etc/ttys > /tmp/ttys.new && cp /tmp/ttys.new /etc/ttys
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 4
+    settle: 4
 
 - name: leave the shell, which finishes the install
   # `exit` HANDS CONTROL BACK TO `bsdinstall auto`, WHICH THEN UNMOUNTS THE DISK AND REBOOTS.
@@ -1391,9 +1391,9 @@ steps:
   # guest is then in a state where every write is on the medium and the filesystem says clean.
   do:
   - type: exit
-    wait_after: 5
+    settle: 5
   - key: ret
-    wait_after: 60
+    settle: 60
 
 - name: wait for the installer to unmount the disk
   # `bsdinstall auto` RUNS `bsdinstall umount` AFTER THE CHROOT SHELL EXITS, AND THAT IS THE STEP THAT
@@ -1414,7 +1414,7 @@ steps:
   #
   # THE INSTALLER REBOOTS BY ITSELF once the unmount returns, and this wait covers that reboot. The
   # `stop the machine` step after it then stops a guest that has nothing left to write.
-  wait: 120
+  settle: 120
 
 - name: stop the machine
   # A STAGE WHOSE OUTPUT IS THE DISK MAY NOT LOSE ITS WRITES, AND `sync` ABOVE IS HOW THAT IS GUARANTEED.

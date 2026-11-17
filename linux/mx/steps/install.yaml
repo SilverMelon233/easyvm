@@ -48,15 +48,15 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 6
+    - settle: 6
     ocr:
       name: screen
-      region:
+      rect:
       - 690
       - 225
       - 1560
       - 265
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -80,15 +80,15 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 6
+    - settle: 6
     ocr:
       name: screen
-      region:
+      rect:
       - 690
       - 225
       - 1560
       - 265
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -113,15 +113,15 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 6
+    - settle: 6
     ocr:
       name: screen
-      region:
+      rect:
       - 332
       - 248
       - 700
       - 285
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -149,15 +149,15 @@ steps:
   loop:
     max: 40
     do:
-    - wait: 6
+    - settle: 6
     ocr:
       name: screen
-      region:
+      rect:
       - 332
       - 248
       - 700
       - 285
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -182,15 +182,15 @@ steps:
   loop:
     max: 40
     do:
-    - wait: 6
+    - settle: 6
     ocr:
       name: screen
-      region:
+      rect:
       - 332
       - 248
       - 700
       - 285
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -213,15 +213,15 @@ steps:
   loop:
     max: 40
     do:
-    - wait: 6
+    - settle: 6
     ocr:
       name: screen
-      region:
+      rect:
       - 332
       - 248
       - 700
       - 285
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -244,15 +244,15 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 6
+    - settle: 6
     ocr:
       name: screen
-      region:
+      rect:
       - 332
       - 248
       - 700
       - 285
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -305,12 +305,12 @@ steps:
       settle: 20
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1

@@ -100,18 +100,19 @@ var Keys = map[string]Key{
 		Summary: "files that must be on disk before this stage runs; the first step of every stage " +
 			"names its medium here so a missing input fails in the first second rather than forty " +
 			"minutes in"},
-	"require": {Name: "require", Kind: KindList,
-		Summary: "the older spelling of `needs:`, kept so a file that has not been renamed runs"},
 	"requires": {Name: "requires", Kind: KindList,
 		Summary: "capabilities that must answer before the step runs (ssh, qga, share, " +
 			"network, overlay); missing is a StepError, never a quiet fallback"},
-	"unless": {Name: "unless", Kind: KindWords,
-		Summary: "do this only if the screen does NOT already show these words"},
-	"unless_any": {Name: "unless_any", Kind: KindWordSets,
-		Summary: "the alternatives form of `unless:`; the step runs only if the screen shows " +
-			"NONE of these word-sets. It exists for the same reason `expect_any:` does: a pane " +
-			"can announce itself in more than one way, and OCR reads some of those ways better " +
-			"than others"},
+	// `when_not:` IS THE NEGATIVE GATE AND IT REPLACES `unless:`.
+	//
+	// `when:` AND `unless:` WERE ONE GATE WITH A NEGATION between them - "run if the screen says X"
+	// and "run if it does NOT say X". Two names for one idea, 16 uses and 10, and a reader had to
+	// remember which was which. `when:` / `when_not:` says it in the name.
+	"when_not": {Name: "when_not", Kind: KindWords,
+		Summary: "the negative gate: run this step only if the screen does NOT show these words"},
+	"when_not_any": {Name: "when_not_any", Kind: KindWordSets,
+		Summary: "the alternatives form of `when_not:`: the step runs only if the screen shows " +
+			"NONE of these word-sets"},
 	"skip_when_unfinished": {Name: "skip_when_unfinished", Kind: KindBool,
 		Summary: "in a panes epilogue: run only if the walk finished"},
 
@@ -290,11 +291,6 @@ var Keys = map[string]Key{
 		Summary: "with wait_for_change: how long to wait for a change at all"},
 
 	// --- the screen: read --------------------------------------------------------------
-	"expect": {Name: "expect", Kind: KindWords,
-		Summary: "words that must appear after the action; a mismatch fails the step and " +
-			"withholds it from the answered count"},
-	"expect_any": {Name: "expect_any", Kind: KindWordSets,
-		Summary: "a list of word-sets, any one of which passes"},
 	"until_console": {Name: "until_console", Kind: KindString,
 		Summary: "wait for text in the guest's SERIAL output - the firmware's own words, which " +
 			"a screenshot cannot see. A Windows install ISO prints its boot prompt there and " +
@@ -308,10 +304,6 @@ var Keys = map[string]Key{
 		Summary: "wait until the screen goes black - an installer's own start signal"},
 	"wait_for_change": {Name: "wait_for_change", Kind: KindBool,
 		Summary: "wait until the screen changes rather than for particular words"},
-	"wait": {Name: "wait", Kind: KindFloat,
-		Summary: "wait this many seconds with nothing clicked"},
-	"wait_after": {Name: "wait_after", Kind: KindFloat,
-		Summary: "wait this long after the action, for the screen to catch up"},
 	"poll": {Name: "poll", Kind: KindFloat,
 		Summary: "seconds between looks in an until: loop"},
 	"timeout": {Name: "timeout", Kind: KindInt,
@@ -320,10 +312,6 @@ var Keys = map[string]Key{
 	// `false`, so it was not a switch - it was the behaviour, spelled as an option. A screen that
 	// blanks during a boot is normal, and both waits that need to survive it now wake it
 	// unconditionally: see `wakeTheScreen` in internal/run.
-	"region": {Name: "region", Kind: KindRect,
-		Summary: "crop [x0, y0, x1, y1] before reading, for until/expect"},
-	"region_at": {Name: "region_at", Kind: KindPair,
-		Summary: "[width, height] the crop was measured at; a mismatch is an error"},
 	"scale": {Name: "scale", Kind: KindInt,
 		Summary: "enlargement for a cropped read; small text needs it"},
 	"screenshot": {Name: "screenshot", Kind: KindString,
@@ -344,10 +332,6 @@ var Keys = map[string]Key{
 	"script": {Name: "script", Kind: KindScript,
 		Summary: "a body written on the host, copied in, and run by path. The guest's " +
 			"interpreter runs it, not ours"},
-	"script_shell": {Name: "script_shell", Kind: KindString,
-		Summary: "the interpreter that runs `script`: cmd, powershell, or sh"},
-	"script_name": {Name: "script_name", Kind: KindString,
-		Summary: "the file name `script` is written as"},
 	"adb": {Name: "adb", Kind: KindScript,
 		Summary: "a command run over adb IN the guest; Android's remote access is adbd and " +
 			"there is no sshd until a stage installs one"},
@@ -527,6 +511,10 @@ var Keys = map[string]Key{
 		Summary: "with `see:` and `check:`: the region to measure, as a FRACTION of the frame " +
 			"rather than a pixel pair, so it cannot be measured at the wrong size. Forms: " +
 			"`middle`, `top 4.5%`, `bottom 40px`, or [x0, y0, x1, y1] as fractions"},
+	"rect_at": {Name: "rect_at", Kind: KindPair,
+		Summary: "with a PIXEL `rect:`: [width, height] the rectangle was measured at. A rectangle " +
+			"is pixels on ONE screen, and naming that screen is what lets it be scaled for a guest " +
+			"drawing at another size"},
 	"of": {Name: "of", Kind: KindList,
 		Summary: "with `see:`: which numbers to bind - mean, spread, sat, flat_rows, contrast, " +
 			"min, max, or text"},
@@ -633,12 +621,6 @@ var Keys = map[string]Key{
 	"fetch": {Name: "fetch", Kind: KindList,
 		Summary: "produce one host-side input: an installer image, a guest agent, a firmware, an " +
 			"answer CD. The value names WHAT, not how it is obtained"},
-	"asset": {Name: "asset", Kind: KindList,
-		Summary: "the older spelling of `fetch:`, kept so a file that has not been renamed runs"},
-	"build": {Name: "build", Kind: KindList,
-		Summary: "the older spelling of `fetch:`, kept so a file that has not been renamed runs"},
-	"generate": {Name: "generate", Kind: KindList,
-		Summary: "the older spelling of `fetch:`, kept so a file that has not been renamed runs"},
 	"template": {Name: "template", Kind: KindString,
 		Summary: "with `generate: answer_iso`: the answer file to substitute into. It is a path in " +
 			"the repository because the placeholders are the file's vocabulary, not a download"},

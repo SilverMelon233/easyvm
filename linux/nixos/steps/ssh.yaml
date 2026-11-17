@@ -38,7 +38,7 @@ steps:
   key: ret
   settle: 12
 - name: let the session finish starting
-  wait: 240
+  settle: 240
 - name: skip the welcome dialog
   click:
   - 858
@@ -57,12 +57,12 @@ steps:
       settle: 10
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -97,12 +97,12 @@ steps:
       settle: 5
     ocr:
       name: screen
-      region:
+      rect:
       - 600
       - 60
       - 1330
       - 500
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 3

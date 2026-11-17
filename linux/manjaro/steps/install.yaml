@@ -34,17 +34,21 @@ steps:
   desktop: linux/kde
   timeout: 5400
 - name: let the desktop settle
-  wait: 15
+  settle: 15
 - name: open the installer
   double:
   - 960
   - 760
-  expect_any:
-  - - welcome
-  - - location
+  check:
+    name: asserted
+    must: true
+    text:
+      - contains_any:
+          - [welcome]
+          - [location]
   settle: 35
 - name: open the installer (once more, if it did not)
-  unless:
+  when_not:
   - welcome
   double:
   - 960
@@ -101,12 +105,12 @@ steps:
 - name: the partitions page after choosing ext4
   ocr:
     name: fs
-    region:
+    rect:
     - 0
     - 0
     - 1920
     - 1080
-    region_at:
+    rect_at:
     - 1920
     - 1080
     scale: 1
@@ -196,12 +200,12 @@ steps:
       settle: 20
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1

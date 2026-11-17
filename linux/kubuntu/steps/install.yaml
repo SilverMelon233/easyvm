@@ -80,8 +80,8 @@ steps:
 - name: calamares is open
   ocr:
     name: cal
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 5
 
@@ -123,8 +123,8 @@ steps:
 - name: the installation mode page
   ocr:
     name: mode
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -138,8 +138,8 @@ steps:
 - name: the partitions page
   ocr:
     name: parts
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 4
 
@@ -165,8 +165,8 @@ steps:
 - name: the erase page shows ext4
   ocr:
     name: fs
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -187,8 +187,8 @@ steps:
 - name: the users page
   ocr:
     name: users
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 4
 
@@ -227,8 +227,8 @@ steps:
 - name: the users page is filled in
   ocr:
     name: filled
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -255,8 +255,8 @@ steps:
 - name: the summary page
   ocr:
     name: summary
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 4
 
@@ -278,8 +278,8 @@ steps:
 - name: the confirmation dialog
   ocr:
     name: confirm
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -301,11 +301,11 @@ steps:
   loop:
     max: 60
     do:
-    - wait: 15
+    - settle: 15
     ocr:
       name: done
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 0
     check:

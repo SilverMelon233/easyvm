@@ -39,11 +39,11 @@ steps:
   loop:
     max: 40
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: desk
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 0
     check:

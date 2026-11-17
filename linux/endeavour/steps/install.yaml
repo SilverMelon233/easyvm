@@ -37,7 +37,7 @@ steps:
   timeout: 5400
 
 - name: let the desktop settle
-  wait: 15
+  settle: 15
 
 # THE WELCOME WINDOW IS `Welcome v26.7.2-1 [ISO: 2026.08.15]` AND ITS `Start the Installer` BUTTON IS
 # AT (748, 431), measured on the frame. ONE CLICK: unlike CachyOS Hello's, this opens a dialog rather
@@ -58,8 +58,8 @@ steps:
 - name: calamares is up
   ocr:
     name: cal
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 5
 
@@ -120,8 +120,8 @@ steps:
 - name: the installer speaks English
   ocr:
     name: english
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -154,8 +154,8 @@ steps:
 - name: the bootloader page
   ocr:
     name: boot
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -167,8 +167,8 @@ steps:
 - name: the partitions page
   ocr:
     name: parts
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 4
 
@@ -181,8 +181,8 @@ steps:
 - name: the partitions page with erase selected
   ocr:
     name: erase
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 4
 
@@ -211,8 +211,8 @@ steps:
 - name: the users page
   ocr:
     name: users
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 4
 
@@ -266,8 +266,8 @@ steps:
 - name: the users page is filled in
   ocr:
     name: filled
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -293,11 +293,11 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: settle
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
@@ -313,8 +313,8 @@ steps:
 - name: the summary page
   ocr:
     name: summary
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 4
 
@@ -335,8 +335,8 @@ steps:
 - name: the confirmation dialog
   ocr:
     name: confirm
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -354,11 +354,11 @@ steps:
   loop:
     max: 80
     do:
-    - wait: 15
+    - settle: 15
     ocr:
       name: done
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 0
     check:

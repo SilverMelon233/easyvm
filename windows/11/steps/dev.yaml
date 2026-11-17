@@ -30,17 +30,21 @@ steps:
   ssh_probe: echo ok
   timeout: 900
 - name: wait for winget to have an index
-  script: "$winget = $null\n$dirs = @()\nforeach ($scope in @('Machine', 'User')) {\n  try { $dirs += ([Environment]::GetEnvironmentVariable('Path', $scope) -split ';') } catch { }\n}\n$dirs += @(\"$env:LOCALAPPDATA\\Microsoft\\WindowsApps\", \"$env:ProgramFiles\\\
+  script:
+    body: "$winget = $null\n$dirs = @()\nforeach ($scope in @('Machine', 'User')) {\n  try { $dirs += ([Environment]::GetEnvironmentVariable('Path', $scope) -split ';') } catch { }\n}\n$dirs += @(\"$env:LOCALAPPDATA\\Microsoft\\WindowsApps\", \"$env:ProgramFiles\\\
+    name: wait-winget.ps1
+    shell: powershell
     WindowsApps\")\nforeach ($d in $dirs) {\n  if (-not $d) { continue }\n  $cand = Join-Path $d 'winget.exe'\n  if (Test-Path $cand) { $winget = $cand; break }\n}\nif (-not $winget) {\n  # A WINDOWS 11 GUEST MAY NOT SHIP winget AT ALL, so its absence\
     \ is reported rather than waited\n  # on - the step after this one needs a different install path entirely.\n  Write-Output 'WINGET_NOT_FOUND'\n  exit 1\n}\n# THE QUERY IS THE READINESS TEST: `winget search` answers from the index, so a successful\n\
     # search is the index existing.\n$deadline = (Get-Date).AddMinutes(10)\ndo {\n  $out = & $winget search --id Microsoft.VisualStudio.2022.BuildTools --exact `\n    --accept-source-agreements --disable-interactivity 2>&1 | Out-String\n  if ($LASTEXITCODE\
     \ -eq 0 -and $out -match 'BuildTools') {\n    Write-Output 'WINGET_READY'\n    exit 0\n  }\n  Write-Output ('waiting for the winget index: ' + ($out -replace \"`r?`n\", ' ').Trim())\n  Start-Sleep -Seconds 15\n} while ((Get-Date) -lt $deadline)\nWrite-Output\
     \ 'WINGET_INDEX_NEVER_READY'\nexit 1\n"
-  script_shell: powershell
-  script_name: wait-winget.ps1
   timeout: 900
 - name: install the build tools
-  script: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. Resolved here, per step, because\
+  script:
+    body: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. Resolved here, per step, because\
+    name: install-buildtools.ps1
+    shell: powershell
     \ every step is a new process.\n$winget = $null\n$dirs = @()\nforeach ($scope in @('Machine', 'User')) {\n  try { $dirs += ([Environment]::GetEnvironmentVariable('Path', $scope) -split ';') } catch { }\n}\n$dirs += (Join-Path $env:LOCALAPPDATA 'Microsoft\\\
     WindowsApps')\nforeach ($dir in ($dirs | Where-Object { $_ })) {\n  $cand = Join-Path $dir 'winget.exe'\n  if (Test-Path $cand) { $winget = $cand; break }\n}\nif (-not $winget) {\n  Write-Output 'WINGET_NOT_FOUND'\n  exit 1\n}\n# THE PINNED VERSION\
     \ AND THE WORKLOAD ARE WHY THIS IS A SCRIPT AND NOT A ONE-LINER: the\n# `--override` string carries spaces, quotes and a comma-free workload list, and by the\n# time it has been through ssh and cmd the quotes are gone. windows/11/devtools.py holds\n\
@@ -57,11 +61,12 @@ steps:
     \ hypothesis: the index was never the problem.\n#\n# THE MASK IS THE RULE. `$LASTEXITCODE` is an int32 carrying an HRESULT: -1978335189 & 0xFF is\n# 0x2B, 43, which is the number a POSIX shell reports and the number `lib/steps.py` logs as\n# `-> 43`.\
     \ Comparing `$rc -eq 43` never matched, three attempts in a row, on the other steps.\n$low = $rc -band 0xFF\nif ($low -eq 43) {\n  Write-Output 'ALREADY_PRESENT (winget 0x8A15002B: no upgrade applicable)'\n  exit 0\n}\nif ($rc -ne 0) {\n  Write-Output\
     \ (\"WINGET_INSTALL_FAILED \" + $rc)\n  exit $rc\n}\nWrite-Output 'BUILD_TOOLS_INSTALLED'\nexit 0\n"
-  script_shell: powershell
-  script_name: install-buildtools.ps1
   timeout: 3600
 - name: install the windows sdk
-  script: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+  script:
+    body: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+    name: install-the-windows-sdk.ps1
+    shell: powershell
     \ does for `pwsh`,\n# for the same reason. Resolved in THIS process so no state has to survive between steps.\n$winget = $null\n$dirs = @()\nforeach ($scope in @('Machine', 'User')) {\n  try { $dirs += ([Environment]::GetEnvironmentVariable('Path',\
     \ $scope) -split ';') } catch { }\n}\n$dirs += (Join-Path $env:LOCALAPPDATA 'Microsoft\\WindowsApps')\nforeach ($dir in ($dirs | Where-Object { $_ })) {\n  $cand = Join-Path $dir 'winget.exe'\n  if (Test-Path $cand) { $winget = $cand; break }\n}\n\
     if (-not $winget) {\n  Write-Output 'WINGET_NOT_FOUND'\n  exit 1\n}\n& $winget install --id Microsoft.WindowsSDK.10.0.26100 --exact --source winget --scope machine `\n  --accept-source-agreements --accept-package-agreements --disable-interactivity\n\
@@ -78,11 +83,12 @@ steps:
     # as PowerShell carries it (signed 32-bit). `-1978335189 & 0xFF` is 0x2B, which is 43 - the\n# number a POSIX shell would have reported, and the number `lib/steps.py` logs as `-> 43`.\n#\n# So the exit status in the log and the value in the variable\
     \ are the same fact spelled two\n# ways, and the branch compared one against the other. `0x8A15002B` AND `43` are not equal\n# and never were.\n#\n# THE MASK IS THE RULE, NOT A WORKAROUND FOR THIS ONE CODE: `$LASTEXITCODE` in PowerShell is\n# an int32\
     \ carrying an HRESULT when the program returns one, and every winget error would\n# have hit the same trap.\n$low = $rc -band 0xFF\nif ($low -eq 43) {\n  Write-Output 'ALREADY_PRESENT (winget 0x8A15002B: no upgrade applicable)'\n  exit 0\n}\nexit $rc\n"
-  script_shell: powershell
-  script_name: install-the-windows-sdk.ps1
   timeout: 2400
 - name: install the dotnet sdk
-  script: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+  script:
+    body: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+    name: install-the-dotnet-sdk.ps1
+    shell: powershell
     \ does for `pwsh`,\n# for the same reason. Resolved in THIS process so no state has to survive between steps.\n$winget = $null\n$dirs = @()\nforeach ($scope in @('Machine', 'User')) {\n  try { $dirs += ([Environment]::GetEnvironmentVariable('Path',\
     \ $scope) -split ';') } catch { }\n}\n$dirs += (Join-Path $env:LOCALAPPDATA 'Microsoft\\WindowsApps')\nforeach ($dir in ($dirs | Where-Object { $_ })) {\n  $cand = Join-Path $dir 'winget.exe'\n  if (Test-Path $cand) { $winget = $cand; break }\n}\n\
     if (-not $winget) {\n  Write-Output 'WINGET_NOT_FOUND'\n  exit 1\n}\n& $winget install --id Microsoft.DotNet.SDK.10 --exact --source winget --scope machine `\n  --accept-source-agreements --accept-package-agreements --disable-interactivity\n# THE EXIT\
@@ -99,11 +105,10 @@ steps:
     # as PowerShell carries it (signed 32-bit). `-1978335189 & 0xFF` is 0x2B, which is 43 - the\n# number a POSIX shell would have reported, and the number `lib/steps.py` logs as `-> 43`.\n#\n# So the exit status in the log and the value in the variable\
     \ are the same fact spelled two\n# ways, and the branch compared one against the other. `0x8A15002B` AND `43` are not equal\n# and never were.\n#\n# THE MASK IS THE RULE, NOT A WORKAROUND FOR THIS ONE CODE: `$LASTEXITCODE` in PowerShell is\n# an int32\
     \ carrying an HRESULT when the program returns one, and every winget error would\n# have hit the same trap.\n$low = $rc -band 0xFF\nif ($low -eq 43) {\n  Write-Output 'ALREADY_PRESENT (winget 0x8A15002B: no upgrade applicable)'\n  exit 0\n}\nexit $rc\n"
-  script_shell: powershell
-  script_name: install-the-dotnet-sdk.ps1
   timeout: 2400
 - name: install powershell 7
-  script: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+  script:
+    body: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
     \ does for `pwsh`,\n# for the same reason. Resolved in THIS process so no state has to survive between steps.\n$winget = $null\n$dirs = @()\nforeach ($scope in @('Machine', 'User')) {\n  try { $dirs += ([Environment]::GetEnvironmentVariable('Path',\
     \ $scope) -split ';') } catch { }\n}\n$dirs += (Join-Path $env:LOCALAPPDATA 'Microsoft\\WindowsApps')\nforeach ($dir in ($dirs | Where-Object { $_ })) {\n  $cand = Join-Path $dir 'winget.exe'\n  if (Test-Path $cand) { $winget = $cand; break }\n}\n\
     if (-not $winget) {\n  Write-Output 'WINGET_NOT_FOUND'\n  exit 1\n}\n# `--installer-type wix` IS THE FIX, AND `--scope machine` ALONE IS NOT ENOUGH.\n#\n# Run 42973132779, the first run where this step got past its own exit-code check:\n#\n#     Found\
@@ -128,11 +133,12 @@ steps:
     # as PowerShell carries it (signed 32-bit). `-1978335189 & 0xFF` is 0x2B, which is 43 - the\n# number a POSIX shell would have reported, and the number `lib/steps.py` logs as `-> 43`.\n#\n# So the exit status in the log and the value in the variable\
     \ are the same fact spelled two\n# ways, and the branch compared one against the other. `0x8A15002B` AND `43` are not equal\n# and never were.\n#\n# THE MASK IS THE RULE, NOT A WORKAROUND FOR THIS ONE CODE: `$LASTEXITCODE` in PowerShell is\n# an int32\
     \ carrying an HRESULT when the program returns one, and every winget error would\n# have hit the same trap.\n$low = $rc -band 0xFF\nif ($low -eq 43) {\n  Write-Output 'ALREADY_PRESENT (winget 0x8A15002B: no upgrade applicable)'\n  exit 0\n}\nexit $rc\n"
-  script_shell: powershell
-  script_name: install-powershell-7.ps1
   timeout: 2400
 - name: install python
-  script: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+  script:
+    body: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+    name: install-python.ps1
+    shell: powershell
     \ does for `pwsh`,\n# for the same reason. Resolved in THIS process so no state has to survive between steps.\n$winget = $null\n$dirs = @()\nforeach ($scope in @('Machine', 'User')) {\n  try { $dirs += ([Environment]::GetEnvironmentVariable('Path',\
     \ $scope) -split ';') } catch { }\n}\n$dirs += (Join-Path $env:LOCALAPPDATA 'Microsoft\\WindowsApps')\nforeach ($dir in ($dirs | Where-Object { $_ })) {\n  $cand = Join-Path $dir 'winget.exe'\n  if (Test-Path $cand) { $winget = $cand; break }\n}\n\
     if (-not $winget) {\n  Write-Output 'WINGET_NOT_FOUND'\n  exit 1\n}\n& $winget install --id Python.Python.3.13 --exact --source winget --scope machine `\n  --accept-source-agreements --accept-package-agreements --disable-interactivity\n# THE EXIT CODE\
@@ -149,11 +155,12 @@ steps:
     # as PowerShell carries it (signed 32-bit). `-1978335189 & 0xFF` is 0x2B, which is 43 - the\n# number a POSIX shell would have reported, and the number `lib/steps.py` logs as `-> 43`.\n#\n# So the exit status in the log and the value in the variable\
     \ are the same fact spelled two\n# ways, and the branch compared one against the other. `0x8A15002B` AND `43` are not equal\n# and never were.\n#\n# THE MASK IS THE RULE, NOT A WORKAROUND FOR THIS ONE CODE: `$LASTEXITCODE` in PowerShell is\n# an int32\
     \ carrying an HRESULT when the program returns one, and every winget error would\n# have hit the same trap.\n$low = $rc -band 0xFF\nif ($low -eq 43) {\n  Write-Output 'ALREADY_PRESENT (winget 0x8A15002B: no upgrade applicable)'\n  exit 0\n}\nexit $rc\n"
-  script_shell: powershell
-  script_name: install-python.ps1
   timeout: 2400
 - name: install node
-  script: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+  script:
+    body: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+    name: install-node.ps1
+    shell: powershell
     \ does for `pwsh`,\n# for the same reason. Resolved in THIS process so no state has to survive between steps.\n$winget = $null\n$dirs = @()\nforeach ($scope in @('Machine', 'User')) {\n  try { $dirs += ([Environment]::GetEnvironmentVariable('Path',\
     \ $scope) -split ';') } catch { }\n}\n$dirs += (Join-Path $env:LOCALAPPDATA 'Microsoft\\WindowsApps')\nforeach ($dir in ($dirs | Where-Object { $_ })) {\n  $cand = Join-Path $dir 'winget.exe'\n  if (Test-Path $cand) { $winget = $cand; break }\n}\n\
     if (-not $winget) {\n  Write-Output 'WINGET_NOT_FOUND'\n  exit 1\n}\n& $winget install --id OpenJS.NodeJS.LTS --exact --source winget --scope machine `\n  --accept-source-agreements --accept-package-agreements --disable-interactivity\n# THE EXIT CODE\
@@ -170,11 +177,12 @@ steps:
     # as PowerShell carries it (signed 32-bit). `-1978335189 & 0xFF` is 0x2B, which is 43 - the\n# number a POSIX shell would have reported, and the number `lib/steps.py` logs as `-> 43`.\n#\n# So the exit status in the log and the value in the variable\
     \ are the same fact spelled two\n# ways, and the branch compared one against the other. `0x8A15002B` AND `43` are not equal\n# and never were.\n#\n# THE MASK IS THE RULE, NOT A WORKAROUND FOR THIS ONE CODE: `$LASTEXITCODE` in PowerShell is\n# an int32\
     \ carrying an HRESULT when the program returns one, and every winget error would\n# have hit the same trap.\n$low = $rc -band 0xFF\nif ($low -eq 43) {\n  Write-Output 'ALREADY_PRESENT (winget 0x8A15002B: no upgrade applicable)'\n  exit 0\n}\nexit $rc\n"
-  script_shell: powershell
-  script_name: install-node.ps1
   timeout: 2400
 - name: install git
-  script: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+  script:
+    body: "# WINGET IS AN ALIAS UNDER %LOCALAPPDATA%\\Microsoft\\WindowsApps AND IS NOT ON THE MACHINE\n# PATH, so an `ssh exec` shell - which gets the environment sshd captured, not the user's\n# profile - cannot name it. This is the same lookup windows/11/probe.ps1\
+    name: install-git.ps1
+    shell: powershell
     \ does for `pwsh`,\n# for the same reason. Resolved in THIS process so no state has to survive between steps.\n$winget = $null\n$dirs = @()\nforeach ($scope in @('Machine', 'User')) {\n  try { $dirs += ([Environment]::GetEnvironmentVariable('Path',\
     \ $scope) -split ';') } catch { }\n}\n$dirs += (Join-Path $env:LOCALAPPDATA 'Microsoft\\WindowsApps')\nforeach ($dir in ($dirs | Where-Object { $_ })) {\n  $cand = Join-Path $dir 'winget.exe'\n  if (Test-Path $cand) { $winget = $cand; break }\n}\n\
     if (-not $winget) {\n  Write-Output 'WINGET_NOT_FOUND'\n  exit 1\n}\n& $winget install --id Git.Git --exact --source winget --scope machine `\n  --accept-source-agreements --accept-package-agreements --disable-interactivity\n# THE EXIT CODE IS READ\
@@ -191,32 +199,32 @@ steps:
     # as PowerShell carries it (signed 32-bit). `-1978335189 & 0xFF` is 0x2B, which is 43 - the\n# number a POSIX shell would have reported, and the number `lib/steps.py` logs as `-> 43`.\n#\n# So the exit status in the log and the value in the variable\
     \ are the same fact spelled two\n# ways, and the branch compared one against the other. `0x8A15002B` AND `43` are not equal\n# and never were.\n#\n# THE MASK IS THE RULE, NOT A WORKAROUND FOR THIS ONE CODE: `$LASTEXITCODE` in PowerShell is\n# an int32\
     \ carrying an HRESULT when the program returns one, and every winget error would\n# have hit the same trap.\n$low = $rc -band 0xFF\nif ($low -eq 43) {\n  Write-Output 'ALREADY_PRESENT (winget 0x8A15002B: no upgrade applicable)'\n  exit 0\n}\nexit $rc\n"
-  script_shell: powershell
-  script_name: install-git.ps1
   timeout: 2400
 - name: wait for sshd again
   require_ssh: true
   ssh_probe: echo ok
   timeout: 600
 - name: build and run a C program
-  script: "$ErrorActionPreference = 'Continue'\n$vswhere = \"${env:ProgramFiles(x86)}\\Microsoft Visual Studio\\Installer\\vswhere.exe\"\nWrite-Output \"vswhere: $vswhere\"\nif (-not (Test-Path $vswhere)) {\n  Write-Output \"VSWHERE_MISSING\"\n  exit 1\n\
+  script:
+    body: "$ErrorActionPreference = 'Continue'\n$vswhere = \"${env:ProgramFiles(x86)}\\Microsoft Visual Studio\\Installer\\vswhere.exe\"\nWrite-Output \"vswhere: $vswhere\"\nif (-not (Test-Path $vswhere)) {\n  Write-Output \"VSWHERE_MISSING\"\n  exit 1\n\
+    name: msvc-check.ps1
+    shell: powershell
     }\n$root = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath\nWrite-Output \"installation: $root\"\nif (-not $root) {\n  Write-Output \"VCTOOLS_MISSING\"\n  exit 1\n}\n$vcvars = Join-Path\
     \ $root 'VC\\Auxiliary\\Build\\vcvars64.bat'\nWrite-Output \"vcvars: $vcvars\"\nif (-not (Test-Path $vcvars)) {\n  Write-Output \"VCVARS_MISSING\"\n  exit 1\n}\n$dir = Join-Path $env:TEMP 'msvc-check'\nNew-Item -ItemType Directory -Force -Path $dir\
     \ | Out-Null\n$src = Join-Path $dir 'hello.c'\nSet-Content -Path $src -Value '#include <stdio.h>' -Encoding ASCII\nAdd-Content -Path $src -Value 'int main(void){ printf(\"hello-from-msvc\\n\"); return 0; }' -Encoding ASCII\n$bat = Join-Path $dir 'build.bat'\n\
     Set-Content -Path $bat -Value \"@call `\"$vcvars`\"\" -Encoding ASCII\nAdd-Content -Path $bat -Value \"cl /nologo `\"$src`\" /Fe:`\"$dir\\hello.exe`\"\" -Encoding ASCII\nAdd-Content -Path $bat -Value \"exit /b %ERRORLEVEL%\" -Encoding ASCII\n& cmd\
     \ /c $bat\n$clcode = $LASTEXITCODE\nWrite-Output \"cl exit: $clcode\"\nif ($clcode -ne 0) { Write-Output \"COMPILE_FAILED\"; exit 1 }\n$exe = Join-Path $dir 'hello.exe'\nif (-not (Test-Path $exe)) { Write-Output \"NO_EXE\"; exit 1 }\n& $exe\nif ($LASTEXITCODE\
     \ -ne 0) { Write-Output \"RUN_FAILED\"; exit 1 }\nWrite-Output \"COMPILE_OK\"\n"
-  script_shell: powershell
-  script_name: msvc-check.ps1
   timeout: 900
 - name: build and run a dotnet app
-  script: "$ErrorActionPreference = 'Continue'\n$dotnet = Join-Path $env:ProgramFiles 'dotnet\\dotnet.exe'\nWrite-Output \"dotnet: $dotnet\"\nWrite-Output \"exists: $(Test-Path $dotnet)\"\nif (-not (Test-Path $dotnet)) {\n  $onPath = Get-Command dotnet\
+  script:
+    body: "$ErrorActionPreference = 'Continue'\n$dotnet = Join-Path $env:ProgramFiles 'dotnet\\dotnet.exe'\nWrite-Output \"dotnet: $dotnet\"\nWrite-Output \"exists: $(Test-Path $dotnet)\"\nif (-not (Test-Path $dotnet)) {\n  $onPath = Get-Command dotnet\
+    name: dotnet-check.ps1
+    shell: powershell
     \ -ErrorAction SilentlyContinue\n  Write-Output \"on path: $($onPath.Source)\"\n  if (-not $onPath) { Write-Output \"DOTNET_MISSING\"; exit 1 }\n  $dotnet = $onPath.Source\n}\n$sdks = & $dotnet --list-sdks 2>&1\nWrite-Output \"sdks:\"\n$sdks | ForEach-Object\
     \ { Write-Output \"  $_\" }\nif (-not $sdks) { Write-Output \"NO_SDK\"; exit 1 }\n$dir = Join-Path $env:TEMP 'dotnet-check'\nif (Test-Path $dir) { Remove-Item -Recurse -Force $dir }\nNew-Item -ItemType Directory -Force -Path $dir | Out-Null\n& $dotnet\
     \ new console --output $dir --force 2>&1 | ForEach-Object { Write-Output \"  $_\" }\n$newcode = $LASTEXITCODE\nWrite-Output \"new exit: $newcode\"\nif ($newcode -ne 0) { Write-Output \"TEMPLATE_FAILED\"; exit 1 }\n& $dotnet run --project $dir 2>&1\
     \ | ForEach-Object { Write-Output \"  $_\" }\n$runcode = $LASTEXITCODE\nWrite-Output \"run exit: $runcode\"\nif ($runcode -ne 0) { Write-Output \"BUILD_FAILED\"; exit 1 }\nWrite-Output \"DOTNET_OK\"\n"
-  script_shell: powershell
-  script_name: dotnet-check.ps1
   timeout: 1800
 - name: prove powershell 7
   ssh: powershell -Command "pwsh -v"
@@ -225,10 +233,11 @@ steps:
   ssh: powershell -Command "if (Test-Path 'C:\Program Files (x86)\Windows Kits\10\Include') { Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' -Name } else { 'SDK_MISSING' }"
   timeout: 120
 - name: prove python node and git
-  script: "$ErrorActionPreference = 'Continue'\n$bad = 0\nforeach ($t in @('python', 'node', 'git')) {\n  $c = Get-Command \"$t.exe\" -ErrorAction SilentlyContinue\n  if ($c) {\n    Write-Output \"ok      $t -> $($c.Source)\"\n  } else {\n    Write-Output\
+  script:
+    body: "$ErrorActionPreference = 'Continue'\n$bad = 0\nforeach ($t in @('python', 'node', 'git')) {\n  $c = Get-Command \"$t.exe\" -ErrorAction SilentlyContinue\n  if ($c) {\n    Write-Output \"ok      $t -> $($c.Source)\"\n  } else {\n    Write-Output\
+    name: prove-python-node-git.ps1
+    shell: powershell
     \ \"MISSING $t\"\n    $bad = 1\n  }\n}\nif ($bad -ne 0) {\n  Write-Output \"=== THE THREE THE macOS DISK ALSO HAS ARE NOT ALL HERE ===\"\n  exit 1\n}\nWrite-Output \"PYTHON_NODE_GIT_OK\"\n"
-  script_shell: powershell
-  script_name: prove-python-node-git.ps1
   timeout: 300
 - name: note what the toolchain reports
   ssh: powershell -Command "'SDK=' + (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' -Name -ErrorAction SilentlyContinue | Select-Object -Last 1) + ' DOTNET=' + ((& 'C:\Program Files\dotnet\dotnet.exe' --version) 2>&1)"

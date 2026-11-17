@@ -53,12 +53,12 @@ steps:
       settle: 3
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -136,15 +136,15 @@ steps:
   loop:
     max: 45
     do:
-    - wait: 2
+    - settle: 2
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -180,15 +180,15 @@ steps:
   loop:
     max: 45
     do:
-    - wait: 2
+    - settle: 2
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1

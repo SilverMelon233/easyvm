@@ -115,7 +115,7 @@ func (e *Executor) readScreen(s walk.Step, label string) ([]string, error) {
 	}
 
 	crop := img
-	if region, ok := rectOf(s, "region"); ok {
+	if region, ok := rectOf(s, "rect"); ok {
 		// `region_at:` IS REQUIRED WITH `region:`, AND ITS ABSENCE IS AN ERROR RATHER THAN A DEFAULT.
 		//
 		// A RECTANGLE IS PIXELS ON ONE PARTICULAR SCREEN. Without the size it was measured at there
@@ -131,7 +131,7 @@ func (e *Executor) readScreen(s walk.Step, label string) ([]string, error) {
 		// The first version FAILED on a mismatch, which turned "the pane is not up yet" into "the
 		// file is broken"; the second scaled the rectangle silently. Neither is possible to reason
 		// about when the number that says what the measurement was is optional.
-		if _, ok := pairOf(s, "region_at"); !ok {
+		if _, ok := pairAt(s); !ok {
 			return nil, fail(s.Name, "`region:` must say `region_at: [width, height]` - the size "+
 				"those pixels were measured at. A rectangle without it cannot be scaled for a guest "+
 				"that draws at another size, and this guest does: the UEFI shell is 1280x800, macOS "+
@@ -175,7 +175,7 @@ func (e *Executor) readScreen(s walk.Step, label string) ([]string, error) {
 		//
 		// AND THE LOG SAYS SO, because a silently scaled rectangle is a reading taken from somewhere
 		// other than where the file said, and that has to be visible when a step fails.
-		if at, ok := pairOf(s, "region_at"); ok {
+		if at, ok := pairAt(s); ok {
 			w, h := f.Size()
 			if at[0] != w || at[1] != h {
 				scaled := [4]int{
@@ -380,14 +380,14 @@ func (e *Executor) doUnless(s walk.Step) error {
 	// `unless:` REMAINS ONE WORD-SET WITH AND MEANING, because a gate that required ANY of two words
 	// and a gate that required BOTH were spelled the same way and that is a trap. Two keys, two
 	// meanings, no guessing.
-	alternatives := wordSetsOf(s, "unless_any")
+	alternatives := wordSetsOf(s, "when_not_any")
 	if len(alternatives) == 0 {
-		if want := wordsOf(s, "unless"); len(want) > 0 {
+		if want := wordsOf(s, "when_not"); len(want) > 0 {
 			alternatives = [][]string{want}
 		}
 	}
 	if len(alternatives) == 0 {
-		return fail(s.Name, "`unless:` or `unless_any:` must name words")
+		return fail(s.Name, "`when_not:` or `when_not_any:` must name words")
 	}
 	words, err := e.readScreen(s, s.Name+" - unless")
 	if err != nil {
@@ -509,8 +509,20 @@ func firstLineOf(s string) string {
 	return s
 }
 
+// pairAt reads the size a pixel rect was measured at, under `rect_at:` or its old name
+// `region_at:`. One region, one meaning: a rectangle is pixels on ONE screen.
+func pairAt(s walk.Step) ([2]int, bool) {
+	if v, ok := pairOf(s, "rect_at"); ok {
+		return v, true
+	}
+	return pairOf(s, "region_at")
+}
+
 func rectOf(s walk.Step, key string) ([4]int, bool) {
 	v, ok := s.Spec[key]
+	if !ok && key == "rect" {
+		v, ok = s.Spec["region"]
+	}
 	if !ok {
 		return [4]int{}, false
 	}

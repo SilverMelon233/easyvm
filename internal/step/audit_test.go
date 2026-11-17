@@ -230,6 +230,9 @@ func countKeyUse(t *testing.T) map[string]int {
 // any indentation, and skips list items and comments. It is enough to count KEY USE, which is what
 // the test needs, and it does not need to be a YAML parser to do that.
 func countYAMLKeys(raw []byte, use map[string]int) {
+	// A KEY IS A WORD AT THE START OF A MAPPING, NOT A SUFFIX: `terminal_wait:` must not count as
+	// `wait:`, and that is exactly the mistake this counter made - 67 phantom uses of a key that no
+	// file writes any more.
 	line := regexp.MustCompile(`^\s*-?\s*([a-z][a-z0-9_]*):`)
 	for _, l := range strings.Split(string(raw), "\n") {
 		trimmed := strings.TrimSpace(l)

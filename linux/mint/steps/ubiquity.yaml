@@ -24,7 +24,11 @@ steps:
   double:
   - 114
   - 47
-  expect: welcome
+  check:
+    name: asserted
+    must: true
+    text:
+      - contains: [welcome]
   settle: 25
 - name: welcome
   click:
@@ -82,4 +86,4 @@ steps:
   - 727
   settle: 20
 - name: install
-  wait: 2400
+  settle: 2400

@@ -57,7 +57,7 @@ steps:
   timeout: 5400
 
 - name: let the desktop settle
-  wait: 15
+  settle: 15
 
 # CACHYOS HELLO IS THE FIRST WINDOW, AND `Launch installer` IS A BUTTON INSIDE IT - ONCE, NOT TWICE.
 #
@@ -75,11 +75,11 @@ steps:
   loop:
     max: 40
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: cal
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 0
     check:
@@ -147,8 +147,8 @@ steps:
 - name: the installer speaks English now
   ocr:
     name: english
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -199,11 +199,11 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: at_location
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
@@ -226,11 +226,11 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: at_keyboard
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
@@ -250,11 +250,11 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: at_bootloader
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
@@ -272,8 +272,8 @@ steps:
 - name: the bootloader page
   ocr:
     name: boot
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -290,8 +290,8 @@ steps:
 - name: grub is selected
   ocr:
     name: grub
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -312,11 +312,11 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: at_partitions
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
@@ -337,8 +337,8 @@ steps:
 - name: the partitions page with erase selected
   ocr:
     name: parts
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 4
 
@@ -362,11 +362,11 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: at_partitions_again
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
@@ -382,8 +382,8 @@ steps:
 - name: the page after choosing ext4
   ocr:
     name: fs
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -402,8 +402,8 @@ steps:
 - name: the desktop page
   ocr:
     name: desk
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -415,8 +415,8 @@ steps:
 - name: the packages page
   ocr:
     name: pkgs
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -429,11 +429,11 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: at_users
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
@@ -449,8 +449,8 @@ steps:
 - name: the users page
   ocr:
     name: users
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 4
 
@@ -481,8 +481,8 @@ steps:
 - name: the users page is filled in
   ocr:
     name: filled
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -508,11 +508,11 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 10
+    - settle: 10
     ocr:
       name: at_summary
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 3
     check:
@@ -528,8 +528,8 @@ steps:
 - name: the summary page
   ocr:
     name: summary
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 4
 
@@ -552,8 +552,8 @@ steps:
 - name: the confirmation dialog
   ocr:
     name: confirm
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 3
 
@@ -574,11 +574,11 @@ steps:
   loop:
     max: 80
     do:
-    - wait: 15
+    - settle: 15
     ocr:
       name: done
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       scale: 1
       wait: 0
     check:

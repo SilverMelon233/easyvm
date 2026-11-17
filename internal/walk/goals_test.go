@@ -145,9 +145,13 @@ func TestTheDismissalKeepsItsMeasuredShape(t *testing.T) {
 				if _, ok := m["click"]; ok {
 					clicks++
 					// FOUR SECONDS, NOT TWO. Two was measured short on a loaded guest.
-					if settle, ok := toFloat(m["wait_after"]); !ok || settle < 4 {
+					settle, ok := toFloat(m["settle"])
+					if !ok {
+						settle, ok = toFloat(m["wait_after"])
+					}
+					if !ok || settle < 4 {
 						t.Fatalf("%s: a Quit click waits %v seconds after it; the measured gap is 4 "+
-							"(run 42162859846)", name, m["wait_after"])
+							"(run 42162859846)", name, settle)
 					}
 				}
 				if _, ok := m["key"]; ok {
@@ -1957,11 +1961,15 @@ func TestEveryRegionSaysWhatSizeItWasMeasuredAt(t *testing.T) {
 		}
 		rel, _ := filepath.Rel(root, path)
 		for _, s := range doc.Steps {
-			if !s.Has("region") {
+			cropKey := "rect"
+			if !s.Has(cropKey) {
+				cropKey = "region" // the old spelling, so a half-migrated tree is still checked
+			}
+			if !s.Has(cropKey) {
 				continue
 			}
 			checked++
-			if !s.Has("region_at") {
+			if !s.Has("rect_at") && !s.Has("region_at") {
 				t.Errorf("%s: %q crops `region:` and does not say `region_at:`. The crop is pixels "+
 					"on one screen, and this guest draws at 1280x800 in firmware, 640x480 in macOS "+
 					"recovery and 1024x768 in mx's live session - a number with no size beside it "+
@@ -2002,8 +2010,21 @@ func TestEveryOCRStepNamesItsRegionAndSize(t *testing.T) {
 			}
 			if spec, ok := m["ocr"].(map[string]any); ok {
 				checked++
-				for _, key := range []string{"name", "region", "region_at", "wait"} {
+				// `rect:` AND `rect_at:` ARE THE NAMES NOW - `region:`/`region_at:` meant the same
+				// thing under two spellings, 245 uses between them, and one region should have one
+				// name. The old spelling is still accepted here so a half-migrated tree is checked.
+				for _, key := range []string{"name", "rect", "rect_at", "wait"} {
 					if _, ok := spec[key]; !ok {
+						if key == "rect" {
+							if _, old := spec["region"]; old {
+								continue
+							}
+						}
+						if key == "rect_at" {
+							if _, old := spec["region_at"]; old {
+								continue
+							}
+						}
 						t.Errorf("%s: %s has an `ocr:` with no %q. Every reading needs a name to be "+
 							"asked about, a region to read, the size that region was measured at, "+
 							"and a `wait:` that says how long it paused first", rel, where, key)

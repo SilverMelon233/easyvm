@@ -37,15 +37,15 @@ steps:
   loop:
     max: 120
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -76,7 +76,7 @@ steps:
     - 586
     settle: 3
 - name: install zorin os (once more, if the wizard is not up)
-  unless:
+  when_not:
   - keyboard
   settle: 40
   do:
@@ -110,7 +110,7 @@ steps:
   - 764
   settle: 18
 - name: updates and other software, when this build shows it
-  unless_any:
+  when_not_any:
   - - installation
     - type
   click:
@@ -121,15 +121,15 @@ steps:
   loop:
     max: 60
     do:
-    - wait: 3
+    - settle: 3
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -147,15 +147,15 @@ steps:
   loop:
     max: 80
     do:
-    - wait: 3
+    - settle: 3
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -182,15 +182,15 @@ steps:
   loop:
     max: 60
     do:
-    - wait: 2
+    - settle: 2
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -223,12 +223,12 @@ steps:
 - name: the dialog names the filesystem it will create
   ocr:
     name: format
-    region:
+    rect:
     - 0
     - 0
     - 1920
     - 1080
-    region_at:
+    rect_at:
     - 1920
     - 1080
     scale: 1
@@ -251,15 +251,15 @@ steps:
   loop:
     max: 60
     do:
-    - wait: 3
+    - settle: 3
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -285,15 +285,15 @@ steps:
   loop:
     max: 60
     do:
-    - wait: 3
+    - settle: 3
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -340,7 +340,7 @@ steps:
   - 764
   settle: 20
 - name: the install runs, as measured
-  wait: 2400
+  settle: 2400
 - name: stop the machine
   shutdown: kill
   timeout: 120

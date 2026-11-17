@@ -56,26 +56,26 @@ steps:
   blind_after: 60
 - name: press a key so the loader takes it
   key: esc
-  wait_after: 1
+  settle: 1
 - name: press it again, because the prompt is emitted more than once
   key: esc
-  wait_after: 1
+  settle: 1
 - name: and once more, for a loader that was not listening yet
   key: esc
-  wait_after: 2
+  settle: 2
 - name: Setup is on screen
   loop:
     max: 180
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1

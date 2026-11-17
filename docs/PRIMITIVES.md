@@ -76,8 +76,10 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 
 | key | value | what it binds | uses |
 |---|---|---|---|
-| `see` | `{name, rect, of, scale}` | `name.mean` `.spread` `.sat` `.flat_rows` `.contrast` `.min` `.max`, or `name.words` | **new** |
-| `ocr` | `{name, rect, scale}` | `name` → the words read from that rect | 118 |
+| `see` | `{name, rect, of}` | `name.mean` `.spread` `.sat` `.flat_rows` `.contrast` `.min` `.max`, or `name.words` | **new** |
+| `ocr` | `{name, rect, rect_at}` | `name` → the words read from that rect | 118 |
+| `when_not` | words | run only if the screen does NOT say these | 10 |
+| `when_not_any` | word-sets | the alternatives form of `when_not:` | 0 |
 | `desktop` | `linux` `kde` `gnome` `cinnamon` `xfce` `windows` `macos` `android` | waits until that desktop's measurement passes | 22 |
 | `screenshot` | path | saves a frame for a post-mortem; binds nothing | 3 |
 
@@ -93,7 +95,7 @@ header's own `resolution:`.
 
 | key | value | what it does | uses |
 |---|---|---|---|
-| `check` | `{name, text?, colour?, unless?, any_of?, region?}` | ONE capture, every criterion against it, one boolean | 119 |
+| `check` | `{name, text?, colour?, any_of?, region?, must?}` | ONE capture, every criterion against it, one boolean | 128 |
 | `want` | `{name, all\|any\|not}` | compares `see:` numbers, binds a boolean | **new** |
 | `when` | words | run this step only if the screen says these words | 16 |
 | `do` | list | run these steps in order under one name | 8 |
@@ -183,15 +185,15 @@ the measuring machine and wrong on the runner.
 | `ssh_probe`, `ssh_after_reboot` | `require_ssh` | how to probe, and whether to wait out the old daemon | 11 |
 | `share_family` | `share_mount` | `linux` `windows` `macos` `bsd` | 16 |
 | `adb_connect`, `adb_privileged` | `adb` | connection and privilege | 2 |
-| `rect`, `of`, `scale` | `see`, `ocr` | where to measure, what to bind, OCR enlargement | 46 |
-| `text`, `colour`, `unless`, `any_of`, `region` | `check` | the criteria | new |
+| `rect`, `rect_at`, `of` | `see`, `ocr` | where to read, the size a pixel rect was measured at, what to bind | 291 |
+| `text`, `colour`, `any_of` | `check` | the criteria | 119 |
 | `all`, `any`, `not` | `want` | how the comparisons combine | new |
 | `contains`, `contains_any`, `not_contains`, `equals`, `matches`, `like`, `fuzzy`, `ratio` | `check: text` | the text criteria | new |
 | `mean`, `spread`, `sat`, `flat_rows`, `contrast`, `min`, `max`, `vs` | `check: colour` | the pixel criteria | new |
 | `less_than`, `greater_than`, `at_least`, `at_most`, `between`, `equals`, `minus` | a comparison | the relation | new |
 | `do`, `until`, `max`, `fact` | `loop` | the action, the stop test, the ceiling | 79 |
 | `then`, `else` | `if` | the branches | 21 |
-| `asset`, `build`, `generate`, `template` | `fetch` / `build` | host-side asset production | 5 |
+| `template`, `release`, `recovery` | `fetch` | inputs to one asset build | 5 |
 | `until_console`, `blind_after` | step | wait on serial output | 2 |
 | `mode`, `words`, `without`, `text`, `pattern`, `range`, `from` | `check` | the older single-comparison form, retained while files still use it | 46 |
 
@@ -225,17 +227,17 @@ name, and they keep working because the executor reads both.
 | key | uses | becomes |
 |---|---|---|
 | `mem_mb` | 0 | `memory_mb` — **MIGRATED** |
-| `wait_after` | 627 outside `linux/` | `settle:` — **DONE in `linux/`**, 24 files / 391 uses |
-| `wait` | 131, none in `linux/` | `settle:` — **DONE in `linux/`** |
-| `region` | 42 | `check: {rect: …}` |
-| `region_at` | 42 | *(gone — `rect:` is a fraction)* |
+| `wait_after` | 0 | `settle:` — **MIGRATED**, 891 uses across 33 files |
+| `wait` (the step verb) | 0 | `settle:` — **MIGRATED**. 118 `wait:` remain INSIDE `ocr:`, where it is the reading's own pause |
+| `region`, `region_at` | 0 | `rect:`, `rect_at:` — **MIGRATED** |
+
 | `scale` | 42 | `check: {scale: N}` |
-| `require` | 0 | `needs:` — **MIGRATED**, because one letter from `requires:` was a trap |
-| `expect`, `expect_any` | 9 | `check: {text: …}` |
+| `require` | 0 | `needs:` — **DELETED from the vocabulary**, because one letter from `requires:` was a trap |
+| `expect`, `expect_any` | 0 | `check: {must: true, text: …}` — **MIGRATED** |
 | `until`, `until_any` | 79 | `loop: {until:}` |
 | `family` | 0 | `os:` — **MIGRATED** |
-| `asset`, `build`, `generate` | 0 | `fetch:` — **MIGRATED in YAML**, old names still read |
-| `script_shell`, `script_name` | 32 | `script: {shell:, name:}` |
+| `asset`, `build`, `generate` | 0 | `fetch:` — **MIGRATED** |
+| `script_shell`, `script_name` | 0 | `script: {body:, shell:, name:}` — **MIGRATED** |
 | `at_bottom` | 8 | `at_button:` |
 | `skip_when_unfinished` | 5 | `if: finished` |
 | `release` | 4 | `os: macos-15` |
@@ -243,7 +245,7 @@ name, and they keep working because the executor reads both.
 | `at_fallback` | 1 | `at_button: {fallback:}` |
 | `once` | 1 | `loop: {max: 1}` |
 | `else` as a sibling | 2 | `if: {else: [...]}` |
-| `unless`, `unless_any` | 10 | `check: {unless:}` |
+| `unless`, `unless_any` | 0 | `when_not:`, `when_not_any:` — **MIGRATED** |
 | `repeat_until` | 0 | `loop:` — **DEAD** |
 | `once`, `end`, `stuck_after`, `until_any` | 0 | the pane state machine — **DELETED** |
 | `wait_for` | 0 | `check: {colour: …}` — **DEAD** |
@@ -256,7 +258,7 @@ name, and they keep working because the executor reads both.
 | `press`, `sweep` | 0 | `at_button:`, `loop: {do: [{click: …}]}` — **DEAD** |
 | `demo_script` | 0 | `write:` — **DEAD** |
 | `host_log`, `line_gap`, `adb_serial`, `share_dir`, `end`, `stuck_after`, `as`, `cpus` | 0 | — **DEAD** |
-| `keep_alive` | 0 | the wake is unconditional now — **MIGRATED** |
+| `keep_alive` | 0 | the wake is unconditional — **MIGRATED** |
 | `desktop_family` | 0 | `desktop:` — **DELETED** |
 
 ## Why 29 keys are retired

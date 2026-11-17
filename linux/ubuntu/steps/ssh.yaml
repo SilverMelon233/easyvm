@@ -67,15 +67,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: greeter
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -110,15 +110,15 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 3
+    - settle: 3
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -158,15 +158,15 @@ steps:
     - click:
       - 1464
       - 194
-    - wait: 4
+    - settle: 4
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1

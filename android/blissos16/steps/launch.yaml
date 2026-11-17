@@ -61,15 +61,15 @@ steps:
     loop:
       max: 60
       do:
-      - wait: 5
+      - settle: 5
       ocr:
         name: boot
-        region:
+        rect:
         - 0
         - 0
         - 1920
         - 1080
-        region_at:
+        rect_at:
         - 1920
         - 1080
         scale: 1
@@ -145,15 +145,15 @@ steps:
     loop:
       max: 20
       do:
-      - wait: 5
+      - settle: 5
       ocr:
         name: chooser
-        region:
+        rect:
         - 600
         - 580
         - 1320
         - 740
-        region_at:
+        rect_at:
         - 1920
         - 1080
         scale: 1
@@ -179,7 +179,7 @@ steps:
     click:
     - 666
     - 722
-    wait_after: 3
+    settle: 3
 
   - name: always, so the next boot goes straight to the desktop
     # `Always` RATHER THAN `Just once`: `Just once` asks again on the next boot, and this disk is
@@ -187,7 +187,7 @@ steps:
     click:
     - 1238
     - 986
-    wait_after: 6
+    settle: 6
 
   - name: wait for Android's own UI
     desktop: android

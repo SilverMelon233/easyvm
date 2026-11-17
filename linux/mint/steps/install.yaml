@@ -44,8 +44,8 @@ steps:
 - name: the medium's GRUB menu is up
   ocr:
     name: grub
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     scale: 1
     wait: 5
 - name: that menu names mint
@@ -83,12 +83,12 @@ steps:
       settle: 5
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -113,9 +113,13 @@ steps:
   double:
   - 114
   - 47
-  expect_any:
-  - - welcome
-  - - install
+  check:
+    name: asserted
+    must: true
+    text:
+      - contains_any:
+          - [welcome]
+          - [install]
   settle: 25
 - name: welcome
   click:
@@ -155,12 +159,12 @@ steps:
 - name: the dialog names the filesystem it will create
   ocr:
     name: format
-    region:
+    rect:
     - 0
     - 0
     - 1920
     - 1080
-    region_at:
+    rect_at:
     - 1920
     - 1080
     scale: 1
@@ -213,7 +217,7 @@ steps:
   - 727
   settle: 20
 - name: the install runs, as measured
-  wait: 2400
+  settle: 2400
 - name: stop the machine
   shutdown: kill
   timeout: 120

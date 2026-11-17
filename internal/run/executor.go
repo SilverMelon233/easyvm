@@ -312,7 +312,7 @@ func (e *Executor) runOne(s walk.Step) error {
 	// dispatcher branch at all, so 8 macOS steps that write it did nothing.
 	case s.Has("do"):
 		return e.doActionList(s)
-	case s.Has("unless"), s.Has("unless_any"):
+	case s.Has("when_not"), s.Has("when_not_any"):
 		if err := e.doUnless(s); err != nil {
 			return err
 		}
@@ -432,7 +432,7 @@ func (e *Executor) dispatchRest(s walk.Step) error {
 	// A COPY WITHOUT THE GATE, so dispatchRest cannot recurse.
 	rest := walk.Step{Index: s.Index, Name: s.Name, Spec: make(map[string]any, len(s.Spec))}
 	for k, v := range s.Spec {
-		if k == "unless" || k == "unless_any" || k == "when" ||
+		if k == "when_not" || k == "when_not_any" || k == "when" ||
 			k == "region" || k == "region_at" || k == "scale" {
 			continue
 		}

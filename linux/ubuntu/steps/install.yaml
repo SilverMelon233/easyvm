@@ -43,12 +43,12 @@ steps:
       settle: 5
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -94,15 +94,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -143,15 +143,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -193,15 +193,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -244,12 +244,12 @@ steps:
   # running, which is what every coordinate below was measured on.
   ocr:
     name: page
-    region:
+    rect:
     - 0
     - 0
     - 1920
     - 1080
-    region_at:
+    rect_at:
     - 1920
     - 1080
     scale: 1
@@ -318,15 +318,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -368,15 +368,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -418,15 +418,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -467,15 +467,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -516,15 +516,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -566,15 +566,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -596,15 +596,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -660,15 +660,15 @@ steps:
   loop:
     max: 24
     do:
-    - wait: 5
+    - settle: 5
     ocr:
       name: page
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -706,12 +706,12 @@ steps:
       settle: 20
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -752,7 +752,7 @@ steps:
   # WHAT A KILL CANNOT DO IS GIVE THE INSTALLER TIME, and a `wait:` before the kill can. Twenty
   # seconds is not a guess about the copy - the copy is reported done - it is time for the LAST writes
   # (the ESP, the partition table, the GPT backup) to leave the page cache.
-  wait: 20
+  settle: 20
 - name: stop the machine
   shutdown: kill
   timeout: 120

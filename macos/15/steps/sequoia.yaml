@@ -12,7 +12,7 @@ ends_region:
 ends_region_scale: 3
 ends_at:
 - name: the login window's password field
-  region:
+  rect:
   - 880
   - 960
   - 1045
@@ -85,11 +85,11 @@ steps:
   - click:
     - 808
     - 513
-    wait_after: 3
+    settle: 3
   - click:
     - 1306
     - 810
-    wait_after: 10
+    settle: 10
 - name: data and privacy
   when:
   - privacy
@@ -97,7 +97,7 @@ steps:
   click:
   - 1306
   - 810
-  wait_after: 8
+  settle: 8
 - name: written and spoken languages
   when:
   - spoken
@@ -105,7 +105,7 @@ steps:
   click:
   - 1306
   - 810
-  wait_after: 8
+  settle: 8
 - name: accessibility
   when:
   - accessibility
@@ -113,7 +113,7 @@ steps:
   click:
   - 1306
   - 806
-  wait_after: 12
+  settle: 12
 - name: transfer your data
   when:
   - transfer
@@ -122,11 +122,11 @@ steps:
   - click:
     - 825
     - 669
-    wait_after: 4
+    settle: 4
   - click:
     - 1306
     - 810
-    wait_after: 10
+    settle: 10
 - name: country or region
   when:
   - country
@@ -135,27 +135,27 @@ steps:
   - click:
     - 900
     - 500
-    wait_after: 2
+    settle: 2
   - click:
     - 900
     - 500
     type: united states
-    wait_after: 3
+    settle: 3
   - click:
     - 1306
     - 810
-    wait_after: 8
+    settle: 8
 - name: create a mac account
   when:
   - create
   - mac
   - account
-  region:
+  rect:
   - 300
   - 300
   - 1620
   - 340
-  region_at:
+  rect_at:
   - 1920
   - 1080
   scale: 2
@@ -165,23 +165,23 @@ steps:
     - 447
     type: '{{ user }}'
     modifier: meta_l
-    wait_after: 3
+    settle: 3
   - click:
     - 850
     - 531
     type: '{{ password }}'
     modifier: meta_l
-    wait_after: 3
+    settle: 3
   - click:
     - 1086
     - 531
     type: '{{ password }}'
     modifier: meta_l
-    wait_after: 3
+    settle: 3
   - click:
     - 1306
     - 810
-    wait_after: 180
+    settle: 180
 - name: enable location services
   when:
   - approximate
@@ -190,13 +190,13 @@ steps:
   - click:
     - 1306
     - 810
-    wait_after: 6
+    settle: 6
   - click:
     - 960
     - 632
-    wait_after: 3
+    settle: 3
   - key: ret
-    wait_after: 6
+    settle: 6
 - name: screen time
   when:
   - screen
@@ -204,7 +204,7 @@ steps:
   click:
   - 619
   - 806
-  wait_after: 8
+  settle: 8
 - name: time zone
   when:
   - time
@@ -212,7 +212,7 @@ steps:
   click:
   - 1306
   - 806
-  wait_after: 10
+  settle: 10
 - name: choose your look
   when:
   - look
@@ -220,7 +220,7 @@ steps:
   click:
   - 1306
   - 805
-  wait_after: 12
+  settle: 12
 - name: terms and conditions
   when:
   - terms
@@ -229,11 +229,11 @@ steps:
   - click:
     - 1298
     - 806
-    wait_after: 8
+    settle: 8
   - click:
     - 1019
     - 616
-    wait_after: 10
+    settle: 10
 - name: welcome to mac
   when:
   - welcome
@@ -241,7 +241,7 @@ steps:
   click:
   - 960
   - 990
-  wait_after: 12
+  settle: 12
 - name: keyboard
   when:
   - keyboard
@@ -249,7 +249,7 @@ steps:
   click:
   - 1222
   - 818
-  wait_after: 12
+  settle: 12
 - name: sign in to apple account
   when:
   - sign
@@ -258,12 +258,12 @@ steps:
   - your
   - apple
   - account
-  region:
+  rect:
   - 300
   - 420
   - 1620
   - 460
-  region_at:
+  rect_at:
   - 1920
   - 1080
   scale: 2
@@ -271,28 +271,28 @@ steps:
   - click:
     - 620
     - 811
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 3
+    settle: 3
   - click:
     - 1026
     - 634
-    wait_after: 2
+    settle: 2
   - key: ret
-    wait_after: 2
+    settle: 2
 - name: the apple account pane is gone
   loop:
     max: 20
     do:
-    - wait: 3
+    - settle: 3
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -319,41 +319,41 @@ steps:
   click:
   - 1306
   - 810
-  wait_after: 15
+  settle: 15
 - name: click the password field
   click:
   - 965
   - 981
   skip_when_unfinished: true
-  wait_after: 1
+  settle: 1
 - name: type the password
   type: '{{ password }}'
   skip_when_unfinished: true
-  wait_after: 1
+  settle: 1
 - name: press return
   key: ret
   skip_when_unfinished: true
-  wait_after: 20
+  settle: 20
 - name: dismiss the overlays macOS puts up on a first login
   do:
   - click:
     - 1228
     - 826
-    wait_after: 4
+    settle: 4
   - click:
     - 1228
     - 826
-    wait_after: 4
+    settle: 4
   - click:
     - 1228
     - 826
-    wait_after: 4
+    settle: 4
   - key: esc
-    wait_after: 2
+    settle: 2
   - key: meta_l+q
-    wait_after: 2
+    settle: 2
   - key: esc
-    wait_after: 2
+    settle: 2
   skip_when_unfinished: true
 - name: wait for the desktop
   desktop: macos

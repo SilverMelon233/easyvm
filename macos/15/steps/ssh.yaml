@@ -91,12 +91,12 @@ steps:
         name: pane
         # THE WHOLE SCREEN, because the panes put their text in different places and a narrower
         # region was measured to miss the titles on two of them.
-        region:
+        rect:
         - 0
         - 0
         - 1920
         - 1080
-        region_at:
+        rect_at:
         - 1920
         - 1080
         scale: 1
@@ -269,12 +269,12 @@ steps:
           click:
           - 808
           - 513
-          wait_after: 3
+          settle: 3
         - name: analytics continue
           click:
           - 1306
           - 810
-          wait_after: 10
+          settle: 10
     - name: data and privacy
       if: privacy_pane
       then:
@@ -282,7 +282,7 @@ steps:
           click:
           - 1306
           - 810
-          wait_after: 8
+          settle: 8
     - name: spoken languages
       if: languages
       then:
@@ -290,7 +290,7 @@ steps:
           click:
           - 1306
           - 810
-          wait_after: 8
+          settle: 8
     - name: accessibility
       if: accessibility
       then:
@@ -300,7 +300,7 @@ steps:
           click:
           - 1306
           - 806
-          wait_after: 12
+          settle: 12
     - name: transfer your data
       if: transfer
       then:
@@ -310,12 +310,12 @@ steps:
           click:
           - 825
           - 669
-          wait_after: 4
+          settle: 4
         - name: transfer continue
           click:
           - 1306
           - 810
-          wait_after: 10
+          settle: 10
     - name: country or region
       if: country
       then:
@@ -323,22 +323,22 @@ steps:
           click:
           - 900
           - 500
-          wait_after: 2
+          settle: 2
         - name: type the country
           # TYPING SELECTS THE ROW. The list takes nothing from a click except focus; typing jumps to
           # the section with the row already highlighted.
           click:
           - 900
           - 500
-          wait_after: 1
+          settle: 1
         - name: country text
           type: united states
-          wait_after: 3
+          settle: 3
         - name: country continue
           click:
           - 1306
           - 810
-          wait_after: 8
+          settle: 8
     - name: the account, which is what this whole stage exists for
       if: account
       then:
@@ -350,26 +350,26 @@ steps:
           click:
           - 945
           - 447
-          wait_after: 2
+          settle: 2
         - name: account user text
           type: '{{ user }}'
-          wait_after: 3
+          settle: 3
         - name: account password
           click:
           - 850
           - 531
-          wait_after: 2
+          settle: 2
         - name: account password text
           type: '{{ password }}'
-          wait_after: 3
+          settle: 3
         - name: account verify
           click:
           - 1086
           - 531
-          wait_after: 2
+          settle: 2
         - name: account verify text
           type: '{{ password }}'
-          wait_after: 3
+          settle: 3
         - name: account continue
           # CONTINUE STARTS A PROCESS, NOT A TRANSITION, AND IT TAKES UP TO THREE MINUTES. The pane
           # answers by going "Creating account..." with Continue greyed out, so a loop that looks
@@ -382,7 +382,7 @@ steps:
           click:
           - 1306
           - 810
-          wait_after: 180
+          settle: 180
     - name: location services
       if: location
       then:
@@ -392,15 +392,15 @@ steps:
           click:
           - 1306
           - 810
-          wait_after: 6
+          settle: 6
         - name: dont use focus
           click:
           - 960
           - 632
-          wait_after: 3
+          settle: 3
         - name: dont use confirm
           key: ret
-          wait_after: 6
+          settle: 6
     - name: screen time
       if: screen_time
       then:
@@ -409,7 +409,7 @@ steps:
           click:
           - 619
           - 806
-          wait_after: 8
+          settle: 8
     - name: time zone
       if: time_zone
       then:
@@ -417,7 +417,7 @@ steps:
           click:
           - 1306
           - 806
-          wait_after: 10
+          settle: 10
     - name: choose your look
       if: look
       then:
@@ -425,7 +425,7 @@ steps:
           click:
           - 1306
           - 805
-          wait_after: 12
+          settle: 12
     - name: terms and conditions
       if: terms
       then:
@@ -434,12 +434,12 @@ steps:
           click:
           - 1298
           - 806
-          wait_after: 8
+          settle: 8
         - name: licence agree
           click:
           - 1019
           - 616
-          wait_after: 10
+          settle: 10
     - name: welcome to mac
       if: welcome
       then:
@@ -449,7 +449,7 @@ steps:
           click:
           - 960
           - 990
-          wait_after: 12
+          settle: 12
     - name: the keyboard assistant, which eats the next keystroke
       if: keyboard
       then:
@@ -457,7 +457,7 @@ steps:
           click:
           - 1222
           - 818
-          wait_after: 12
+          settle: 12
     - name: apple account - set up later
       if: apple_account
       then:
@@ -468,7 +468,7 @@ steps:
           click:
           - 619
           - 806
-          wait_after: 10
+          settle: 10
     # THE APPLE ACCOUNT PAGE ASKS TWICE: THE PAGE'S OWN "Set Up Later", THEN A CONFIRMATION SHEET.
     #
     # MEASURED ON THIS STAGE'S OWN RUN: after the account was created the walk reached the Apple
@@ -491,7 +491,7 @@ steps:
           click:
           - 1018
           - 641
-          wait_after: 10
+          settle: 10
     - name: update mac automatically
       if: update
       then:
@@ -499,7 +499,7 @@ steps:
           click:
           - 1306
           - 810
-          wait_after: 15
+          settle: 15
 
     ocr:
       name: wizard
@@ -521,12 +521,12 @@ steps:
       #
       # SO THE READING IS THE WHOLE SCREEN AND THE TEST IS EITHER ENDING. A menu bar and a Dock are
       # what a finished macOS session looks like and neither appears on any wizard pane.
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -575,7 +575,7 @@ steps:
 # in the reference implementation.
 - name: dismiss anything over the login window
   key: esc
-  wait_after: 2
+  settle: 2
 - name: click the password field
   # THE FIELD IS CLICKED BEFORE ANYTHING IS TYPED: it is focused on some boots and not on others, and
   # a password typed into an unfocused window goes nowhere and then reads as "the password was wrong".
@@ -583,13 +583,13 @@ steps:
   click:
   - 965
   - 981
-  wait_after: 2
+  settle: 2
 - name: type the password
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: press return
   key: ret
-  wait_after: 20
+  settle: 20
 - name: dismiss the overlays macOS puts up on a first login
   # THE KEYBOARD SETUP ASSISTANT COMES UP WITH THE FIRST DESKTOP SESSION AND EATS THE NEXT KEYSTROKE -
   # which is how `sshd` was never enabled on six runs of the reference implementation.
@@ -601,37 +601,37 @@ steps:
   - click:
     - 1228
     - 826
-    wait_after: 4
+    settle: 4
   - click:
     - 1228
     - 826
-    wait_after: 4
+    settle: 4
   - click:
     - 1228
     - 826
-    wait_after: 4
+    settle: 4
   - key: esc
-    wait_after: 2
+    settle: 2
   - key: meta_l+q
-    wait_after: 2
+    settle: 2
   - key: esc
-    wait_after: 2
+    settle: 2
 - name: wait for the desktop
   # THE DESKTOP IS THE VERDICT ON THE WHOLE STAGE: the wallpaper test is the only thing that can
   # confirm the password was accepted, and this is a first session on a disk that never had one.
   loop:
     max: 30
     do:
-    - wait: 10
+    - settle: 10
     - key: esc
     ocr:
       name: desk
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -689,29 +689,29 @@ steps:
 # measured. `systemsetup -setremotelogin on` would be shorter and was deliberately not used.
 - name: dismiss anything over the desktop
   key: esc
-  wait_after: 2
+  settle: 2
 - name: open spotlight
   key: meta_l+spc
-  wait_after: 4
+  settle: 4
 - name: type the settings app name
   type: system settings
-  wait_after: 7
+  settle: 7
 - name: open it
   key: ret
-  wait_after: 14
+  settle: 14
 - name: the settings window is up
   loop:
     max: 30
     do:
-    - wait: 3
+    - settle: 3
     ocr:
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 1
@@ -734,12 +734,12 @@ steps:
   type: remote login
   clear: true
   modifier: meta_l
-  wait_after: 10
+  settle: 10
 - name: the remote login result is on screen
   loop:
     max: 45
     do:
-    - wait: 2
+    - settle: 2
     ocr:
       name: screen
       # THE SEARCH RESULT'S OWN COLUMN, AND THE LEFT EDGE IS THE POINT.
@@ -752,12 +752,12 @@ steps:
       #
       # - the reading held `Remote login` and `General` and nothing else, on a screen that plainly said
       # `Sharing / Remote login` in the sidebar. MEASURED at 1920x1080 on this guest's own frame.
-      region:
+      rect:
       - 480
       - 240
       - 760
       - 420
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -779,14 +779,14 @@ steps:
   click:
   - 703
   - 336
-  wait_after: 12
+  settle: 12
 - name: open the remote login pane again
-  unless:
+  when_not:
   - allow
   - full
   - disk
   - access
-  region:
+  rect:
   - 726
   - 300
   - 1200
@@ -795,23 +795,23 @@ steps:
   click:
   - 703
   - 336
-  wait_after: 12
-  region_at:
+  settle: 12
+  rect_at:
   - 1920
   - 1080
 - name: the remote login pane is up
   loop:
     max: 30
     do:
-    - wait: 3
+    - settle: 3
     ocr:
       name: screen
-      region:
+      rect:
       - 726
       - 300
       - 1200
       - 715
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -828,13 +828,13 @@ steps:
     until:
       fact: done
 - name: turn remote login on
-  unless:
+  when_not:
   - log
   - in
   - to
   - this
   - computer
-  region:
+  rect:
   - 726
   - 300
   - 1200
@@ -843,23 +843,23 @@ steps:
   click:
   - 1145
   - 353
-  wait_after: 4
-  region_at:
+  settle: 4
+  rect_at:
   - 1920
   - 1080
 - name: the switch reads on
   loop:
     max: 10
     do:
-    - wait: 3
+    - settle: 3
     ocr:
       name: screen
-      region:
+      rect:
       - 726
       - 300
       - 1200
       - 715
-      region_at:
+      rect_at:
       - 1920
       - 1080
       scale: 2
@@ -880,7 +880,7 @@ steps:
   click:
   - 1145
   - 679
-  wait_after: 5
+  settle: 5
 
 - name: wait for sshd
   require_ssh: true
