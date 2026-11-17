@@ -2545,3 +2545,125 @@ func TestNoCheckNamesAPhrase(t *testing.T) {
 		t.Fatal("no `check:` found anywhere, so this test checked nothing")
 	}
 }
+
+// A COORDINATE PAST THE FRAME'S EDGE IS A COORDINATE FROM SOMEBODY ELSE'S SCREEN.
+//
+// MEASURED on `linux/popos/steps/install.yaml`, which declares `resolution: [1920, 1080]` and had
+//
+//	at_button:    [1210, 1340, 1330, 1450]
+//	at_fallback:  [1265, 1390]
+//
+// - and the daemon refused the step outright:
+//
+//	open the installer from the dock: pointer to (1265, 1390): outside a 1920x1080 frame, so this
+//	coordinate cannot name a pixel. ... A coordinate past an edge is a coordinate measured on
+//	another screen, and clamping it would move the pointer somewhere nobody asked for
+//
+// THE REFUSAL IS RIGHT AND IT IS LATE. It fires when the walk REACHES that step, which on this file
+// was step 6 of 29, after a boot and a live desktop - and the same file has to be re-run from the
+// beginning to find the next one. Worse, a step that is never reached in a given run (a branch not
+// taken) never reports it at all.
+//
+// AND THE SHAPE IS DIAGNOSTIC: the x range was right and only y was wrong, because the dock is
+// centred and narrower than the screen, so a set of coordinates taken on a 2560x1440 frame keeps
+// its x and overflows only in y. That is why this is worth a test rather than a reader's eye.
+func TestEveryCoordinateFitsTheFrameItDeclares(t *testing.T) {
+	root := filepath.Join("..", "..")
+	var files []string
+	for _, pat := range []string{
+		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
+		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
+		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
+		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
+		filepath.Join(root, "android", "*", "steps", "*.yaml"),
+	} {
+		matches, err := filepath.Glob(pat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, matches...)
+	}
+
+	// THE KEYS THAT NAME A POINT, and how many leading ints are a point. `at_button` is a RECTANGLE
+	// - [x0, y0, x1, y1] - so its last two values are the far corner and are checked too.
+	points := map[string]int{"click": 2, "at": 2, "double": 2, "at_fallback": 2, "at_color": 2}
+
+	checked := 0
+
+	// THE SCAN IS OVER THE LOADED FILE, because the loader has already resolved `{{ }}`
+	// substitutions and normalised every step's Spec.
+	for _, path := range files {
+		rel, _ := filepath.Rel(root, path)
+		f, err := Load(path, nil)
+		if err != nil {
+			continue // TestEveryWalkthroughLoads reports the reason
+		}
+		w, h := f.Resolution[0], f.Resolution[1]
+		if w == 0 || h == 0 {
+			continue
+		}
+		var scan func(steps []Step)
+		scan = func(steps []Step) {
+			for _, s := range steps {
+				for key := range points {
+					v, ok := s.Spec[key].([]any)
+					if !ok || len(v) < 2 {
+						continue
+					}
+					x, okx := v[0].(int)
+					y, oky := v[1].(int)
+					if !okx || !oky {
+						continue
+					}
+					checked++
+					if x >= w || y >= h || x < 0 || y < 0 {
+						t.Errorf("%s: %q: `%s: [%d, %d]` is outside the %dx%d frame this file "+
+							"declares. A coordinate past an edge was measured on another screen",
+							rel, s.Name, key, x, y, w, h)
+					}
+				}
+				// `at_button: [x0, y0, x1, y1]` - the SECOND pair is a corner, not a point.
+				if v, ok := s.Spec["at_button"].([]any); ok && len(v) == 4 {
+					for _, pair := range [][2]int{{0, 1}, {2, 3}} {
+						x, okx := v[pair[0]].(int)
+						y, oky := v[pair[1]].(int)
+						if !okx || !oky {
+							continue
+						}
+						if x >= w || y >= h {
+							t.Errorf("%s: %q: `at_button: %v` reaches (%d, %d), outside the %dx%d "+
+								"frame this file declares", rel, s.Name, v, x, y, w, h)
+						}
+					}
+				}
+				// And the steps inside a loop or a branch are steps too.
+				if lp, ok := s.Spec["loop"].(map[string]any); ok {
+					if inner, ok := lp["do"].([]any); ok {
+						scan(stepsOf(rel, t, inner))
+					}
+				}
+				for _, key := range []string{"then", "else"} {
+					if inner, ok := s.Spec[key].([]any); ok {
+						scan(stepsOf(rel, t, inner))
+					}
+				}
+			}
+		}
+		scan(f.Steps)
+	}
+	if checked == 0 {
+		t.Fatal("no coordinate found anywhere, so this test checked nothing")
+	}
+}
+
+// stepsOf turns a nested `do:`/`then:`/`else:` list into Steps, so the scan above is one loop.
+func stepsOf(rel string, t *testing.T, raw []any) []Step {
+	t.Helper()
+	out := make([]Step, 0, len(raw))
+	for _, item := range raw {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, Step{Spec: m})
+		}
+	}
+	return out
+}
