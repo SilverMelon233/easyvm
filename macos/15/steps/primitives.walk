@@ -60,15 +60,28 @@ walkthrough "macos 15 - every primitive, nothing expensive"
   # `see:` IS THE PRIMITIVE THAT GUARANTEES A FRAME, and a file whose job is to exercise every primitive
   # should say so rather than hope a goroutine wins a race. Two readings, so a frame is captured while
   # the sampler is certainly running.
+  # THE RECORDED WINDOW IS MADE LONG ENOUGH TO MATTER, IN THE GUEST RATHER THAN ON THE HOST.
+  #
+  # THE SAMPLER AND A `see:` SHARE ONE `Frame()`, WHICH HOLDS A MUTEX FOR THE WHOLE screendump - seconds
+  # each. Two readings in a fifteen-second window kept the sampler starved and `encode` refused:
+  #
+  #	stop recording: no frames were captured, so there is no video to write
+  #
+  # MEASURED THREE TIMES: with no pause (44147002718), with `settle: 3` (44148749850), and with two
+  # `see:` steps (44150486611 - the readings themselves SUCCEEDED, `measured during: mean=0.6 spread=1.2`,
+  # and the video still had no frames).
+  #
+  # SO THE WAIT IS A GUEST COMMAND. `ssh: sleep 20` occupies the channel for twenty seconds without
+  # touching the frame path at all, which is exactly what the sampler needs and what a host-side pause
+  # cannot give it. The `see:` steps stay BECAUSE THE FILE IS ABOUT PRIMITIVES and a reading is one.
   step "do something worth recording"
-    ssh == "uptime\n"
-    settle == 2
-    timeout == 60
+    ssh == "uptime && sleep 20 && uptime\n"
+    timeout == 120
   step "read the screen while it records"
     see == {name: during, of: [mean, spread], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 2}
     timeout == 120
-  step "read it again, so the sampler has frames either side"
-    see == {name: during2, of: [mean, spread], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 2}
+  step "let it record some more"
+    ssh == "sleep 15\n"
     timeout == 120
   step "stop recording"
     record == false
