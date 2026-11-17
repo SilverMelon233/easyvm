@@ -357,10 +357,15 @@ steps:
 # A COLOUR IS A FACT THE DIALOG DRAWS: orange is not used anywhere else on this page, and
 # `at_color` clicks the centre of the largest blob of it wherever the dialog has moved to.
 - name: create it, taking the dialog's own ext4 default
+  # THE COLOUR IS MEASURED, NOT ESTIMATED. MEASURED over the button's own box (x 404..478, y 608..648)
+  # on the hand run's frame: rgb(177, 56, 11) occurs 2280 times there and nothing else comes close.
+  # The first version of this step guessed rgb(240, 105, 62) and the step failed with
+  #   `no pixel within 45 of rgb(240,105,62) on this screen` - a wrong guess about the colour is a
+  # step that cannot run at all, which is the right way for it to fail.
   at_color:
-  - 240
-  - 105
-  - 62
+  - 177
+  - 56
+  - 11
   color_region:
   - 300
   - 550
@@ -425,10 +430,15 @@ steps:
   wait_after: 2
 
 - name: confirm the shrink
+  # THE COLOUR IS MEASURED, NOT ESTIMATED. MEASURED over the button's own box (x 404..478, y 608..648)
+  # on the hand run's frame: rgb(177, 56, 11) occurs 2280 times there and nothing else comes close.
+  # The first version of this step guessed rgb(240, 105, 62) and the step failed with
+  #   `no pixel within 45 of rgb(240,105,62) on this screen` - a wrong guess about the colour is a
+  # step that cannot run at all, which is the right way for it to fail.
   at_color:
-  - 240
-  - 105
-  - 62
+  - 177
+  - 56
+  - 11
   color_region:
   - 300
   - 280
@@ -468,10 +478,15 @@ steps:
   wait_after: 2
 
 - name: create it, and the mount point is filled in for us
+  # THE COLOUR IS MEASURED, NOT ESTIMATED. MEASURED over the button's own box (x 404..478, y 608..648)
+  # on the hand run's frame: rgb(177, 56, 11) occurs 2280 times there and nothing else comes close.
+  # The first version of this step guessed rgb(240, 105, 62) and the step failed with
+  #   `no pixel within 45 of rgb(240,105,62) on this screen` - a wrong guess about the colour is a
+  # step that cannot run at all, which is the right way for it to fail.
   at_color:
-  - 240
-  - 105
-  - 62
+  - 177
+  - 56
+  - 11
   color_region:
   - 300
   - 500
