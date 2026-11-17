@@ -54,8 +54,30 @@ walkthrough "windows 11 - dev toolchain"
   step "build and run a dotnet app"
     script == {shell: powershell, name: dotnet-check.ps1, body: "$ErrorActionPreference = 'Continue'\n$dotnet = Join-Path $env:ProgramFiles 'dotnet\\dotnet.exe'\nWrite-Output \"dotnet: $dotnet\"\nWrite-Output \"exists: $(Test-Path $dotnet)\"\nif (-not (Test-Path $dotnet)) {\n  $onPath = Get-Command dotnet -ErrorAction SilentlyContinue\n  Write-Output \"on path: $($onPath.Source)\"\n  if (-not $onPath) { Write-Output \"DOTNET_MISSING\"; exit 1 }\n  $dotnet = $onPath.Source\n}\n$sdks = & $dotnet --list-sdks 2>&1\nWrite-Output \"sdks:\"\n$sdks | ForEach-Object { Write-Output \"  $_\" }\nif (-not $sdks) { Write-Output \"NO_SDK\"; exit 1 }\n$dir = Join-Path $env:TEMP 'dotnet-check'\nif (Test-Path $dir) { Remove-Item -Recurse -Force $dir }\nNew-Item -ItemType Directory -Force -Path $dir | Out-Null\n& $dotnet new console --output $dir --force 2>&1 | ForEach-Object { Write-Output \"  $_\" }\n$newcode = $LASTEXITCODE\nWrite-Output \"new exit: $newcode\"\nif ($newcode -ne 0) { Write-Output \"TEMPLATE_FAILED\"; exit 1 }\n& $dotnet run --project $dir 2>&1 | ForEach-Object { Write-Output \"  $_\" }\n$runcode = $LASTEXITCODE\nWrite-Output \"run exit: $runcode\"\nif ($runcode -ne 0) { Write-Output \"BUILD_FAILED\"; exit 1 }\nWrite-Output \"DOTNET_OK\"\n"}
     timeout == 1800
+  # `pwsh` IS INSTALLED AND NOT YET ON PATH, BECAUSE PATH IS PER-SESSION ON WINDOWS.
+  #
+  # THE INSTALL SUCCEEDS - the step above downloads and hash-verifies the MSI:
+  #
+  #	=== install powershell 7
+  #	  script install-powershell-7.ps1 (powershell) -> 0
+  #	  Downloading https://github.com/PowerShell/PowerShell/releases/download/v7.6.10/PowerShell-7.6.10-win-x64.msi
+  #	  Successfully verified installer hash
+  #
+  # and then the very next step cannot find it:
+  #
+  #	=== prove powershell 7
+  #	  ssh: powershell -Command "pwsh -v" -> 1
+  #	  pwsh : The term 'pwsh' is not recognized ...
+  #
+  # MEASURED on run 44177932721, step 16/22. `winget --scope machine` writes the new directory into the
+  # MACHINE PATH, and an ssh exec shell inherits the environment sshd captured when it STARTED - which
+  # was before the install. The same file already knows this: `install the build tools` resolves
+  # `winget.exe` out of the registry PATH instead of trusting `$env:PATH`, for exactly this reason.
+  #
+  # SO THE PROOF LOOKS WHERE THE INSTALLER PUT IT, and still runs it: a path that exists and answers is
+  # a stronger statement than a name that resolves.
   step "prove powershell 7"
-    ssh == powershell -Command "pwsh -v"
+    ssh == powershell -Command "$p = 'C:\Program Files\PowerShell\7\pwsh.exe'; if (Test-Path $p) { & $p -v } else { 'PWSH_MISSING'; exit 1 }"
     timeout == 300
   step "prove the windows sdk"
     ssh == powershell -Command "if (Test-Path 'C:\Program Files (x86)\Windows Kits\10\Include') { Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' -Name } else { 'SDK_MISSING' }"
