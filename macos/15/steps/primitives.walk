@@ -47,19 +47,29 @@ walkthrough "macos 15 - every primitive, nothing expensive"
   step "start recording"
     record == primitives.mp4
     timeout == 60
-  # A RECORDING NEEDS TIME ON SCREEN, AND THIS STEP HAD NONE.
+  # A RECORDING NEEDS A READING TO TAKE ITS PICTURES, AND `settle` IS NOT ONE.
   #
-  # THE SAMPLER TAKES ONE FRAME A SECOND, so `record:` followed immediately by `stop recording` captures
-  # nothing - and `encode` refuses with a sentence rather than writing a zero-frame video:
+  # THE SAMPLER IS A GOROUTINE THAT TICKS ONCE A SECOND, and `Frame()` itself spends seconds waiting for
+  # qemu's screendump to finish writing. A `settle:` pauses the EXECUTOR, so the sampler's first tick and
+  # the stop can still arrive in either order - and `encode` refuses rather than writing an empty video:
   #
   #	stop recording: no frames were captured, so there is no video to write
   #
-  # MEASURED on run 44147002718. The `screenshot:` step above it proves the frame path works, so this is
-  # only about the interval: a step that is the thing being recorded has to last longer than the tick.
+  # MEASURED TWICE: on 44147002718 with no pause, and on 44148749850 with `settle: 3`.
+  #
+  # `see:` IS THE PRIMITIVE THAT GUARANTEES A FRAME, and a file whose job is to exercise every primitive
+  # should say so rather than hope a goroutine wins a race. Two readings, so a frame is captured while
+  # the sampler is certainly running.
   step "do something worth recording"
     ssh == "uptime\n"
-    settle == 3
+    settle == 2
     timeout == 60
+  step "read the screen while it records"
+    see == {name: during, of: [mean, spread], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 2}
+    timeout == 120
+  step "read it again, so the sampler has frames either side"
+    see == {name: during2, of: [mean, spread], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 2}
+    timeout == 120
   step "stop recording"
     record == false
     timeout == 120
