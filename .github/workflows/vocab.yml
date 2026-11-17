@@ -46,6 +46,14 @@ on:
           not an installer ISO. The alpine microvm needs three files out of one ISO.
         default: ""
         type: string
+      boot_disk:
+        description: >-
+          a published disk tag to boot the walkthrough FROM, such as
+          `linux-ubuntu`. The ssh and vm-configure legs boot a system somebody else installed, and a
+          leg that has to install one first is measuring the installer again. Empty means the
+          walkthrough makes its own disk, which is what an install leg does.
+        default: ""
+        type: string
       run_walkthrough:
         description: "run the real install (40-90 minutes), not just the compile and unit tests"
         default: true
@@ -319,6 +327,22 @@ jobs:
             ls -l "work/${{ inputs.distro }}.iso"
           fi
 
+      - name: the disk this leg boots from
+        # `ssh:` AND `vm-configure:` START FROM A SYSTEM SOMEBODY ELSE INSTALLED. Pulling it here rather
+        # than inside the walk is the same rule the media follow: a stage whose duration depends on a
+        # registry is measuring a download.
+        if: inputs.boot_disk != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p work
+          upstream=$(printf '%s' "${{ inputs.upstream }}" | tr '[:upper:]' '[:lower:]')
+          sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+            ghcr.io "$upstream" "${{ inputs.boot_disk }}" \
+            "$GITHUB_WORKSPACE/work/boot.qcow2"
+          ls -l "$GITHUB_WORKSPACE/work/boot.qcow2"
+
       - name: a microvm's medium, downloaded because upstream publishes none
         # THE ALPINE README (63 MiB) IS SMALL ENOUGH TO FETCH DIRECTLY, and that is the point of a
         # microvm: a walkthrough that proves the vocabulary should not wait on a 4.8 GiB installer.
@@ -419,9 +443,16 @@ jobs:
             file="${{ inputs.walk }}"
             if [ -z "$file" ]; then file="linux/${{ inputs.distro }}/steps/install.yaml"; fi
             echo "the walkthrough is $file"
+            # THE OUTPUT IS NAMED FROM THE FILE, not from `distro`: `distro` is a two-value choice
+            # used as a placeholder when `walk:` names the file, so naming an artifact after it would
+            # produce `vocab-ubuntu.qcow2` for a Windows install.
+            slug=$(printf '%s' "$file" | tr '/' '-' | sed 's/-steps-/-/; s/\.walk$//')
+            boot=""
+            if [ -n "${{ inputs.boot_disk }}" ]; then boot="--boot-disk $GITHUB_WORKSPACE/work/boot.qcow2"; fi
             easyvm run "$file" \
               --work "$GITHUB_WORKSPACE/work" \
-              --out "$GITHUB_WORKSPACE/vocab-${{ inputs.distro }}.qcow2" \
+              --out "$GITHUB_WORKSPACE/$slug.qcow2" \
+              $boot \
               --password admin
             # TEN MINUTES OF HEADROOM, because the steps after this one are not instant.
             limit=$(( 120 - 10 ))
@@ -453,7 +484,8 @@ jobs:
           # A WALKTHROUGH THAT INSTALLS NOTHING PRODUCES NO ARTIFACT, and that is the microvm's whole
           # point: it proves the vocabulary drives a guest, not that a system was written. The disk is
           # checked only when the file produced one.
-          f="$GITHUB_WORKSPACE/vocab-${{ inputs.distro }}.qcow2"
+          slug=$(printf '%s' "${{ inputs.walk }}" | tr '/' '-' | sed 's/-steps-/-/; s/\.walk$//')
+          f="$GITHUB_WORKSPACE/$slug.qcow2"
           if [ ! -f "$f" ]; then
             echo "no $f - this walkthrough wrote no artifact, which is expected when it installs nothing"
             ls -l "$GITHUB_WORKSPACE"/*.qcow2 2>/dev/null || true
