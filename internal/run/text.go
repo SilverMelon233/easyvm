@@ -94,14 +94,25 @@ func says(words []string, want []string) bool {
 func (e *Executor) readWords(img image.Image, r screen.Rect, scale int) ([]string, error) {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
-	// A PIXEL RECT IS SCALED AGAINST THIS FRAME. `Rect.Pixels` says which it is, and this is the one
-	// place that knows the size the frame actually arrived at - which is what makes a rect of
-	// `[760, 200, 1400, 560]` crop the same place on a 640x480 guest as on the 1920x1080 it was
-	// measured on.
+	// A PIXEL RECT IS SCALED AGAINST THE SCREEN IT WAS WRITTEN FOR - `rect_at:`, carried in `Rect` as
+	// `AtW`/`AtH` - and NOT against the frame that happened to arrive.
+	//
+	// THE DIFFERENCE IS THE WHOLE BUG: a macos recovery frame is 640x480 and its rects were measured at
+	// 1920x1080. Dividing by the frame reads `1400` as a coordinate in a 640-wide image and asks for a
+	// crop outside it:
+	//
+	//	crop [760, 200, 1400, 560] is not inside a 640x480 frame
+	//
+	// The frame is the fallback ONLY when the file named no size, which is the one case where it is
+	// the best answer available.
 	from, to, xf, xt := r.From, r.To, r.XFrom, r.XTo
 	if r.Pixels {
-		from, to = r.From/float64(h), r.To/float64(h)
-		xf, xt = r.XFrom/float64(w), r.XTo/float64(w)
+		aw, ah := float64(r.AtW), float64(r.AtH)
+		if aw <= 0 || ah <= 0 {
+			aw, ah = float64(w), float64(h)
+		}
+		from, to = r.From/ah, r.To/ah
+		xf, xt = r.XFrom/aw, r.XTo/aw
 	}
 	region := [4]int{
 		int(float64(w) * xf), int(float64(h) * from),
