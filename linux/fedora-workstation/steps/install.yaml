@@ -110,6 +110,18 @@ steps:
   - 698
   wait_after: 25
 
+# THE WIZARD CHOOSES ITS OWN LANGUAGE FROM GEOIP, AND ON A RUNNER IN ASIA THAT IS CHINESE.
+#
+# MEASURED: anaconda opened reading
+#
+#	Fedora Linux 45 (Workstation Edition) 安装
+#	欢迎。現在讓我們安裝Fedora Linux。
+#
+# - so every later verdict written in English matched nothing, and the loop above spent fifteen
+# minutes on a page that was up. The same thing happened to cachyos' installer for the same reason.
+#
+# SO THE FIRST THING DONE TO THIS WIZARD IS SETTING IT TO ENGLISH, exactly as cachyos' file does: type
+# into its language search box and take `English (United States)`.
 - name: anaconda's web ui is up
   loop:
     max: 60
@@ -136,12 +148,19 @@ steps:
       # the OCR of this desktop is noisy enough to produce it, and the loop therefore satisfied
       # itself before Anaconda had a window.
       #
-      # THE WORDS BELOW ARE THE WEB UI'S OWN SENTENCES: its welcome page reads `Welcome. Let's
-      # install Fedora Linux now.` and `This program will ask you some questions`... - `questions` and
-      # `nowhere`-style words the wallpaper never shows.
+      # THE WINDOW'S TITLE IS THE ONE THING THAT READS THE SAME IN EVERY LANGUAGE THIS WIZARD PICKS.
+      #
+      # MEASURED: on a runner whose geoip chose Chinese the wizard opened as
+      #
+      #	Fedora Linux 45 (Workstation Edition) 安装
+      #	欢迎。現在讓我們安裝Fedora Linux。
+      #
+      # so an English body sentence (`questions`, `Welcome`) matched nothing for fifteen minutes on a
+      # page that was up. The title line is `Fedora Linux 45 (Workstation Edition)` in both, and the
+      # wallpaper's icon says `Install Fedora Linux` - `Fedora` alone is on it, so the title's
+      # `Workstation` is what separates the two.
       words:
-      - - questions
-      - - Destination
+      - - Workstation
       - - Encryption
     until:
       fact: ready
@@ -155,6 +174,40 @@ steps:
 # AND THE VERDICTS ARE THE WEB UI'S WORDS: `Installation method` and `Storage configuration` are
 # titles the Qt wizard drew; the web UI's second page is `How would you like to install?` with a
 # `Destination` heading, and its third is the storage editor link or the encryption page.
+- name: open the language search
+  click:
+  - 938
+  - 224
+  wait_after: 2
+
+- name: search for the United States
+  type: united states
+  wait_after: 4
+
+- name: choose English (United States)
+  click:
+  - 853
+  - 314
+  wait_after: 6
+
+- name: the wizard is in English now
+  ocr:
+    name: english
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+- name: it speaks English
+  check:
+    name: ok
+    from: english
+    mode: says
+    # `install` alone would match the desktop icon; `Welcome` and `now` are the English page's.
+    words:
+    - - Welcome
+    - - now
+
 - name: welcome
   click:
   - 726
