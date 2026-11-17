@@ -234,62 +234,17 @@ steps:
     - - Encryption
     - - storage
 
-- name: installation method
-  click:
-  - 726
-  - 999
-  wait_after: 12
-# THIS MEDIUM INSTALLS btrfs BY DEFAULT AND ITS `Use entire disk` PATH HAS NO FILESYSTEM CHOICE.
+# THE STORAGE EDITOR LINK IS ON THE PAGE WE ARE ALREADY ON, SO NO `Next` IS PRESSED HERE.
 #
-# MEASURED, whole wizard by hand: `Storage configuration` is ONE PAGE WITH ONE CHECKBOX -
+# MEASURED, three runs: pressing `Next` on the installation-method page goes to `Storage
+# configuration` - one checkbox, `Encrypt my data` - and the `storage editor` link is NOT there.
+# Every click after it then landed on a page with nothing to click, and the run ended sitting on
+# `Storage configuration` with the disk at 0 MiB.
 #
-#	Storage configuration
-#	  Encryption
-#	    Secure your data using disk-based encryption. Only applies to new partitions.
-#	    [ ] Encrypt my data
-#
-# - no ext4, no btrfs, no xfs. `Use entire disk` then produces the measured btrfs root:
-#
-#	vda1   629 MB  format as efi              /boot/efi
-#	vda2  2.15 GB  format as ext4             /boot
-#	vda3   135 GB  format as btrfs subvolume  /
-#
-# THE ROUTE TO ext4 IS THE `storage editor` LINK ON THE PAGE BEFORE IT, and that link is real:
-#
-#	If none of the options above apply, use the storage editor to create a custom
-#	partitioning before proceeding.
-#
-# It opens blivet-gui, whose `Create partition` dialog HAS A TYPE LIST and whose DEFAULT IS EXT4:
-#
-#	XFS / EXT4 / BTRFS / VFAT / NTFS / Swap / EFI system partition / No filesystem
-#
-# MEASURED END TO END BY HAND, and the disk read back afterwards:
-#
-#	GPT: yes
-#	  part1: 129700 MiB  magic=0xef53 incompat=0x000022c6  EXTENTS=True 64BIT=True  -> ext4
-#	  part2: 131069 MiB  name='EFI System Partition'
-#
-# SO THE STEPS BELOW ARE THE HAND RUN, and every coordinate in them was taken off its frames.
-#
-# THESE ARE THE MEASURED OBSERVATIONS THE COORDINATES COME FROM (1920x1080):
-#	storage editor link         (1019, 446)
-#	Launch storage editor       (794, 642)
-#	disk row's kebab            (1186, 318)
-#	Create partition table      (1062, 479)
-#	Initialize (GPT preselected)(474, 381)
-#	Free space kebab            (1186, 405)
-#	Create partition            (1120, 450)
-#	name field                  (882, 271)
-#	mount point field           (882, 333)
-#	Type combo                  (882, 394)
-#	Create                      (456, 627)
-#	vda1 kebab                  (1186, 363)
-#	Shrink                      (1029, 562)
-#	Shrink size field           (1041, 275)
-#	Shrink confirm              (456, 337)
-#	Create (the ESP)            (456, 566)
-#	Return to installation      (450, 975)
-#	Continue (layout accepted)  (737, 332)
+# The link `If none of the options above apply, use the storage editor ...` is on the
+# INSTALLATION-METHOD page, which the two steps above have just verified. So the editor is opened
+# from there, and this wizard's `Storage configuration` page is never visited.
+
 - name: open the storage editor, which is the only place a filesystem can be chosen
   click:
   - 1019
