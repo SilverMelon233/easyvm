@@ -92,19 +92,19 @@ steps:
     until:
       fact: done
 - name: welcome
-  at_bottom:
-  - 1327
-  - 15
+  click:
+  - 1329
+  - 836
   wait_after: 15
 - name: location
-  at_bottom:
-  - 1327
-  - 15
+  click:
+  - 1329
+  - 836
   wait_after: 15
 - name: keyboard
-  at_bottom:
-  - 1327
-  - 15
+  click:
+  - 1329
+  - 836
   wait_after: 15
 - name: users - what is your name
   click:
@@ -157,9 +157,9 @@ steps:
   type: '{{ password }}'
   wait_after: 3
 - name: users
-  at_bottom:
-  - 1327
-  - 15
+  click:
+  - 1329
+  - 836
   wait_after: 18
 - name: choose gnome
   click:
@@ -167,14 +167,14 @@ steps:
   - 400
   wait_after: 4
 - name: packagechooser
-  at_bottom:
-  - 1327
-  - 15
+  click:
+  - 1329
+  - 836
   wait_after: 15
 - name: unfree notes
-  at_bottom:
-  - 1327
-  - 15
+  click:
+  - 1329
+  - 836
   wait_after: 12
 - name: partitions - erase the disk
   click:
@@ -182,14 +182,14 @@ steps:
   - 390
   wait_after: 6
 - name: partitions
-  at_bottom:
-  - 1327
-  - 15
+  click:
+  - 1329
+  - 836
   wait_after: 18
 - name: summary - install
-  at_bottom:
-  - 1327
-  - 15
+  click:
+  - 1329
+  - 836
   wait_after: 25
 - name: the install is written
   disk_settle: 180
