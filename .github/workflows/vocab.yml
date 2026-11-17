@@ -55,8 +55,14 @@ on:
         default: "easydev-org/easyvm"
         type: string
 
+# THE GROUP MUST NAME THE WALKTHROUGH, NOT THE DISTRO.
+#
+# `inputs.distro` IS A CHOICE WITH TWO VALUES, so dispatching freebsd, windows and macos in parallel
+# put all three in ONE group when `walk:` named the file - MEASURED: the second and third dispatches
+# were cancelled by the first, with no message beyond `conclusion: cancelled`. `walk` is the input that
+# actually identifies a leg, and it is unique per file.
 concurrency:
-  group: vocab-${{ inputs.branch }}-${{ inputs.distro }}
+  group: vocab-${{ inputs.branch }}-${{ inputs.distro }}-${{ inputs.walk }}
   cancel-in-progress: true
 
 # NO `env:` FOR THE IMAGE NAME, AND THAT IS MEASURED RATHER THAN TIDY: `env` is NOT resolvable inside
