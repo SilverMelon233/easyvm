@@ -254,9 +254,14 @@ jobs:
             tag="${pair%%:*}"
             dest="${pair#*:}"
             echo "=== pull $tag -> $dest"
-            sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
-              ghcr.io "$upstream" "$tag" "$GITHUB_WORKSPACE/work/$dest"
-            ls -l "work/$dest"
+            # A TAG THAT IS NOT PUBLISHED IS NOT A FAILURE WHEN THE MEDIUM IS DOWNLOADED BELOW.
+            # `alpine.iso` comes from the distribution's own mirror, so the pull is attempted and
+            # allowed to miss - otherwise a walkthrough that needs no published asset could not be
+            # dispatched at all.
+            if ! sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+                 ghcr.io "$upstream" "$tag" "$GITHUB_WORKSPACE/work/$dest"; then
+              echo "=== $tag is not published; the download step below is expected to provide $dest"
+            fi
           done
           if [ -z "${{ inputs.assets }}" ]; then
             sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
