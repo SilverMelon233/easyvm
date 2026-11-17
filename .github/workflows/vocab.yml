@@ -179,7 +179,21 @@ jobs:
           owner=$(printf '%s' "${{ github.repository_owner }}" | tr 'A-Z' 'a-z')
           echo "owner=${owner}" >> "$GITHUB_OUTPUT"
           slug=$(printf '%s' "${{ inputs.branch }}" | tr '/_' '--' | tr -cd 'a-zA-Z0-9.-' | tr 'A-Z' 'a-z')
-          echo "name=vocab-${slug}" >> "$GITHUB_OUTPUT"
+          # THE COMMIT IS PART OF THE TAG, BECAUSE THE TAG IS WHAT A WALKTHROUGH PULLS.
+          #
+          # MEASURED: three OS legs dispatched in parallel all pushed `vocab-vocabulary-three-verbs`,
+          # so the last push won and an earlier leg pulled a binary from a different commit. The
+          # symptom was the macos leg failing with the EXACT error the commit fixed:
+          #
+          #	the recovery menu's rows: crop [760, 200, 1400, 560] is not inside a 640x480 frame
+          #
+          # - on `ccc27fb`, which fixes it. A tag that two runs can write is a tag that says nothing
+          # about what is inside.
+          # `github.sha` IS THE DEFAULT BRANCH'S COMMIT under `workflow_dispatch`, not the branch this
+          # job checked out - so the tag would be the same for every dispatch of every branch. The
+          # commit that was actually built is HEAD after checkout.
+          sha=$(git rev-parse --short=12 HEAD)
+          echo "name=vocab-${slug}-${sha}" >> "$GITHUB_OUTPUT"
 
       - name: build and push the branch image
         uses: docker/build-push-action@v6
