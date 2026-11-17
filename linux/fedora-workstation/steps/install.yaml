@@ -342,11 +342,55 @@ steps:
 # (1120, 450) - 45 pixels low, on the menu's shadow - so the dialog never opened and the steps after
 # it typed into the page. That is why the failure was `no pixel within 45 of rgb(177,56,11)` at the
 # Create press two steps later: there was no dialog for the button to be in.
+- name: the free space menu is open
+  loop:
+    max: 12
+    do:
+    - wait: 2
+    ocr:
+      name: the_free_space_menu_is_open
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: up
+      from: the_free_space_menu_is_open
+      mode: says_any
+      words:
+      - - Create
+      - - Format
+      - - Delete
+    until:
+      fact: up
+
 - name: create the root partition
   click:
   - 1132
   - 405
   wait_after: 8
+
+- name: the root dialog is up
+  loop:
+    max: 12
+    do:
+    - wait: 2
+    ocr:
+      name: the_root_dialog_is_up
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: up
+      from: the_root_dialog_is_up
+      mode: says_any
+      words:
+      - - Create
+      - - Type
+      - - Mount
+    until:
+      fact: up
 
 - name: name it root
   click:
@@ -421,11 +465,55 @@ steps:
     until:
       fact: there
 
+- name: the partition menu is open
+  loop:
+    max: 12
+    do:
+    - wait: 2
+    ocr:
+      name: the_partition_menu_is_open
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: up
+      from: the_partition_menu_is_open
+      mode: says_any
+      words:
+      - - Edit
+      - - Delete
+      - - Shrink
+    until:
+      fact: up
+
 - name: the root partition's menu, to make room for the ESP
   click:
   - 1185
   - 363
   wait_after: 4
+
+- name: the shrink dialog is up
+  loop:
+    max: 12
+    do:
+    - wait: 2
+    ocr:
+      name: the_shrink_dialog_is_up
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: up
+      from: the_shrink_dialog_is_up
+      mode: says_any
+      words:
+      - - Shrink
+      - - Size
+      - - Cancel
+    until:
+      fact: up
 
 - name: shrink it
   click:
