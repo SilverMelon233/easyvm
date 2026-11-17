@@ -6,17 +6,18 @@ name: vocab image
 # one image. A change under `internal/` therefore cannot be tested by a stage until it is IN `latest`
 # - and building `latest` from a branch would hand every other session's CI this branch's binary.
 #
-# SO THIS BUILDS THE SAME CONTAINERFILE UNDER ITS OWN TAG. It is deliberately a copy of the build
-# half of `image.yml` rather than a call to it, because the two answer different questions:
+# SO THIS BUILDS THE SAME CONTAINERFILE UNDER ITS OWN TAG, `:vocab-<branch>`. The tag is the branch
+# name, so two branches cannot overwrite each other and a log line names where its binary came from.
 #
-#	image.yml    is `main` ready to be what everyone runs?      -> :latest
-#	this         do the vocabulary changes work against a guest? -> :vocab-<branch>
+# `concurrency` IS PER BRANCH, unlike `image.yml`'s single `image` group: these builds are not
+# competing to be the one truth, so cancelling across branches would throw away a result somebody
+# asked for.
 #
-# THE TAG IS THE BRANCH NAME, so two branches cannot overwrite each other and the tag says where the
-# binary came from when a log is read.
-#
-# `concurrency` IS PER BRANCH here, unlike `image.yml`'s single `image` group: these builds are not
-# competing to be the one truth, so cancelling across branches would lose a result somebody wants.
+# THE TESTS RUN IN THE TESTING IMAGE, NEVER ON THE RUNNER, and that is the same decision `image.yml`
+# records for the same reason. `internal/run`'s GPT test spawns `qemu-img`; a bare runner does not
+# have it, and the fix for that failure (run 44010116838) is not to skip the test - a test that
+# cannot run is not a test. `--target tester` is this image plus a Go toolchain, so the tools a test
+# reaches for are the ones the walkthroughs get.
 
 on:
   workflow_dispatch:
@@ -43,9 +44,12 @@ permissions:
   packages: write
 
 jobs:
-  binary:
+  # ===========================================================================
+  # THE CHEAP GATE, ON THE RUNNER BECAUSE IT NEEDS NOTHING BUT THE COMPILER.
+  # ===========================================================================
+  compile:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -54,27 +58,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # THE WHOLE POINT OF THE BRANCH: if the code does not build and its own tests do not pass,
-      # there is nothing to put in an image.
-      - name: the binary builds
+      - name: the code compiles
         run: go build ./...
 
       - name: vet
         run: go vet ./...
 
-      # THE TESTS THAT DECIDE THE DESIGN, named so their failure is unambiguous in the log. They
-      # are also run by the full `go test` below; naming them first means a design regression is
-      # read as one rather than as "some test failed".
-      - name: the vocabulary tables match the code
-        run: go test ./internal/step/ -run 'TestEveryKey|TestNoKey|TestMerged' -v -count=1
-
-      - name: the measurements reproduce the desktop verdicts
-        run: go test ./internal/screen/ -run 'TestTheMeasurementsReproduce' -v -count=1
-
-      - name: fuzzy matches single glyphs and refuses the opposite word
-        run: go test ./internal/run/ -run 'TestTheThree|TestFuzzy|TestARatio|TestNormalisation' -v -count=1
-
       - name: every walkthrough still loads
+        # A PURE PARSE, which is all `check` is: it reads the file and asks the vocabulary whether
+        # each step means something. It needs no guest and no image, which is why it belongs on the
+        # runner - and it is the check that catches a vocabulary change that breaks a real file.
         run: |
           set -e
           go build -o /tmp/easyvm ./cmd/easyvm
@@ -85,24 +78,69 @@ jobs:
           done
           echo "$n walkthrough(s) load"
 
-      - name: the whole test suite
-        run: go test ./... -count=1
-
-  publish:
-    needs: binary
+  # ===========================================================================
+  # THE TESTS, IN THE MACHINE THEY DESCRIBE, AND THE IMAGE THAT MACHINE BECOMES.
+  # ===========================================================================
+  image:
+    needs: compile
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # THE CONTAINERFILE COPIES `dist/easyvm`, so this builds the binary the image will carry -
+      # exactly as `image.yml`'s `behaviour` job does, and for the same reason: a test of an image
+      # built from another commit's binary proves nothing.
+      - name: build the binary the image carries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" -o dist/easyvm ./cmd/easyvm
+          chmod 0755 dist/easyvm
+          ls -l dist/easyvm
+
       - uses: docker/setup-buildx-action@v3
 
-      - name: log in
+      - name: log in to ghcr
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: the unit tests, in the machine they describe
+        run: |
+          set -euo pipefail
+          docker build -f ./Containerfile --target runtime -t easyvm-ci:local .
+          docker build -f ./Containerfile --target tester -t easyvm-tester:ci .
+          # THE SOURCE IS A BIND MOUNT, so a change to one Go file does not rebuild the qemu layer.
+          # `test` AND NOT `go test`: the tester image's ENTRYPOINT is the go binary.
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            -e GOCACHE=/tmp/go-cache \
+            easyvm-tester:ci \
+            test ./... -count=1 -timeout 900s
+
+      - name: the vocabulary tables match the code
+        # NAMED SEPARATELY, because these are the tests that decide whether this design is right -
+        # and a design regression should read as one in the log rather than as "some test failed".
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache easyvm-tester:ci \
+            test ./internal/step/ -run 'TestEveryKey|TestNoKey|TestMerged' -v -count=1
+
+      - name: the measurements reproduce the desktop verdicts
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache easyvm-tester:ci \
+            test ./internal/screen/ -run 'TestTheMeasurementsReproduce' -v -count=1
 
       - name: metadata
         id: meta
@@ -110,11 +148,11 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           # ONE TAG AND IT IS THE BRANCH. No `latest`, no sha: a branch image is identified by the
-          # branch it came from, and a reader of a log can go straight to it.
+          # branch it came from.
           tags: |
             type=raw,value=vocab-${{ github.ref_name }}
 
-      - name: build and push
+      - name: build and push the branch image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -128,7 +166,7 @@ jobs:
 
       - name: the branch image runs, and its binary does
         run: |
-          set -e
+          set -euo pipefail
           tag="${{ env.IMAGE }}:vocab-${{ github.ref_name }}"
           # A PULL RATHER THAN A LOCAL LOAD, because that is how a run uses it - an image that
           # cannot be pulled is an image no stage can start.
