@@ -1,6 +1,7 @@
 package walk
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -268,5 +269,115 @@ func TestTheTwoConversionsThatWereWrong(t *testing.T) {
 	}
 	if _, wrong := read["ocr"]; wrong {
 		t.Fatal("`ocr:` is emitted, and it is no longer in the vocabulary")
+	}
+}
+
+// THE MIGRATION IS PROVED BY ROUND-TRIPPING, not by reading the result.
+//
+// EVERY REAL WALKTHROUGH IS CONVERTED TO `.walk` AND BACK, AND THE TWO DOCUMENTS MUST BE EQUAL. That is
+// the property the whole migration rests on: a hand transcription of 6675 lines gets one coordinate
+// wrong and the failure arrives forty minutes into a CI run, while this test compares the data.
+func TestEveryRealWalkthroughRoundTripsThroughWalk(t *testing.T) {
+	root := filepath.Join("..", "..")
+	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) < 20 {
+		t.Fatalf("found only %d walkthroughs", len(files))
+	}
+	converted, bad := 0, 0
+	for _, path := range files {
+		original, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var want map[string]any
+		if err := yaml.Unmarshal(original, &want); err != nil {
+			continue // a file that does not decode is another test's subject
+		}
+		walkSrc, err := YAMLToWalk(want)
+		if err != nil {
+			t.Errorf("%s: cannot render as .walk: %v", filepath.Base(path), err)
+			bad++
+			continue
+		}
+		got, err := WalkToYAML(walkSrc)
+		if err != nil {
+			t.Errorf("%s: the .walk it produced does not parse: %v\n--- the file ---\n%s",
+				filepath.Base(path), err, walkSrc)
+			bad++
+			continue
+		}
+		// THE COMPARISON IS ON THE DOCUMENT, not on the bytes: key order and YAML style do not
+		// matter, and the loader reads a mapping.
+		if diff := firstDifference(want, got, ""); diff != "" {
+			t.Errorf("%s: the round trip changed the document at %s", filepath.Base(path), diff)
+			bad++
+			continue
+		}
+		converted++
+	}
+	if bad > 0 {
+		t.Fatalf("%d of %d walkthroughs did not round-trip", bad, len(files))
+	}
+	t.Logf("%d walkthroughs round-trip exactly", converted)
+}
+
+// firstDifference finds the first place two documents disagree, and says where.
+//
+// IT NAMES THE PATH - `steps.4.click.0` - because "the documents differ" is useless when a step has
+// twenty keys and four of them are coordinate pairs.
+func firstDifference(want, got any, path string) string {
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok {
+			return path + fmt.Sprintf(": want a mapping, got %T", got)
+		}
+		// every key in want must be in got, with the same value
+		for k, wv := range w {
+			gv, ok := g[k]
+			if !ok {
+				return path + "." + k + ": missing"
+			}
+			if d := firstDifference(wv, gv, path+"."+k); d != "" {
+				return d
+			}
+		}
+		for k := range g {
+			if _, ok := w[k]; !ok {
+				return path + "." + k + ": unexpected"
+			}
+		}
+		return ""
+	case []any:
+		g, ok := got.([]any)
+		if !ok {
+			return path + fmt.Sprintf(": want a list, got %T", got)
+		}
+		if len(w) != len(g) {
+			return path + fmt.Sprintf(": want %d items, got %d", len(w), len(g))
+		}
+		for i := range w {
+			if d := firstDifference(w[i], g[i], fmt.Sprintf("%s.%d", path, i)); d != "" {
+				return d
+			}
+		}
+		return ""
+	default:
+		// NUMBERS ARRIVE AS int OR float64 DEPENDING ON THE DECODER, so they are compared by value.
+		if wn, ok := numOf(w); ok {
+			if gn, ok := numOf(got); ok {
+				if wn != gn {
+					return path + fmt.Sprintf(": want %v, got %v", w, got)
+				}
+				return ""
+			}
+		}
+		if fmt.Sprint(w) != fmt.Sprint(got) {
+			return path + fmt.Sprintf(": want %#v, got %#v", w, got)
+		}
+		return ""
 	}
 }

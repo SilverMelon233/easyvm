@@ -260,12 +260,7 @@ func TestEveryBootHasADiskBeforeIt(t *testing.T) {
 func TestEveryWalkthroughLoads(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var files []string
-	patterns := []string{
-		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
-		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
-		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
-		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
-	}
+	patterns := globStepsAny(root)
 	for _, pat := range patterns {
 		matches, err := filepath.Glob(pat)
 		if err != nil {
@@ -312,18 +307,7 @@ func TestEveryWalkthroughLoads(t *testing.T) {
 func TestAFileThatNeedsAGuestStartsOne(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var files []string
-	for _, pat := range []string{
-		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
-		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
-		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
-		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
-	} {
-		matches, err := filepath.Glob(pat)
-		if err != nil {
-			t.Fatal(err)
-		}
-		files = append(files, matches...)
-	}
+	files = append(files, globStepsAny(root)...)
 	if len(files) == 0 {
 		t.Skip("no walkthroughs here")
 	}
@@ -384,18 +368,7 @@ func TestAFileThatNeedsAGuestStartsOne(t *testing.T) {
 func TestNoStepNameRepeats(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var files []string
-	for _, pat := range []string{
-		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
-		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
-		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
-		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
-	} {
-		matches, err := filepath.Glob(pat)
-		if err != nil {
-			t.Fatal(err)
-		}
-		files = append(files, matches...)
-	}
+	files = append(files, globStepsAny(root)...)
 	if len(files) == 0 {
 		t.Skip("no walkthroughs here")
 	}
@@ -504,14 +477,8 @@ func TestTheLinuxSSHFilesStillInstallAndEnableSSHD(t *testing.T) {
 func TestNoFindstrSwitchIsSpelledWithADash(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var checked int
-	for _, pattern := range []string{
-		filepath.Join(root, "*", "*", "steps", "*.yaml"),
-		filepath.Join(root, "*", "steps", "*.yaml"),
-	} {
-		files, err := filepath.Glob(pattern)
-		if err != nil {
-			t.Fatal(err)
-		}
+	{
+		files := globStepsAny(root)
 		for _, path := range files {
 			rel, _ := filepath.Rel(root, path)
 			// THE BODIES, NOT THE FILE. Comments in this project QUOTE the failing command on purpose -
@@ -566,10 +533,7 @@ func TestNoFindstrSwitchIsSpelledWithADash(t *testing.T) {
 // duplicate did not. This test requires it in ALL of them.
 func TestEveryWingetInstallMasksItsExitCode(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "windows", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globSteps(root, "windows")
 	if len(files) == 0 {
 		t.Skip("no Windows walkthroughs here")
 	}
@@ -639,10 +603,7 @@ func TestEveryWingetInstallMasksItsExitCode(t *testing.T) {
 // rather than inside a guest twenty minutes into a stage.
 func TestEverySCPSourceIsProducedByAnEarlierStep(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	if len(files) == 0 {
 		t.Skip("no walkthroughs here")
 	}
@@ -731,10 +692,7 @@ func TestEverySCPSourceIsProducedByAnEarlierStep(t *testing.T) {
 // `cmd /c '` or contain a POSIX single-quoted argument.
 func TestWindowsSSHStepsDoNotUsePOSIXQuoting(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "windows", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globSteps(root, "windows")
 	if len(files) == 0 {
 		t.Skip("no Windows walkthroughs here")
 	}
@@ -1116,19 +1074,7 @@ func TestThePasswordSettingReachesTheMainConfig(t *testing.T) {
 // `ssh:` MAY BE MULTI-LINE, because it is sent as one command over one channel. `run:` MAY NOT.
 func TestARunBodyIsOneLine(t *testing.T) {
 	root := filepath.Join("..", "..")
-	var files []string
-	for _, pat := range []string{
-		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
-		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
-		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
-		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
-	} {
-		got, err := filepath.Glob(pat)
-		if err != nil {
-			t.Fatal(err)
-		}
-		files = append(files, got...)
-	}
+	files := globStepsAny(root)
 	if len(files) == 0 {
 		t.Skip("no walkthroughs here")
 	}
@@ -1409,10 +1355,7 @@ func TestAnInstallStopsTheMachineBeforePublishingTheDisk(t *testing.T) {
 // by any screen containing that word. Completion pages are recognised by a PHRASE.
 func TestNoCompletionWaitIsASingleShortWord(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1459,10 +1402,7 @@ func TestNoCompletionWaitIsASingleShortWord(t *testing.T) {
 // `poll: 20`, so the key is refused rather than ignored.
 func TestARecordStepDoesNotCarryAPoll(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1500,10 +1440,7 @@ func TestARecordStepDoesNotCarryAPoll(t *testing.T) {
 // seen and `systemctl is-active ssh` answered `inactive` while apt was still working.
 func TestOnlyOneTerminalWaitPerFile(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1548,10 +1485,7 @@ func TestOnlyOneTerminalWaitPerFile(t *testing.T) {
 // `type:` with a slower `type_gap`, or `ssh:` once sshd exists.
 func TestTypedWindowsCommandsCarryNoBackslashOrPipe(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "windows", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globSteps(root, "windows")
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1603,10 +1537,7 @@ func TestAnSSHLegWritesTheDiskItsWorkflowPublishes(t *testing.T) {
 	// EVERY LEG THAT DECLARES AN `out:` WRITES IT, NOT JUST `ssh`. The same omission was found
 	// again on windows-vm-configure and macos-vm-configure - both published a file neither wrote -
 	// and on the `dev` walkthroughs. `install` and every linux `vm-configure` already had it.
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1665,10 +1596,7 @@ func TestAnSSHLegWritesTheDiskItsWorkflowPublishes(t *testing.T) {
 // the port; `run:` inherited a much faster default and nobody had typed a `$` in one until now.
 func TestATypedDollarNeedsASlowTypeGap(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1723,10 +1651,7 @@ func TestATypedDollarNeedsASlowTypeGap(t *testing.T) {
 // in a `run:` with a slow enough `type_gap`, and several Linux files legitimately use one.
 func TestNoRunNestsPowerShellInsidePowerShell(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "windows", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globSteps(root, "windows")
 	checked, opened := 0, 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1785,10 +1710,10 @@ func TestTheInstallingLegThatWasMeasuredUnbootableRebootsItsDisk(t *testing.T) {
 	//
 	// WHEN A LINUX LEG FAILS THIS WAY, ADD IT HERE WITH ITS OWN MEASUREMENT.
 	cases := []struct{ path string }{
-		{"windows/11/steps/install.yaml"},
+		{walkPathFor(root, "windows/11/steps/install.yaml")},
 	}
 	for _, c := range cases {
-		doc, err := Load(filepath.Join(root, c.path), nil)
+		doc, err := Load(c.path, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", c.path, err)
 		}
@@ -1819,10 +1744,7 @@ func TestTheInstallingLegThatWasMeasuredUnbootableRebootsItsDisk(t *testing.T) {
 // 64, and the answer is that it may not.
 func TestEveryCreatedDiskIs128GiB(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1830,6 +1752,19 @@ func TestEveryCreatedDiskIs128GiB(t *testing.T) {
 			continue
 		}
 		rel, _ := filepath.Rel(root, path)
+		// A MICROVM WALKTHROUGH IS EXEMPT, AND THE REASON IS THE SAME ONE THAT MADE THE RULE: the size
+		// exists so a DISTRIBUTION INSTALL never runs out of space. A microvm installs nothing - it
+		// proves the vocabulary drives a guest - so 1 GiB is the whole point, and demanding 128 would
+		// make the smallest machine in the repository pay for a rule about the largest.
+		microvm := false
+		for _, s := range doc.Steps {
+			if v, ok := s.Spec["microvm"].(bool); ok && v {
+				microvm = true
+			}
+		}
+		if microvm {
+			continue
+		}
 		for _, s := range doc.Steps {
 			if !s.Has("disk_gb") {
 				continue
@@ -1869,7 +1804,7 @@ func TestEveryCreatedDiskIs128GiB(t *testing.T) {
 // condition - so the rectangle and its enlargement are beside the reading rather than inside the
 // condition that uses them.
 func TestTheMacOSRecoveryGateAcceptsReadableRows(t *testing.T) {
-	path := filepath.Join("..", "..", "macos", "15", "steps", "setup.yaml")
+	path := walkPathFor(filepath.Join("..", ".."), "macos/15/steps/setup.yaml")
 	doc, err := Load(path, nil)
 	if err != nil {
 		t.Fatalf("%s: %v", path, err)
@@ -1954,10 +1889,7 @@ func TestTheMacOSRecoveryGateAcceptsReadableRows(t *testing.T) {
 // and a reader can check that against the frame.
 func TestEveryRegionSaysWhatSizeItWasMeasuredAt(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1996,10 +1928,7 @@ func TestEveryRegionSaysWhatSizeItWasMeasuredAt(t *testing.T) {
 // both were measured as gates that expired on a menu that was plainly on screen.
 func TestEveryOCRStepNamesItsRegionAndSize(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -2078,10 +2007,7 @@ func TestEveryOCRStepNamesItsRegionAndSize(t *testing.T) {
 // `repeat: [10, 4]` never was - it could not even say WHICH presses it meant.
 func TestThereIsNoRepeatKey(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -2139,10 +2065,7 @@ func TestThereIsNoRepeatKey(t *testing.T) {
 // SO `timeout:` ON A CONDITION IS REFUSED, because accepting it would silently restore the loop.
 func TestAConditionDoesNotCarryATimeout(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -2441,4 +2364,46 @@ func workflowAssetsByStage(t *testing.T) map[string][]string {
 		}
 	}
 	return out
+}
+
+// globSteps finds a tree's walkthroughs in EITHER format.
+//
+// THE MIGRATION MADE THIS NECESSARY AND IT IS ALSO WHAT MAKES IT SAFE TO DO IN PIECES: a tree can hold
+// `.yaml` files, `.walk` files, or both, and every guardian test has to see all of them. A glob that
+// still said `*.yaml` would find nothing after the migration and go green about nothing - which is the
+// failure `TestEveryWalkthroughLoads` reported as "only 36 walkthroughs found".
+func globSteps(root, family string) []string {
+	var out []string
+	for _, ext := range []string{"*.yaml", "*.walk"} {
+		m, err := filepath.Glob(filepath.Join(root, family, "*", "steps", ext))
+		if err != nil {
+			continue
+		}
+		out = append(out, m...)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// globStepsAny is `globSteps` across every OS family.
+func globStepsAny(root string) []string {
+	var out []string
+	for _, family := range []string{"windows", "macos", "linux", "bsd", "android"} {
+		out = append(out, globSteps(root, family)...)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// walkPathFor is the file a test should read when it names a walkthrough by its OLD `.yaml` name.
+//
+// A test that says `windows/11/steps/install.yaml` is naming a STAGE, not a file, and after the
+// migration the file is `install.walk`. This resolves either.
+func walkPathFor(root, rel string) string {
+	rel = strings.TrimSuffix(rel, ".yaml") + ".walk"
+	full := filepath.Join(root, rel)
+	if _, err := os.Stat(full); err == nil {
+		return full
+	}
+	return filepath.Join(root, strings.TrimSuffix(rel, ".walk")+".yaml")
 }

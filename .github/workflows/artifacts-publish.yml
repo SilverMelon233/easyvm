@@ -103,7 +103,7 @@ jobs:
           - { tag: "iso-mx-xfce", group: "linux", url: "https://netix.dl.sourceforge.net/project/mx-linux/Final/Xfce/MX-25.3_Xfce_x64.iso", sha: "25b5ce20caeee1b0e50507291df5ac8a8211b1b9999d8dd7416da9b66ed9fbf9", size: "2927624192" }
           - { tag: "iso-popos-desktop", group: "linux", url: "https://iso.pop-os.org/24.04/amd64/intel/10/pop-os_24.04_amd64_intel_10.iso", sha: "a5b7321babdef75d86c688d3429fbd5525689d80a1a8b94bc393eea84f372b62", size: "2583691264" }
           - { tag: "iso-nixos-graphical", group: "linux", url: "https://releases.nixos.org/nixos/26.05/nixos-26.05.13627.c56a87d8e41c/nixos-graphical-26.05.13627.c56a87d8e41c-x86_64-linux.iso", sha: "62900e47b6bea0917c491ac0a8e18dd4e3b7579d9b60ee8e0bbbd8945162256d", size: "3888513024" }
-          # FREEBDS 15.1, THE MEDIUM `bsd/freebsd/steps/install.yaml` FETCHES AS `release: freebsd`.
+          # FREEBDS 15.1, THE MEDIUM `bsd/freebsd/steps/install.walk` FETCHES AS `release: freebsd`.
           #
           # THIS ROW IS NOT OPTIONAL, AND `TestEveryFetchedTagIsPublishedAndEveryPublishedTagIsFetched`
           # IS WHY: `release: freebsd` resolves to the tag `iso-freebsd` through `linuxISOTag`, and a
@@ -117,7 +117,7 @@ jobs:
           #
           # disc1 RATHER THAN bootonly OR dvd1: `usr.sbin/bsdinstall` on disc1 is a PKGBASE image, so
           # `bsdinstall script` installs the base system from the 328 packages under
-          # /usr/freebsd-packages/offline with no network at all. See `bsd/freebsd/steps/install.yaml`
+          # /usr/freebsd-packages/offline with no network at all. See `bsd/freebsd/steps/install.walk`
           # for why that choice is what makes this stage work.
           - { tag: "iso-freebsd", group: "linux", url: "https://download.freebsd.org/releases/amd64/amd64/ISO-IMAGES/15.1/FreeBSD-15.1-RELEASE-amd64-disc1.iso", sha: "fa27646f05a1440fd26ffbb85e06a50bc86e128242a4e9cb7bb3ea76e1aa5fd9", size: "1352255488" }
           # BLISSOS 16.9.7 (Android 13, x86_64), THE MEDIUM android/blissos16 FETCHES.
@@ -344,7 +344,7 @@ jobs:
         # are named by release (`macos/26`) and the recovery tag is the one that needs a code name.
         include:
           - release: "15"
-            walk: macos/15/steps/firmware.yaml
+            walk: macos/15/steps/firmware.walk
             recovery: macos-recovery-sequoia
             suffix: ""
           - release: "26"
@@ -356,7 +356,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: pull the recovery image the build reads
-        # THE BUILD DOES NOT DOWNLOAD. `macos/15/steps/firmware.yaml` requires `recovery.dmg` in its
+        # THE BUILD DOES NOT DOWNLOAD. `macos/15/steps/firmware.walk` requires `recovery.dmg` in its
         # work directory and fails in the first second without it - the same rule every install stage
         # follows. What the build still does is extract Apple's APFS driver out of that image, which
         # is local work on a local file.

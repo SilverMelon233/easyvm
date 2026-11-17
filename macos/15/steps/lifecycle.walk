@@ -1,0 +1,31 @@
+walkthrough "macos 15 - the machine's own lifecycle"
+  resolution 1920x1080
+  user vmuser
+  password admin
+  var user == {default: vmuser, from: args.user}
+  header boot_disk == from_caller
+  header ssh_port == 2222
+
+  step "boot the disk"
+    boot == true
+    os == macos
+    timeout == 900
+  step "wait for sshd"
+    require_ssh == true
+    ssh_probe == echo ok
+    timeout == 900
+  step "say what came up"
+    ssh == "sw_vers && uname -a && id -un\n"
+    timeout == 120
+  step "reboot into the same system"
+    reboot == true
+    timeout == 900
+  step "prove it came back"
+    require_ssh == true
+    ssh_probe == echo ok
+    timeout == 900
+  step "say what came up the second time"
+    ssh == "uptime && sw_vers\n"
+    timeout == 120
+  step "shut it down"
+    shutdown == kill

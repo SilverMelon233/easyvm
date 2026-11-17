@@ -1,0 +1,66 @@
+walkthrough "macos 15 - every primitive, nothing expensive"
+  resolution 1920x1080
+  user vmuser
+  password admin
+  var host == {default: "172.30.0.1", from: args.host}
+  var user == {default: vmuser, from: args.user}
+  header boot_disk == from_caller
+  header ssh_port == 2222
+
+  step "boot the disk"
+    boot == true
+    os == macos
+    timeout == 900
+  step "wait for sshd"
+    require_ssh == true
+    ssh_probe == echo ok
+    timeout == 900
+  step "say what came up"
+    ssh == "sw_vers && uname -a && id -un\n"
+    timeout == 120
+  step "write a script on the host"
+    timeout == 60
+    write == demo_script
+  step "copy it in"
+    scp == [demo.sh, /tmp/demo.sh]
+    timeout == 120
+  step "prove the copied script arrived"
+    ssh == "sh /tmp/demo.sh\n"
+    timeout == 120
+  step "capture the screen"
+    screenshot == after-boot.png
+    timeout == 60
+  step "start recording"
+    record == primitives.mp4
+    timeout == 60
+  step "do something worth recording"
+    ssh == "uptime\n"
+    timeout == 60
+  step "stop recording"
+    record == false
+    timeout == 120
+  step "serve the host share"
+    share_serve == true
+    timeout == 60
+  step "prove the guest can fetch from the host share"
+    requires == - share
+    share_family == macos
+    share_mount == true
+    timeout == 180
+  step "prove the share is writable"
+    ssh == "printf 'from-%s\\n' \"$(hostname)\" > ~/shared/primitives.txt && cat ~/shared/primitives.txt\n"
+    timeout == 120
+  step reboot
+    reboot == true
+    timeout == 300
+  step "wait for sshd again"
+    require_ssh == true
+    ssh_probe == echo ok
+    timeout == 900
+  step "shut down through the agent"
+    requires == - qga
+    shutdown == guest_agent
+    timeout == 300
+  step "stop whatever is left"
+    shutdown == kill
+    timeout == 120

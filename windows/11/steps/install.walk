@@ -1,0 +1,53 @@
+walkthrough "windows 11 - install to a desktop"
+  resolution 1920x1080
+  user vmuser
+  password admin
+  var boot_timeout == {default: "1800", from: args.boot_timeout}
+  var computer_name == {default: sandbox, from: args.computer_name}
+  var out == {default: out/windows11.qcow2, from: args.out}
+  var user == {default: vmuser, from: args.user}
+  var windows_image_index == {default: "6", from: args.windows_image_index}
+  header ssh_port == 2222
+
+  needs windows.iso virtio-win.iso, named "the media this stage boots from is already on disk"
+  step "start recording"
+    record == windows11-install.mp4
+  step "create the empty disk"
+    disk == disk.qcow2
+    disk_gb == 128
+  step "build the answer CD"
+    fetch == answer_iso
+    template == windows/11/answer/Autounattend.xml
+  step "boot the installer"
+    answer_cd == answer.iso
+    boot == true
+    driver_cd == virtio-win.iso
+    iso == windows.iso
+    os == windows
+    timeout == 1800
+  step "wait for the firmware to offer the DVD"
+    blind_after == 60
+    timeout == 180
+    until_console == DVD-ROM
+  press Escape, waiting 1s, named "press a key so the loader takes it"
+  press Escape, waiting 1s, named "press it again, because the prompt is emitted more than once"
+  press Escape, waiting 2s, named "and once more, for a loader that was not listening yet"
+  step "Setup is on screen"
+    loop == {check: {from: screen, mode: says, name: done, words: [Windows, Setup]}, do: [{settle: 5}], max: 180, see: {name: screen, of: [text], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 0}, until: {fact: done}}
+  step "wait for the desktop"
+    desktop == windows
+    timeout == 5400
+  step "reboot into the installed system"
+    boot == true
+    os == windows
+    timeout == 900
+  step "the installed system reaches a desktop"
+    desktop == windows
+    timeout == 1800
+  step "shut the installed system down"
+    shutdown == acpi
+    timeout == 300
+  step "publish the disk"
+    compress == '{{ out }}'
+  step "stop recording"
+    record == false

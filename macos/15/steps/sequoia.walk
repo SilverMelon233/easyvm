@@ -1,0 +1,107 @@
+walkthrough "macos 15 sequoia setup assistant"
+  resolution 1920x1080
+  password admin
+  var shutdown == {default: ssh, from: args.shutdown}
+  var user == {default: vmuser, from: args.user}
+  header boot_disk == from_caller
+  header boot_poll == 10
+  header boot_timeout == 1800
+  header ends == - finder
+  header ends_at == [{name: "the login window's password field", rect: [880, 960, 1045, 1000], scale: 6, words: [enter, password]}]
+  header ends_region == [0, 0, 700, 34]
+  header ends_region_scale == 3
+  header pane_limit == 3
+  header stuck_after == 20
+  header waits_for == [[country, region], [transfer, data], [spoken, languages], [accessibility, individual], [data, privacy], [create, mac, account], [sign, in, to, your, apple, account], [terms, conditions], [location, services], [time, zone], [analytics, improve], [screen, report], [look, appearance], [welcome, mac], [keyboard, select]]
+
+  step "boot the disk"
+    boot == true
+    os == macos
+    timeout == 900
+  step analytics
+    do == [{click: [808, 513], settle: 3}, {click: [1306, 810], settle: 10}]
+    when == [analytics, improve]
+  step "data and privacy"
+    click == [1306, 810]
+    settle == 8
+    when == [privacy, fundamental]
+  step "written and spoken languages"
+    click == [1306, 810]
+    settle == 8
+    when == [spoken, languages]
+  step accessibility
+    click == [1306, 806]
+    settle == 12
+    when == [accessibility, individual]
+  step "transfer your data"
+    do == [{click: [825, 669], settle: 4}, {click: [1306, 810], settle: 10}]
+    when == [transfer, data]
+  step "country or region"
+    do == [{click: [900, 500], settle: 2}, {click: [900, 500], settle: 3, type: "united states"}, {click: [1306, 810], settle: 8}]
+    when == [country, region]
+  step "create a mac account"
+    do == [{click: [945, 447], modifier: meta_l, settle: 3, type: "{{ user }}"}, {click: [850, 531], modifier: meta_l, settle: 3, type: "{{ password }}"}, {click: [1086, 531], modifier: meta_l, settle: 3, type: "{{ password }}"}, {click: [1306, 810], settle: 180}]
+    rect == [300, 300, 1620, 340]
+    rect_at == [1920, 1080]
+    scale == 2
+    when == [create, mac, account]
+  step "enable location services"
+    do == [{click: [1306, 810], settle: 6}, {click: [960, 632], settle: 3}, {key: ret, settle: 6}]
+    when == [approximate, location]
+  step "screen time"
+    click == [619, 806]
+    settle == 8
+    when == [screen, report]
+  step "time zone"
+    click == [1306, 806]
+    settle == 10
+    when == [time, zone]
+  step "choose your look"
+    click == [1306, 805]
+    settle == 12
+    when == [look, appearance]
+  step "terms and conditions"
+    do == [{click: [1298, 806], settle: 8}, {click: [1019, 616], settle: 10}]
+    when == [terms, conditions]
+  step "welcome to mac"
+    click == [960, 990]
+    settle == 12
+    when == [welcome, mac]
+  step keyboard
+    click == [1222, 818]
+    settle == 12
+    when == [keyboard, assistant]
+  step "sign in to apple account"
+    do == [{click: [620, 811], settle: 2}, {key: ret, settle: 3}, {click: [1026, 634], settle: 2}, {key: ret, settle: 2}]
+    rect == [300, 420, 1620, 460]
+    rect_at == [1920, 1080]
+    scale == 2
+    when == [sign, in, to, your, apple, account]
+  step "the apple account pane is gone"
+    loop == {check: {from: screen, mode: says_any, name: done, words: [[update, automatically], [choose, a, look], [welcome, to, mac]]}, do: [{settle: 3}], max: 20, see: {name: screen, of: [text], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 0}, until: {fact: done}}
+  step "update mac automatically"
+    click == [1306, 810]
+    settle == 15
+    when == [update, automatically]
+  step "click the password field"
+    click == [965, 981]
+    settle == 1
+    skip_when_unfinished == true
+  step "type the password"
+    settle == 1
+    skip_when_unfinished == true
+    type == '{{ password }}'
+  step "press return"
+    key == ret
+    settle == 20
+    skip_when_unfinished == true
+  step "dismiss the overlays macOS puts up on a first login"
+    do == [{click: [1228, 826], settle: 4}, {click: [1228, 826], settle: 4}, {click: [1228, 826], settle: 4}, {key: esc, settle: 2}, {key: meta_l+q, settle: 2}, {key: esc, settle: 2}]
+    skip_when_unfinished == true
+  step "wait for the desktop"
+    desktop == macos
+    skip_when_unfinished == true
+    timeout == 300
+  step "stop the machine"
+    shutdown == '{{ shutdown }}'
+    timeout == 300

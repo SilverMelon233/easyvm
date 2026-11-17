@@ -28,6 +28,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // WalkToYAML converts a `.walk` document into the mapping the YAML decoder would produce.
@@ -82,6 +84,12 @@ func WalkToYAML(src string) (map[string]any, error) {
 		switch key {
 		case "recording":
 			recording = value.(string)
+		case "var":
+			vp := value.(varPair)
+			vars[vp.name] = vp.spec["__exact"]
+		case "header":
+			vp := value.(varPair)
+			doc[vp.name] = vp.spec["__exact"]
 		case "vars":
 			vars[value.(varPair).name] = value.(varPair).spec
 		default:
@@ -182,6 +190,18 @@ func parseHeader(l line) (key string, value any, isHeader bool, err error) {
 		return "vars", varPair{"password", map[string]any{
 			"from": "args.password", "default": v,
 		}}, true, nil
+	case "var", "header":
+		// `var name == <yaml>` AND `header name == <yaml>` - a key written exactly, because the
+		// vocabulary around vars has no phrase for most of them and the conversion must be exact.
+		key, value, ok := strings.Cut(rest, "==")
+		if !ok {
+			return "", nil, false, fmt.Errorf("`%s` needs `name == <yaml>`", verb)
+		}
+		var v any
+		if err := yaml.Unmarshal([]byte(strings.TrimSpace(value)), &v); err != nil {
+			return "", nil, false, fmt.Errorf("`%s %s`: %v", verb, strings.TrimSpace(key), err)
+		}
+		return verb, varPair{strings.TrimSpace(key), map[string]any{"__exact": v}}, true, nil
 	case "recording":
 		// BARE OR QUOTED: a single word needs no quotes, and `user vmuser` reads better than
 		// `user "vmuser"` for a value with no spaces.
@@ -242,18 +262,22 @@ func parseStep(lines []line, i int) (map[string]any, int, error) {
 		step, err = parseDecideBlock(head, rest, children)
 	case verb == "read":
 		step, err = parseReadBlock(head, rest, children)
+	case verb == "step":
+		step, err = parseExact(head, rest, children)
 	case len(children) > 0:
 		// A STEP THAT OWNS CHILDREN IS A GATE OR A LOOP; anything else with an indented block is a
 		// file whose author expected something this format does not do, and saying so is better than
 		// silently running the head and dropping the block.
 		return nil, 0, fmt.Errorf("line %d: %q opens a block, and only `when`, `unless`, "+
-			"`read`, `decide` and `repeat` take one", head.no, head.text)
+			"`read`, `decide`, `step` and `repeat` take one", head.no, head.text)
 	default:
 		step, err = parseStatement(head)
 	}
 	if err != nil {
 		return nil, 0, err
 	}
+	// THE `named` CLAUSE IS `parseStatement`'S JOB NOW, so this only fills a default: a block head
+	// (`when ...:`) has no phrase of its own.
 	if _, ok := step["name"]; !ok {
 		// A BLOCK HEAD'S NAME MUST NOT END WITH `:` - the colon is the format's syntax, and a name
 		// carrying it makes the YAML decoder read `name: decide "x" is all of:` as a nested mapping:
@@ -341,6 +365,36 @@ func parseStatement(l line) (map[string]any, error) {
 	verb, rest := cutVerb(l.text)
 	step := map[string]any{"name": l.text}
 
+	// `, named "X"` IS THE STEP'S REAL NAME, and it is read HERE rather than in `parseStep` so that a
+	// step inside a `do:` list - which never passes through `parseStep` - gets it too. MEASURED: a
+	// click in a list kept the phrase's own name and the round trip renamed the step.
+	// THE `, named "X"` CLAUSE IS CUT FROM THE TEXT BEFORE ANYTHING PARSES IT, and applied to the step
+	// afterwards. A phrase builds a name of its own - `click "next" at ...` - so the real name has to
+	// win, and the clause must not reach `parsePoint`, whose fields are numbers.
+	named, hasNamed := "", false
+	if i := strings.LastIndex(l.text, ", named "); i >= 0 {
+		if n, err := unquote(l.text[i+len(", named "):]); err == nil {
+			// THE NAME MAY CONTAIN ESCAPED QUOTES - a step's name is a sentence and some quote:
+			// `give the installer its last few seconds, because "ready to use" is not "flushed"`.
+			named, hasNamed = yamlUnescape(n), true
+			l.text = l.text[:i]
+		}
+	}
+	verb, rest = cutVerb(l.text)
+	step = map[string]any{"name": l.text}
+
+	out, err := parseVerbed(l, verb, rest, step)
+	if err != nil {
+		return nil, err
+	}
+	if hasNamed && out != nil {
+		out["name"] = named
+	}
+	return out, nil
+}
+
+// parseVerbed is the switch, split out so the `named` clause is applied in ONE place.
+func parseVerbed(l line, verb, rest string, step map[string]any) (map[string]any, error) {
 	switch verb {
 	// ---- loop bookkeeping, which is not a step -------------------------------------------
 	case "until":
@@ -360,18 +414,61 @@ func parseStatement(l line) (map[string]any, error) {
 
 	// ---- input ---------------------------------------------------------------------------
 	case "click", "double":
-		x, y, err := parsePoint(rest)
+		// THE COORDINATES ARE THE FIRST TWO NUMBERS AFTER `at`, and everything after a comma is a
+		// clause: `click "next" at 1777 1059, waiting 8s, named "next from welcome"`.
+		body := rest
+		if i := strings.Index(body, ", waiting "); i >= 0 {
+			body = body[:i]
+		}
+		if i := strings.Index(body, ", named "); i >= 0 {
+			body = body[:i]
+		}
+		x, y, err := parsePoint(body)
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %s: %w", l.no, verb, err)
 		}
 		step[verb] = []any{x, y}
+		// AND THE CLAUSES ARE PART OF THE STEP. A phrase that dropped `waiting` or `optionally`
+		// would convert the file into a different one.
+		if i := strings.Index(rest, ", waiting "); i >= 0 {
+			tail := rest[i+len(", waiting "):]
+			if j := strings.Index(tail, ", "); j >= 0 {
+				tail = tail[:j]
+			}
+			if secs, err := parseSeconds(tail); err == nil {
+				step["settle"] = secs
+			}
+		}
+		if strings.Contains(rest, ", optionally") {
+			step["optional"] = true
+		}
 		return step, nil
 	case "press":
 		// `press Return` / `press ctrl+alt+t`
 		if rest == "" {
 			return nil, fmt.Errorf("line %d: `press` needs a key", l.no)
 		}
-		step["key"] = keyQcode(rest)
+		// THE CLAUSES ARE CUT FIRST: `press Return, waiting 10s, named "welcome - Install is
+		// preselected"` - the key is `Return` and everything after the comma is not.
+		value := rest
+		if i := strings.LastIndex(value, ", named "); i >= 0 {
+			value = value[:i]
+		}
+		if i := strings.LastIndex(value, ", waiting "); i >= 0 {
+			value = value[:i]
+		}
+		step["key"] = keyQcode(value)
+		// `, waiting Ns` IS THE STEP'S SETTLE, not decoration - a phrase that dropped it would change
+		// the document.
+		if i := strings.LastIndex(rest, ", waiting "); i >= 0 {
+			tail := rest[i+len(", waiting "):]
+			if j := strings.LastIndex(tail, ", named "); j >= 0 {
+				tail = tail[:j]
+			}
+			if secs, err := parseSeconds(tail); err == nil {
+				step["settle"] = secs
+			}
+		}
 		return step, nil
 	case "type":
 		return parseType(l, rest, step)
@@ -384,7 +481,16 @@ func parseStatement(l line) (map[string]any, error) {
 
 	// ---- a wait --------------------------------------------------------------------------
 	case "settle":
-		secs, err := parseSeconds(rest)
+		// `, named "X"` AND `, waiting Ns` ARE CLAUSES ON THE PHRASE, so they are cut before the number
+		// is read: `settle 20s, named "let the menu draw"`.
+		value := rest
+		if i := strings.LastIndex(value, ", named "); i >= 0 {
+			value = value[:i]
+		}
+		if i := strings.LastIndex(value, ", waiting "); i >= 0 {
+			value = value[:i]
+		}
+		secs, err := parseSeconds(value)
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", l.no, err)
 		}
@@ -448,8 +554,14 @@ func parseStatement(l line) (map[string]any, error) {
 
 	// ---- a declaration -------------------------------------------------------------------
 	case "needs":
+		// `, named "X"` IS A CLAUSE ON THE PHRASE, not a file name: `needs ubuntu.iso, named "the
+		// media this stage boots from is already on disk"`.
+		value := rest
+		if i := strings.LastIndex(value, ", named "); i >= 0 {
+			value = value[:i]
+		}
 		var files []any
-		for _, f := range strings.Fields(rest) {
+		for _, f := range strings.Fields(value) {
 			files = append(files, strings.Trim(f, `"`))
 		}
 		if len(files) == 0 {
@@ -1122,4 +1234,70 @@ func dottedName(s string) string {
 		return fields[0] + "." + fields[1]
 	}
 	return strings.Join(fields, ".")
+}
+
+// parseExact is the ESCAPE HATCH, and it exists so that a converted file is EXACT rather than nearly
+// exact.
+//
+//	step "the greeter - the password box"
+//	  click == [936, 628]
+//	  settle == 3
+//	  optional == true
+//
+// THE RIGHT-HAND SIDE IS YAML, so any value the vocabulary takes can be written - a nested mapping, a
+// list of lists, a number, a boolean. That is what makes a mechanical conversion possible: a converter
+// emits the natural phrasing where it knows one and `key == value` where it does not, and the
+// resulting document is the same one the YAML produced.
+//
+// IT IS NOT THE PREFERRED FORM. A file written by hand should say `click "next" at 1777 1059`; this is
+// for the cases the phrases do not cover, and for the conversion itself.
+func parseExact(head line, rest string, children []line) (map[string]any, error) {
+	// A QUOTED NAME MAY CONTAIN ESCAPED QUOTES, because a step's name is a sentence and some of them
+	// quote: `give the installer its last few seconds, because "ready to use" is not "flushed"`.
+	// `unquote` strips the outer pair and leaves the escapes; YAML is what turns `\"` back into `"`,
+	// so the name goes through it.
+	name, err := bareOrQuoted(rest)
+	if err != nil {
+		return nil, fmt.Errorf("line %d: `step` needs a name: %w", head.no, err)
+	}
+	if strings.Contains(name, `\"`) {
+		var decoded string
+		if err := yaml.Unmarshal([]byte(`"`+name+`"`), &decoded); err == nil {
+			name = decoded
+		}
+	}
+	step := map[string]any{"name": name}
+	for _, c := range children {
+		key, value, ok := strings.Cut(c.text, "==")
+		if !ok {
+			return nil, fmt.Errorf("line %d: a `step` body is `key == value`, not %q", c.no, c.text)
+		}
+		key = strings.TrimSpace(key)
+		if _, exists := step[key]; exists {
+			return nil, fmt.Errorf("line %d: `%s` is written twice in one step", c.no, key)
+		}
+		var v any
+		if err := yaml.Unmarshal([]byte(strings.TrimSpace(value)), &v); err != nil {
+			return nil, fmt.Errorf("line %d: `%s == %s` is not a YAML value: %v", c.no, key,
+				strings.TrimSpace(value), err)
+		}
+		step[key] = v
+	}
+	return step, nil
+}
+
+// yamlUnescape turns `\"` back into `"` in a quoted name.
+//
+// A STEP'S NAME IS A SENTENCE, and a sentence may quote another: `because "ready to use" is not
+// "flushed"`. The emitter escapes those quotes to keep the line parseable, so the parser has to undo
+// it - otherwise the name comes back with four extra backslashes in it.
+func yamlUnescape(s string) string {
+	if !strings.Contains(s, `\"`) {
+		return s
+	}
+	var decoded string
+	if err := yaml.Unmarshal([]byte(`"`+s+`"`), &decoded); err == nil {
+		return decoded
+	}
+	return strings.ReplaceAll(s, `\"`, `"`)
 }
