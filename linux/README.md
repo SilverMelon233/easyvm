@@ -122,18 +122,34 @@ verdict is the section's disappearance (`Repeat` leaving the page).
 
 ### mint
 
-Two things had to be measured rather than guessed:
+Four things had to be measured rather than guessed:
 
 1. **The medium stops at its own GRUB menu** and does not count down. The menu is read first, then
    answered with one `ret` - a key pressed at a screen that is not that menu would go somewhere else.
 2. **The desktop icon is click-to-select**, and the launcher opens on `Return`. `double:` was measured
    doing nothing three times on a coordinate that was verified correct by locating the disc's pixels
    (centroid (114,52), bbox x=69..164 y=32..91).
+3. **The finish is read from the sentence under the title.** The dialog says `Installation Complete`,
+   and OCR returns the title as `oon`:
+
+	finished.txt: "Install Linux Mint oon but until you restart the computer, any changes you make"
+
+   so a check on `Complete` could never pass with the dialog plainly on screen. The reading is
+   `restart`, from the longest line on the dialog, which OCR reads cleanly.
+4. **It used to wait on the clock.** The step was `wait: 2400` - a fixed forty minutes - sitting where
+   a verdict belongs. MEASURED: the disk stopped growing at 12519 MiB with the dialog up and the step
+   then sat there for the remaining half hour. It is a loop on the dialog's words now.
 
 And its panel is the **same colour as its wallpaper** on the stock dark theme, so `IsLinuxDesktop`
 sees no brightness difference at all (`BrightnessDrop=0`). `IsCinnamonDesktop` therefore looks for
 the panel's own EDGE - a row flat across the full width in the bottom quarter with content below it -
 which measures `mad=0.0` on the border against `mad=8.3` on the wallpaper beside it.
+
+**A CI RUN READS THE FILE AT ITS OWN COMMIT, NOT THE WORKING TREE.** Two mint legs were dispatched
+minutes after a fix and failed on the version before it: run 44058701996 was created at 09:46 against
+`728f66a` and failed reading `Complete`, while the fix changing it to `restart` landed as `325d792` at
+10:17. The re-dispatch at 10:45 (44067988882, sha `325d792`) passed. When a fix has been pushed,
+check `headSha` before reading a failure as a failure of the fix.
 
 ### zorin
 
@@ -152,6 +168,23 @@ easyvm list  linux/cachyos/steps/install.yaml
 
 The CI legs are `linux/<name>-install` in each `.github/workflows/<name>.yml`, and each one publishes
 `linux-<name>.qcow2`. The ssh and vm legs that follow are NOT covered here.
+
+## Where each one was proven
+
+All seven have been run to completion on a workstation AND their install leg has passed on CI:
+
+| Distribution | Steps | Local | CI install leg |
+|---|---|---|---|
+| kubuntu | 38 | 38/38 | run 43991307005 `success` |
+| ubuntu | 44 | 29/29 at the time | run 43991118842 `success` |
+| cachyos | 54 | 54/54 | run 44020080865 `success` |
+| endeavouros | 50 | 50/50 | run 44028288557 `success` |
+| manjaro | 32 | 32/32 | run 43991290852 `success` |
+| mint | 31 | 31/31 | run 44067988882 `success` |
+| zorin | 32 | 32/32 | run 43991222285 `success` |
+
+A whole `<name>.yml` run still shows `failure` for most of them, because the ssh and vm legs that
+follow the install leg are NOT in scope and are not passing. Read the install leg, not the run.
 
 ## The two that cannot reach ext4
 
