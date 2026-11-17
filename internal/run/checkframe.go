@@ -175,6 +175,15 @@ func (fr *frame) text(defaultRect string, entry any) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+	return textOnWords(read, m)
+}
+
+// textOnWords is `text`'s comparison half, taking the words instead of fetching them.
+//
+// IT IS SPLIT OUT SO `want:` CAN USE IT: a `decide` over a reading a `see:` step made needs the same
+// six comparisons over words that are already in hand, and a second implementation of "contains these
+// words, like this sentence" is the kind of duplication that drifts.
+func textOnWords(read []string, m map[string]any) (bool, string, error) {
 	var parts []string
 	result := true
 	check := func(label string, okNow bool) {
@@ -486,7 +495,29 @@ func compareNumber(v float64, cmp map[string]any) (bool, error) {
 
 // --- small helpers -----------------------------------------------------------------------
 
+// stringList reads a list of strings, WHATEVER GO SLICE IT ARRIVED AS.
+//
+// A YAML DECODER GIVES `[]interface{}` AND THE `.walk` CONVERTER GIVES `[]string`, and the difference
+// is invisible until a criterion silently matches nothing:
+//
+//	[debug] contains=[]string []string{"Alpine"} stringList=[]
+//
+// - which is a `want:` that always answers false on a screen that plainly says the word. The type
+// switch is the fix, and it is written out rather than reflected because there are three shapes and
+// reflection would be slower and no clearer.
 func stringList(v any) []string {
+	switch list := v.(type) {
+	case []string:
+		return list
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, x := range list {
+			if s, ok := x.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
 	list, ok := v.([]any)
 	if !ok {
 		return nil
@@ -665,3 +696,8 @@ func min3(a, b, c int) int {
 // maxFuzzy is the largest edit distance per word the validator accepts. Beyond 2, `install` and
 // `uninstall` (distance 2) start to be within budget of words that mean something else.
 const maxFuzzy = 2
+
+// textOn applies a text criterion to words already read, for `want:`.
+func (fr *frame) textOn(words []string, m map[string]any) (bool, string, error) {
+	return textOnWords(words, m)
+}

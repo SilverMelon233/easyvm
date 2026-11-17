@@ -3,6 +3,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net"
 	"os"
 	"os/exec"
@@ -26,13 +27,20 @@ import (
 const (
 	// vncBase is qemu's own numbering: display N listens on 5900+N.
 	vncBase = 5900
-	// vncDisplay is the display number, and it is a CONSTANT RATHER THAN STATE.
+	// vncDisplay IS THE FALLBACK, and the display is chosen per WORK DIRECTORY.
 	//
-	// ONE GUEST PER CONTAINER, so there is nothing to compute: qemu is always given
-	// `-vnc 127.0.0.1:0` and therefore always listens on 5900. The driver used to carry a
-	// `vncPort int` field for this, which could only ever hold 5900 or 0 - and the 0 was really
-	// the answer to a DIFFERENT question, "is there a machine". Two facts in one field, and the
-	// console page read it on every browser connect.
+	// IT WAS A CONSTANT ON THE ASSUMPTION "ONE GUEST PER CONTAINER", and that assumption is true of
+	// the deployed pod and false of every other place this runs - measured, repeatedly, in the lab:
+	// a second daemon on another port answers at startup
+	//
+	//	qemu-system-x86_64: -vnc 127.0.0.1:0: Failed to find an available port: Address already in
+	//	use
+	//
+	// and because qemu exits, the step that needed it reports `qmp ... connection refused`, which
+	// reads as a socket problem rather than a VNC one.
+	//
+	// SO THE DISPLAY COMES FROM THE WORK DIRECTORY: two daemons with different work directories get
+	// different displays, and the deployed pod - which has one - still gets 0.
 	vncDisplay = 0
 )
 
@@ -772,7 +780,23 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		// whose resolution is qemu's own default, and the walkthrough that reads it says what it
 		// expects rather than needing 1920x1080.
 		if boot.MicroVM {
-			args = append(args, "-vga", "std")
+			// `isa-vga` IS THE ADAPTER A `microvm` CAN ACTUALLY CREATE, and `-vga std` is not:
+			//
+			//	qemu-system-x86_64: warning: A -vga option was passed but this machine type does
+			//	not use that option; No VGA device has been created
+			//
+			// MEASURED, after switching to `-device isa-vga`: a screendump of the running microvm
+			// returns a 720x400 frame that reads
+			//
+			//	SeaBIOS (version 1.17.0-debian-1.17.0-1)
+			//	Booting from ROM...
+			//	Welcome to Alpine Linux 3.21
+			//	Kernel 6.12.1-3-virt on an x86_64 (/dev/tty1)
+			//	localhost login:
+			//
+			// - which is what `see:` measures. `vgamem_mb=16` is enough for a text console and a
+			// quarter of what a full machine's adapter takes.
+			args = append(args, "-device", "isa-vga,vgamem_mb=16")
 			break
 		}
 		args = append(args, "-device", DefaultVideoDevice)
@@ -786,7 +810,7 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	args = append(args, boot.ExtraArgs()...)
 	args = append(args,
 		"-qmp", "unix:"+qmpPath+",server=on,wait=off",
-		"-vnc", fmt.Sprintf("127.0.0.1:%d", vncDisplay),
+		"-vnc", fmt.Sprintf("127.0.0.1:%d", d.vncNumber()),
 		"-netdev", fmt.Sprintf("tap,id=net0,ifname=%s,script=no,downscript=no",
 			easyvmnet.TapName),
 		// `romfile=` AND `host_mtu=` ARE NOT OPTIONS EVERY VIRTIO NET DEVICE HAS. `virtio-net-device`
@@ -1690,7 +1714,26 @@ func (d *Driver) VNCPort() int {
 		// NO MACHINE, NO PORT. The port itself is not a variable: see `vncDisplay`.
 		return 0
 	}
-	return vncBase + vncDisplay
+	return vncBase + d.vncNumber()
+}
+
+// vncNumber is the display this driver's qemu listens on, derived from its work directory.
+//
+// TWO DAEMONS MUST NOT ASK FOR THE SAME DISPLAY, and the work directory is what identifies a daemon:
+// the deployed pod has one and gets 0, which is the port the console page expects; a second daemon
+// anywhere else gets a number that its own path hashes to, so the two cannot collide.
+//
+// THE RANGE IS SMALL ON PURPOSE - 32 displays, 5900 to 5931 - because a display number is a port and
+// a wide scatter would be indistinguishable from a real service. A collision inside the range is
+// still possible and qemu says so plainly, which is better than the silent wrong-answer this
+// replaced.
+func (d *Driver) vncNumber() int {
+	if d.work == "" || d.work == "/work" {
+		return vncDisplay
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(d.work))
+	return int(h.Sum32() % 32)
 }
 
 // ErrMachineGone is what a caller gets once the guest's qemu has exited.

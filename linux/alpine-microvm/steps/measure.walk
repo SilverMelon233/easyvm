@@ -9,7 +9,9 @@
 # nearly flat, and saying the words Alpine prints when it is up.
 
 walkthrough "the measurement primitives, on the smallest guest"
-  resolution 1024x768
+  # THE FRAME IS WHAT `isa-vga` GIVES A MICROVM: 720x400, measured from a real screendump of this
+  # guest. A console has no resolution of its own, so qemu's default is the truth here.
+  resolution 720x400
   recording "alpine-measure.mp4"
 
   needs alpine.iso alpine-vmlinuz alpine-initramfs

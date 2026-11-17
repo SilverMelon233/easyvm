@@ -236,6 +236,34 @@ func (e *Executor) evalGroup(list any, needAll bool) (bool, string, error) {
 				continue
 			}
 		}
+		// A `text:` COMPARISON IS A LIST OF CRITERIA over a named reading, and it is evaluated by the
+		// same code `check:` uses - because `want:` and `check:` answer the same question about the
+		// words on a screen, and two implementations would disagree eventually.
+		if m, ok := entry.(map[string]any); ok {
+			// `text:` IS A LIST, AND A ONE-ITEM LIST MAY ARRIVE AS THE MAP ITSELF - a YAML decoder
+			// and the `.walk` converter do not have to agree on that, so both shapes are taken.
+			var list []any
+			switch t := m["text"].(type) {
+			case []any:
+				list = t
+			case map[string]any:
+				list = []any{t}
+			}
+			if list != nil {
+				okNow, note, err := e.evalTextCriteria(list)
+				if err != nil {
+					return false, "", err
+				}
+				parts = append(parts, note)
+				if needAll && !okNow {
+					result = false
+				}
+				if !needAll && okNow {
+					result = true
+				}
+				continue
+			}
+		}
 		op, err := e.parseOp(entry)
 		if err != nil {
 			return false, "", err
@@ -486,4 +514,39 @@ func parseRectWords(s string) (screen.Rect, error) {
 		return screen.Rect{From: 1 - frac, To: 1, XTo: 1}, nil
 	}
 	return screen.Rect{From: 0.5 - frac/2, To: 0.5 + frac/2, XTo: 1}, nil
+}
+
+// evalTextCriteria applies `check:`'s text criteria to the readings a `see:` step bound.
+//
+// A `want:` MAY COMPARE WORDS AS WELL AS NUMBERS, because "the screen says this" and "this number is
+// in range" are both decisions about the same frame. Rather than a second implementation, the words
+// are handed to the same function `check:` uses.
+func (e *Executor) evalTextCriteria(list []any) (bool, string, error) {
+	var notes []string
+	result := true
+	for _, raw := range list {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			return false, "", fmt.Errorf("`text:` takes the same criteria `check:` does")
+		}
+		reading, _ := m["from"].(string)
+		words := e.seen[reading]
+		if words == nil {
+			words = e.seen[reading+".words"]
+		}
+		if words == nil {
+			return false, "", fmt.Errorf("`text: {from: %s}` names a reading no `see:` step made. "+
+				"A `see: {of: [text]}` has to come first, in file order, with that `name:`", reading)
+		}
+		fr := &frame{ex: e}
+		okNow, note, err := fr.textOn(words, m)
+		if err != nil {
+			return false, "", err
+		}
+		notes = append(notes, note)
+		if !okNow {
+			result = false
+		}
+	}
+	return result, strings.Join(notes, "; "), nil
 }
