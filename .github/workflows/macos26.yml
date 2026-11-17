@@ -1,0 +1,53 @@
+name: macos26
+
+# MACOS 26 (TAHOE), AS A CHAIN THAT TODAY HAS ONE STAGE.
+#
+# THIS FILE EXISTS BECAUSE 26 HAD NO ENTRY POINT AT ALL. `macos/26/steps/` held one file - `resume.yaml`,
+# which boots a disk that already exists - so nothing ever INSTALLED 26, and the firmware this
+# repository publishes for it (`macos-asset-*-26`) had no consumer. The setup stage below is that
+# consumer, and it is the only stage: 26 has no `ssh` or `vm-configure` walkthrough yet.
+#
+# WHY A SEPARATE FILE RATHER THAN A ROW IN macos.yml. The two releases pull DIFFERENT ASSETS - a
+# different recovery image and a different firmware, with different identities baked into it - and a
+# matrix that chose between them would put the choice in a variable instead of in the file a reader
+# opens. `macos.yml` is the 15 chain and this is the 26 chain; the day 26 grows an ssh stage it gets a
+# job here, not a condition there.
+#
+# `from_tag` IS ABSENT ON PURPOSE. There is nothing to start from yet: this file's only stage is the
+# one that CREATES the disk.
+
+on:
+  workflow_dispatch:
+    inputs:
+      disks_repository:
+        description: "the ghcr repository that holds the assets"
+        default: "easydev-org/easyvm"
+
+concurrency:
+  group: macos26
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  checks: write
+
+jobs:
+  setup:
+    uses: ./.github/workflows/stage.yml
+    secrets: inherit
+    with:
+      group: macos26
+      disks_repository: ${{ inputs.disks_repository }}
+      stages: |
+        [
+          {
+            "name": "macos26-setup",
+            "file": "macos/26/steps/setup.yaml",
+            "pull": "",
+            "assets": ["macos-recovery-tahoe:recovery.dmg", "macos-asset-boot-26:boot.img", "macos-asset-rom-26:macos.rom", "macos-asset-vars-26:macos.vars"],
+            "out": "macos26.qcow2",
+            "publish": "macos26",
+            "timeout": 400
+          }
+        ]
