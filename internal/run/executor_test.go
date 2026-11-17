@@ -221,9 +221,17 @@ func TestEveryClaimedKeyIsHandled(t *testing.T) {
 		// default and the whole package's test run timed out at ninety seconds. The list is the
 		// thing that has to grow when a waiting key is added, which is why it sits here rather than
 		// being derived: derived-from-nothing would never have caught it either.
+		//
+		// `adb_connect` BELONGS HERE AND WAS MISSING, and the cost was five minutes of every run:
+		// MEASURED, the package's tests were 331 seconds and 320 of them were this one key waiting
+		// out its own 300-second default for an adbd that no fake driver has. The list is a
+		// statement about WHICH KEYS WAIT, so a key that waits without being on it is invisible -
+		// the step does not fail, it is slow, and a slow test reads as a large package.
 		if key == "require_ssh" || key == "desktop" || key == "until_console" ||
 			key == "until" || key == "until_any" || key == "expect" || key == "expect_any" ||
-			key == "repeat_until" || key == "wait_for" || key == "wait" {
+			key == "repeat_until" || key == "wait_for" || key == "wait" ||
+			key == "adb_connect" || key == "adb" || key == "adb_privileged" ||
+			key == "ssh" || key == "ssh_probe" {
 			steps[0].Spec["timeout"] = 1
 		}
 		_, err := ex.Run(steps)
