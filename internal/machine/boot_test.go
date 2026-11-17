@@ -861,11 +861,11 @@ func TestTheUSBControllerIsNamedOnce(t *testing.T) {
 //
 // TWO PROPERTIES ARE ASSERTED AND BOTH ARE LOAD-BEARING:
 //
-//	- ORDER: `-audiodev` must precede the device that names it. qemu's failure is
-//	  `audiodev snd0 not found`, which reads like a missing option rather than a sequencing mistake.
-//	- macOS: `usb-audio`, because AppleHDA loads against an ICH9 controller and then never enumerates
-//	  the CODEC - measured, with `IOHDACodecDevice` having no children and `AppleHDAEngine` never
-//	  instantiated, while CoreAudio reported zero devices.
+//   - ORDER: `-audiodev` must precede the device that names it. qemu's failure is
+//     `audiodev snd0 not found`, which reads like a missing option rather than a sequencing mistake.
+//   - macOS: `usb-audio`, because AppleHDA loads against an ICH9 controller and then never enumerates
+//     the CODEC - measured, with `IOHDACodecDevice` having no children and `AppleHDAEngine` never
+//     instantiated, while CoreAudio reported zero devices.
 func TestEveryGuestGetsASoundCard(t *testing.T) {
 	pos := func(args []string, want string) int {
 		for i, a := range args {

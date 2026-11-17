@@ -1102,15 +1102,6 @@ func (e *Executor) doFetch(s walk.Step) error {
 	// per file.
 	kind := s.Get("fetch")
 	if kind == "" {
-		kind = s.Get("asset")
-	}
-	if kind == "" {
-		kind = s.Get("build")
-	}
-	if kind == "" {
-		kind = s.Get("generate")
-	}
-	if kind == "" {
 		return fail(s.Name, "the step must name what it prepares: `fetch: <kind>` - an installer "+
 			"image, a guest agent, a firmware, an answer CD")
 	}

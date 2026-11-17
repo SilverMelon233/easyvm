@@ -801,7 +801,7 @@ func TestAStepThatNeedsNoGuestSurvivesAShutdown(t *testing.T) {
 		{"a click", map[string]any{"name": "x", "click": []any{1, 2}}, true},
 		{"a reading", map[string]any{"name": "x", "ocr": map[string]any{"name": "s"}}, true},
 		{"a key", map[string]any{"name": "x", "key": "ret"}, true},
-		{"a wait", map[string]any{"name": "x", "wait": 5}, true},
+		{"a wait", map[string]any{"name": "x", "settle": 5}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := walk.Step{Name: tc.name, Spec: tc.spec}

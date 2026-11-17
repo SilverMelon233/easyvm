@@ -146,8 +146,8 @@ func fmtStr(v any) string {
 // real tesseract, which would make this a slow test of OCR rather than a fast test of the executor.
 func TestALoopAssemblesItsPartsWithTheirKeys(t *testing.T) {
 	ocrRaw := map[string]any{
-		"name": "screen", "region": []any{0, 0, 1920, 1080},
-		"region_at": []any{1920, 1080}, "scale": 1, "wait": 0,
+		"name": "screen", "rect": []any{0, 0, 1920, 1080},
+		"rect_at": []any{1920, 1080}, "scale": 1, "wait": 0,
 	}
 	// THE SHAPE THE LOOP MUST BUILD. Built here the same way doLoop builds it.
 	ocrStep := walk.Step{Name: "probe [ocr]", Spec: map[string]any{"ocr": ocrRaw}}
