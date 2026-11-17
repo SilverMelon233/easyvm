@@ -302,7 +302,7 @@ steps:
 
 - name: the disk's menu
   click:
-  - 1186
+  - 1185
   - 318
   wait_after: 4
 
@@ -318,10 +318,21 @@ steps:
   - 381
   wait_after: 8
 
+# THE FREE-SPACE KEBAB IS ON ITS OWN ROW, AT y=363 - NOT 42 PIXELS BELOW IT.
+#
+# MEASURED off the frame that follows `Initialize`: the table has two rows, `vda - Virtio Disk` at
+# y=318 and `Free space` at y=363, and each row's kebab is the four-pixel column at x=1183..1186.
+# The file had (1186, 405), which is 42 pixels below the second row and lands on the table's
+# background - so `Create partition` was never opened, and the next step (which presses the dialog's
+# orange Create) failed with `no pixel within 45 of rgb(177,56,11) on this screen`.
+#
+# THAT MESSAGE IS WHAT MADE THIS FINDABLE: a colour step that cannot find its colour says the pane is
+# not the one on screen, which is exactly right, and it is a far better failure than a click that
+# reports success into empty space.
 - name: the free space's menu
   click:
-  - 1186
-  - 405
+  - 1185
+  - 363
   wait_after: 4
 
 - name: create the root partition
@@ -405,7 +416,7 @@ steps:
 
 - name: the root partition's menu, to make room for the ESP
   click:
-  - 1186
+  - 1185
   - 363
   wait_after: 4
 
@@ -448,8 +459,8 @@ steps:
 
 - name: the new free space's menu
   click:
-  - 1186
-  - 405
+  - 1185
+  - 363
   wait_after: 4
 
 - name: create the ESP
