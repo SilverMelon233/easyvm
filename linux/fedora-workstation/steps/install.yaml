@@ -157,23 +157,239 @@ steps:
     - de
     - almacenamiento
   wait_after: 12
-- name: storage configuration
+# THIS MEDIUM INSTALLS btrfs BY DEFAULT AND ITS `Use entire disk` PATH HAS NO FILESYSTEM CHOICE.
+#
+# MEASURED, whole wizard by hand: `Storage configuration` is ONE PAGE WITH ONE CHECKBOX -
+#
+#	Storage configuration
+#	  Encryption
+#	    Secure your data using disk-based encryption. Only applies to new partitions.
+#	    [ ] Encrypt my data
+#
+# - no ext4, no btrfs, no xfs. `Use entire disk` then produces the measured btrfs root:
+#
+#	vda1   629 MB  format as efi              /boot/efi
+#	vda2  2.15 GB  format as ext4             /boot
+#	vda3   135 GB  format as btrfs subvolume  /
+#
+# THE ROUTE TO ext4 IS THE `storage editor` LINK ON THE PAGE BEFORE IT, and that link is real:
+#
+#	If none of the options above apply, use the storage editor to create a custom
+#	partitioning before proceeding.
+#
+# It opens blivet-gui, whose `Create partition` dialog HAS A TYPE LIST and whose DEFAULT IS EXT4:
+#
+#	XFS / EXT4 / BTRFS / VFAT / NTFS / Swap / EFI system partition / No filesystem
+#
+# MEASURED END TO END BY HAND, and the disk read back afterwards:
+#
+#	GPT: yes
+#	  part1: 129700 MiB  magic=0xef53 incompat=0x000022c6  EXTENTS=True 64BIT=True  -> ext4
+#	  part2: 131069 MiB  name='EFI System Partition'
+#
+# SO THE STEPS BELOW ARE THE HAND RUN, and every coordinate in them was taken off its frames.
+#
+# THESE ARE THE MEASURED OBSERVATIONS THE COORDINATES COME FROM (1920x1080):
+#	storage editor link         (1019, 446)
+#	Launch storage editor       (794, 642)
+#	disk row's kebab            (1186, 318)
+#	Create partition table      (1062, 479)
+#	Initialize (GPT preselected)(474, 381)
+#	Free space kebab            (1186, 405)
+#	Create partition            (1120, 450)
+#	name field                  (882, 271)
+#	mount point field           (882, 333)
+#	Type combo                  (882, 394)
+#	Create                      (456, 627)
+#	vda1 kebab                  (1186, 363)
+#	Shrink                      (1029, 562)
+#	Shrink size field           (1041, 275)
+#	Shrink confirm              (456, 337)
+#	Create (the ESP)            (456, 566)
+#	Return to installation      (450, 975)
+#	Continue (layout accepted)  (737, 332)
+- name: open the storage editor, which is the only place a filesystem can be chosen
   click:
-  - 729
-  - 1002
-  expect_any:
-  - - review
-    - and
-    - install
-  - - revisar
-    - e
-    - instalar
-  wait_after: 12
-- name: erase data and install
+  - 1019
+  - 446
+  wait_after: 8
+
+- name: launch it
   click:
-  - 780
-  - 1002
+  - 794
+  - 642
   wait_after: 20
+
+- name: the editor is up
+  loop:
+    max: 24
+    do:
+    - wait: 5
+    ocr:
+      name: blivet
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: up
+      from: blivet
+      mode: says_any
+      words:
+      - - Storage
+      - - Requirements
+    until:
+      fact: up
+
+- name: the disk's menu
+  click:
+  - 1186
+  - 318
+  wait_after: 4
+
+- name: create the partition table
+  click:
+  - 1062
+  - 479
+  wait_after: 6
+
+- name: initialize it as GPT, which is the default
+  click:
+  - 474
+  - 381
+  wait_after: 8
+
+- name: the free space's menu
+  click:
+  - 1186
+  - 405
+  wait_after: 4
+
+- name: create the root partition
+  click:
+  - 1120
+  - 450
+  wait_after: 6
+
+- name: name it root
+  click:
+  - 882
+  - 271
+  type: root
+  wait_after: 2
+
+- name: mount it at the root
+  click:
+  - 882
+  - 333
+  type: /
+  wait_after: 2
+
+# THE TYPE LIST IS NOT TOUCHED: ITS DEFAULT IS EXT4, MEASURED. A click into it would be a step that
+# can only make things worse - the list is opened and a wrong entry is one row away.
+- name: create it, taking the dialog's own ext4 default
+  click:
+  - 456
+  - 627
+  wait_after: 8
+
+- name: the root partition's menu, to make room for the ESP
+  click:
+  - 1186
+  - 363
+  wait_after: 4
+
+- name: shrink it
+  click:
+  - 1029
+  - 562
+  wait_after: 6
+
+- name: to 136 GB, leaving room for the ESP
+  click:
+  - 1041
+  - 275
+  wait_after: 1
+
+- name: replace the size
+  key: ctrl+a
+  wait_after: 1
+
+- name: the size the shrink dialog is given
+  type: '136'
+  wait_after: 2
+
+- name: confirm the shrink
+  click:
+  - 456
+  - 337
+  wait_after: 8
+
+- name: the new free space's menu
+  click:
+  - 1186
+  - 405
+  wait_after: 4
+
+- name: create the ESP
+  click:
+  - 1120
+  - 450
+  wait_after: 6
+
+- name: choose the ESP type, because the dialog defaults to ext4
+  click:
+  - 882
+  - 394
+  wait_after: 4
+
+- name: EFI system partition
+  click:
+  - 648
+  - 576
+  wait_after: 4
+
+- name: name it boot
+  click:
+  - 882
+  - 271
+  type: boot
+  wait_after: 2
+
+- name: create it, and the mount point is filled in for us
+  click:
+  - 456
+  - 566
+  wait_after: 10
+
+- name: back to the installer
+  click:
+  - 450
+  - 975
+  wait_after: 12
+
+- name: accept the layout it detected
+  click:
+  - 737
+  - 332
+  wait_after: 15
+
+- name: the review page, which now names this storage
+  ocr:
+    name: review
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
+
+- name: the review names a configured layout
+  check:
+    name: configured
+    from: review
+    mode: says_any
+    words:
+    - - configured
+    - - Review
 - name: the install is written
   disk_settle: 180
   disk_min_mb: 512
