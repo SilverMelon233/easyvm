@@ -350,52 +350,57 @@ jobs:
             *) echo "=== THE DAEMON DID NOT COME UP ==="; exit 1 ;;
           esac
 
-      - name: ask for the run, and follow it to the end
-        # `easyvm run` IS A CLIENT AND RETURNS IMMEDIATELY. MEASURED on run 44025008327:
+      - name: follow it
+        # THE WALK IS STREAMED TO A CHECK RUN, SO IT CAN BE WATCHED WHILE IT RUNS.
         #
-        #	status: starting
-        #	[easyvm] the daemon is driving it; `easyvm status --work work` to follow
-        #	stat: cannot statx 'vocab-kubuntu.qcow2': No such file or directory
+        # THIS FILE DID NOT HAVE THIS, AND THAT IS WHY EVERY EARLIER RUN WAS FOLLOWED BY SLEEPING.
+        # The actions log is unreadable until the step finishes, so `easyvm status` polled from outside
+        # is the only signal a person gets - and that means waiting. `easyactions/log-stream` publishes
+        # the newest 60,000 characters to a check run every ten seconds, which is exactly the "which
+        # step is it on" question an in-progress stage has.
         #
-        # - the run had STARTED and the next line asked for its output. So the request and the
-        # following are two different things, and this step does both.
-        #
-        # THE LOOP ENDS BEFORE THE JOB'S OWN LIMIT, or the runner kills it mid-sleep and the daemon
-        # log - the one thing that says which step failed - is never printed. stage.yml records
-        # exactly that: 97 minutes in `follow it` and an opaque cancellation instead of a reason.
-        #
-        # POSIX SH ONLY: a container step runs /bin/sh, and `$SECONDS` is a bash variable.
-        run: |
-          set -eu
-          file="${{ inputs.walk }}"
-          if [ -z "$file" ]; then file="linux/${{ inputs.distro }}/steps/install.yaml"; fi
-          echo "the walkthrough is $file"
-          easyvm run "$file" \
-            --work "$GITHUB_WORKSPACE/work" \
-            --out "$GITHUB_WORKSPACE/vocab-${{ inputs.distro }}.qcow2" \
-            --password admin
-
-          limit=$(( 100 - 10 ))
-          rounds=0
-          while [ "$rounds" -lt "$limit" ]; do
-            rounds=$((rounds + 1))
-            state=$(easyvm status --work "$GITHUB_WORKSPACE/work" 2>&1 || true)
-            printf '%s\n' "$state"
-            case "$state" in
-              *"status: finished"*) echo "=== THE WALKTHROUGH FINISHED ==="; break ;;
-              *"status: failed"*)
-                echo "=== THE WALKTHROUGH FAILED ==="
-                cat "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
-                exit 1 ;;
-            esac
-            sleep 60
-          done
-          case "$state" in
-            *"status: finished"*) ;;
-            *) echo "=== THE WALKTHROUGH DID NOT FINISH IN TIME ==="
-               cat "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
-               exit 1 ;;
-          esac
+        # `stage.yml` has done this since it was written; this workflow is a copy of the mechanism and
+        # the copy had lost it.
+        uses: easydev-org/easyactions/log-stream@main
+        with:
+          token: ${{ github.token }}
+          name: ${{ inputs.distro }}-live
+          interval: "10"
+          max_bytes: "60000"
+          command: |
+            set -eu
+            summary=${GITHUB_STEP_SUMMARY:-/dev/null}
+            printf '| time | state |\n|---|---|\n' >> "$summary"
+            file="${{ inputs.walk }}"
+            if [ -z "$file" ]; then file="linux/${{ inputs.distro }}/steps/install.yaml"; fi
+            echo "the walkthrough is $file"
+            easyvm run "$file" \
+              --work "$GITHUB_WORKSPACE/work" \
+              --out "$GITHUB_WORKSPACE/vocab-${{ inputs.distro }}.qcow2" \
+              --password admin
+            # TEN MINUTES OF HEADROOM, because the steps after this one are not instant.
+            limit=$(( 120 - 10 ))
+            rounds=0
+            while [ "$rounds" -lt "$limit" ]; do
+              rounds=$((rounds + 1))
+              state=$(easyvm status --work "$GITHUB_WORKSPACE/work" 2>&1 || true)
+              printf '%s\n' "$state"
+              printf '| %s | %s |\n' "$(date -u +%H:%M:%S)" "$(printf '%s' "$state" | head -1)" >> "$summary"
+              case "$state" in
+                *"status: finished"*)
+                  echo "=== THE WALKTHROUGH FINISHED ==="
+                  cat "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
+                  exit 0 ;;
+                *"status: failed"*)
+                  echo "=== THE WALKTHROUGH FAILED ==="
+                  cat "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
+                  exit 1 ;;
+              esac
+              sleep 60
+            done
+            echo "=== THE WALKTHROUGH DID NOT FINISH IN TIME ==="
+            cat "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
+            exit 1
 
       - name: prove the disk was written
         run: |
