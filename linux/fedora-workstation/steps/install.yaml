@@ -104,24 +104,43 @@ steps:
     until:
       fact: ready
 
+# THE FIRST TWO `Next` PRESSES, IN THE WEB UI'S OWN COORDINATES.
+#
+# MEASURED: its footer sits at y=666 in the 1280-wide view - `Back / Next / Quit` - so `Next` is
+# (726, 999) on this frame. The file had (729, 1002), which is the OLD Qt wizard's footer, three
+# pixels off in x and y from a button that no longer exists at that position.
+#
+# AND THE VERDICTS ARE THE WEB UI'S WORDS: `Installation method` and `Storage configuration` are
+# titles the Qt wizard drew; the web UI's second page is `How would you like to install?` with a
+# `Destination` heading, and its third is the storage editor link or the encryption page.
 - name: welcome
   click:
-  - 729
-  - 1002
-  expect_any:
-  - - installation
-    - method
+  - 726
+  - 999
   wait_after: 15
+
+- name: the installation method page
+  ocr:
+    name: method
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+- name: that page asks how to install
+  check:
+    name: asking
+    from: method
+    mode: says_any
+    words:
+    - - Destination
+    - - install
+    - - storage
+
 - name: installation method
   click:
-  - 729
-  - 1002
-  expect_any:
-  - - storage
-    - configuration
-  - - configuracion
-    - de
-    - almacenamiento
+  - 726
+  - 999
   wait_after: 12
 # THIS MEDIUM INSTALLS btrfs BY DEFAULT AND ITS `Use entire disk` PATH HAS NO FILESYSTEM CHOICE.
 #
