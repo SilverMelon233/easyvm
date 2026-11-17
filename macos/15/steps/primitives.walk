@@ -94,8 +94,26 @@ walkthrough "macos 15 - every primitive, nothing expensive"
     share_family == macos
     share_mount == true
     timeout == 180
-  step "prove the share is writable"
-    ssh == "printf 'from-%s\\n' \"$(hostname)\" > ~/shared/primitives.txt && cat ~/shared/primitives.txt\n"
+  # THE SHARE IS SERVED OVER HTTP, NOT MOUNTED, SO THERE IS NO `~/shared` TO WRITE INTO.
+  #
+  # `share_mount:` DOES NOT MOUNT ANYTHING: it writes a sentinel on the host and has the GUEST
+  # FETCH IT OVER HTTP - and the run's own log says so:
+  #
+  #	share: the macos guest fetches http://172.30.0.1:8080/shared/.easyvm-share-proof-...
+  #	share: a file written on the host is readable in the guest - the share is real
+  #
+  # So `> ~/shared/primitives.txt` wrote into a directory this design never creates:
+  #
+  #	prove the share is writable: the command exited 1
+  #
+  # MEASURED on run 44152211626, step 15/19. The original YAML said the same, so this is the
+  # fourth defect in a file that had never been executed.
+  #
+  # `share:` IS ONE-WAY BY CONSTRUCTION - the host serves, the guest reads - so a step claiming to
+  # write back is claiming a mount the mechanism does not have. What IS true is that the guest
+  # reaches the share and reads it, which is what this asserts.
+  step "prove the share is readable from the guest"
+    ssh == "curl -fsS --max-time 20 http://172.30.0.1:8080/shared/ >/dev/null && echo SHARE_READABLE\n"
     timeout == 120
   step reboot
     reboot == true
