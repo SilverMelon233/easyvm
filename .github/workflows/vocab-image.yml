@@ -87,6 +87,10 @@ jobs:
     needs: compile
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    outputs:
+      # THE TAG THE WALKTHROUGH JOB PULLS, from the one step that computes it - so the name an image
+      # is pushed under and the name it is pulled back by cannot drift.
+      tag: ${{ steps.tag.outputs.name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -185,3 +189,77 @@ jobs:
           docker pull "$tag"
           echo "the branch image is $tag"
           docker run --rm --entrypoint "" "$tag" easyvm versions
+
+  # ===========================================================================
+  # THE REAL WALKTHROUGHS, IN THE IMAGE JUST PUSHED.
+  #
+  # THIS JOB IS IN THIS FILE, AND THAT IS NOT LAYOUT - IT IS THE ONLY WAY IT CAN RUN. GitHub
+  # registers a workflow for `workflow_dispatch` and as a `workflow_run` TRIGGER only from the
+  # DEFAULT branch. MEASURED, both:
+  #
+  #	gh workflow run vocab-walk.yml --ref vocabulary/three-verbs
+  #	  -> HTTP 404: Not Found (.../actions/workflows/vocab-walk.yml)
+  #
+  #	gh run list --workflow=vocab-walk.yml          (after a separate file was pushed)
+  #	  -> nothing, and `gh api .../actions/workflows` listed "vocab image" alone
+  #
+  # while `git ls-tree origin/vocabulary/three-verbs .github/workflows/` showed the file present.
+  # So a branch workflow can only be started BY A PUSH TO THAT BRANCH, which means the walkthrough
+  # leg has to live in the file the push already runs.
+  #
+  # IT INSTALLS AND STOPS THERE. The `ssh` and `vm-configure` stages belong to the OS workflows, and
+  # this branch changes nothing about the network or the guest account - a run that mixes two
+  # subjects cannot say which one broke.
+  # ===========================================================================
+  walkthrough:
+    needs: image
+    # A REAL INSTALL IS FORTY TO NINETY MINUTES AND IS NOT FREE, so it runs only when the branch
+    # asked for it - a `push` of ordinary work still gets the compile gate and the unit tests.
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[walk]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      packages: write
+      checks: write
+    container:
+      image: ghcr.io/${{ github.repository }}:${{ needs.image.outputs.tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN --shm-size 2g
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: what this step is about to do
+        run: |
+          set -e
+          easyvm versions
+          echo "the walkthrough this run installs:"
+          easyvm list linux/kubuntu/steps/install.yaml | head -5
+
+      - name: the medium, pulled before the run so nothing downloads mid-install
+        # THE SAME SCRIPT THE PRODUCT'S STAGES USE. `easyvm pull` no longer exists - it was removed
+        # in favour of pulling every medium outside the run, which is the rule this step follows.
+        run: |
+          set -e
+          mkdir -p work
+          sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+            ghcr.io easydev-org/easyvm iso-kubuntu-desktop "$GITHUB_WORKSPACE/work/kubuntu.iso"
+          ls -l work/kubuntu.iso
+
+      - name: install, and prove the disk was written
+        run: |
+          set -e
+          easyvm run linux/kubuntu/steps/install.yaml \
+            --work work \
+            --out vocab-kubuntu.qcow2 \
+            --password admin
+          size=$(stat -c %s vocab-kubuntu.qcow2)
+          echo "the disk is $size bytes"
+          # THE SAME FLOOR THE PRODUCT USES: a header-only qcow2 is a walk whose clicks never
+          # reached the installer's disk, and a green step in front of one proves nothing.
+          if [ "$size" -lt $((512 * 1024 * 1024)) ]; then
+            echo "::error::$size bytes is a qcow2 header with nothing written to it"
+            exit 1
+          fi
