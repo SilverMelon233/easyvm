@@ -1,13 +1,18 @@
 # The Linux install walkthroughs
 
-Seven distributions install unattended from these files, and every one of them produces an **ext4**
-root. This document is the index: what each walk does, where the filesystem decision is made, and
-the evidence that the disk that comes out is ext4.
+Twelve distributions have install walkthroughs here. The goal for all of them is the same: install
+unattended, from these files, onto an **ext4** root - and this document is the index of what each file
+does, where its filesystem decision is made, and the evidence that the disk that comes out is ext4.
 
-The other five directories (`fedora-workstation`, `opensuse-leap-16.1`, `popos`, `mx`, `nixos`) are
-NOT here. They have install files and they have not been proven to produce ext4 - `fedora-workstation`
-and `opensuse-leap-16.1` are measured to produce **btrfs** and their installers offer no filesystem
-selector (see "The two that cannot reach ext4" below).
+**THEY ARE NOT ALL AT THE SAME STAGE, AND SAYING WHICH IS PART OF THE INDEX.** Nothing here counts as
+done because a file exists; each claim below names its evidence.
+
+| stage | distributions |
+|---|---|
+| ext4 read back off the disk AND a green CI install leg | kubuntu, ubuntu, cachyos, endeavouros, manjaro, mint, zorin |
+| ext4 read back off the disk (walk still being brought to a full pass) | fedora-workstation |
+| ext4 read back by hand, walk never run to a pass | popOS |
+| not walked at all | opensuse-leap-16.1 |
 
 ## The rule every file follows
 
@@ -186,9 +191,10 @@ All seven have been run to completion on a workstation AND their install leg has
 A whole `<name>.yml` run still shows `failure` for most of them, because the ssh and vm legs that
 follow the install leg are NOT in scope and are not passing. Read the install leg, not the run.
 
-## The two that cannot reach ext4
+## The two whose installers default to btrfs
 
-`fedora-workstation` and `opensuse-leap-16.1` are measured to install **btrfs** by default:
+`fedora-workstation` and `opensuse-leap-16.1` both install **btrfs at `/`** if you take their
+default path:
 
 ```
 fedora 45, Review and install:
@@ -198,8 +204,31 @@ fedora 45, Review and install:
   vda3   135 GB  format as btrfs subvolume  /home
 ```
 
-Fedora's `Storage configuration` page offers **encryption only** - no filesystem selector. The only
-route to ext4 in that installer is `Advanced → Launch storage editor` (blivet-gui), whose popup menus
-are closed by the pointer move that precedes every click here, or a kickstart answer file, which this
-build cannot attach to a Linux boot. openSUSE has the same shape. Until one of those exists, these two
-are out of scope rather than quietly passing.
+**FEDORA STILL REACHES ext4, AND THIS DOCUMENT USED TO SAY IT COULD NOT.** That claim was reasoned
+from blivet-gui's popup menus closing under the pointer move, and never walked. Walking it:
+
+1. `Storage configuration` is one page with one checkbox - encryption only, no filesystem choice.
+2. The page BEFORE it carries a link: `If none of the options above apply, use the storage editor to
+   create a custom partitioning before proceeding.`
+3. That opens blivet-gui, whose `Create partition` dialog HAS A TYPE LIST AND DEFAULTS TO EXT4:
+   `XFS / EXT4 / BTRFS / VFAT / NTFS / Swap / EFI system partition / No filesystem`.
+4. Anaconda accepts the result - `Detected valid storage layout`, then `Use configured storage` -
+   and the finished disk reads back
+
+```
+GPT: yes
+  part1: 129700 MiB  magic=0xef53 incompat=0x000022c6  EXTENTS=True 64BIT=True   -> ext4
+  part2: 131069 MiB  name='EFI System Partition'
+```
+
+So `fedora-workstation/steps/install.yaml` walks the storage editor: create a GPT table, create the
+root partition (taking the dialog's own ext4 default rather than opening the list), shrink it to
+136 GB, and create the ESP from the space that frees. The ESP is the one place the Type list IS
+opened, because there the dialog's default is not what that partition needs.
+
+**THE LESSON, WRITTEN DOWN BECAUSE IT COST A WRONG CONCLUSION:** "this page has no filesystem
+selector" is true and is NOT the same answer as "this medium cannot reach ext4". A claim about a GUI
+has to be walked.
+
+`opensuse-leap-16.1` is the same shape and has NOT been walked yet - its `Expert Partitioner` is the
+equivalent of blivet-gui, and until someone walks it this file says nothing about whether it works.
