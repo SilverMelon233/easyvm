@@ -195,55 +195,42 @@ steps:
 - name: leave the field so it validates
   key: tab
   wait_after: 2
-- name: create user account
-  at_button:
-  - 1240
-  - 755
-  - 1430
-  - 845
-  # THE FALLBACK IS THE BUTTON'S CENTRE, MEASURED, AND IT IS REQUIRED RATHER THAN A NICETY.
-  #
-  # MEASURED on the CI leg: `create user account: no control fill in [1240,755 1430,845], and no
-  # `at_fallback:` to use instead: the dominant colour there is too small to be a control, or there
-  # is none`. The scan looks for a filled rectangle of one colour inside that box; on the runner the
-  # button is drawn with the same fill as its pane and the scan found nothing, while the button was
-  # there and clickable. This is the same failure `open the installer from the dock` had on this
-  # medium, and the same answer: a measured point rather than a scan.
-  at_fallback:
-  - 1366
-  - 811
-  wait_after: 22
-- name: wait for the password pane
+# THE PRESS IS RETRIED UNTIL THE NEXT PANE APPEARS, BECAUSE ONE PRESS SOMETIMES DOES NOT TAKE.
+#
+# MEASURED on the CI leg: the fallback point (1366, 811) was pressed, and the next reading was
+#
+#	screen: 141 word(s): Workspaces Applications M1117 9:04 PM ...
+#
+# - THE DESKTOP. The wizard had closed or the press had gone to the dock, and the steps after it
+# typed a password into the wallpaper before the install step found the disk at 0 MiB.
+#
+# `at_button` WITH `at_fallback` PRESSES ONCE. This is a loop instead: press, then read the pane the
+# press is supposed to reach, and press again if it is not there. The verdict is `Choose Account
+# Password`, which is on the password pane and nowhere on the account-name pane before it.
+- name: create user account, and wait for the password pane
   loop:
-    max: 45
+    max: 6
     do:
-    - wait: 2
+    - click:
+      - 1366
+      - 811
+      wait_after: 8
     ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
+      name: pw_pane
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
       scale: 1
-      wait: 0
+      wait: 2
     check:
-      name: done
-      from: screen
+      name: there
+      from: pw_pane
       mode: says_any
-      # ONE TOKEN PER SET, because `says_any` asks whether EVERY word in a set is present and OCR
-      # returns this pane's heading in shapes that split differently run to run - `Choose Account
-      # Password` on one frame, `ChooseAccountPassword` on another, `Account Password` on a third.
-      # MEASURED on the CI leg: both multi-word sets missed for 45 attempts on a page that was up.
       words:
       - - Choose
-      - - Password
       - - Confirm
     until:
-      fact: done
+      fact: there
+
 - name: dismiss anything a stray click opened
   key: esc
   wait_after: 2
