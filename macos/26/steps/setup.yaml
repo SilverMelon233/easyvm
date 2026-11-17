@@ -391,22 +391,9 @@ steps:
   wait_after: 10
 - name: the copy runs, look 1 of at most 8
   loop:
-    # ONE ATTEMPT: WAIT FIFTEEN MINUTES, THEN READ THE SCREEN ONCE.
-    #
-    # `max: 1` WITH `until: matches '.'` IS HOW A STEP SPENDS A FIXED TIME WITHOUT FAILING ON TIMEOUT.
-    # The seven `wait: 120` below are fourteen minutes; the read at the end brings it to fifteen. A
-    # condition that could be FALSE would make `loop:` fail when the install had simply not finished -
-    # which is the normal case for every look but the last - so the condition is one the reading always
-    # answers, and the SETUP ASSISTANT is tested by the step after the eighth reset.
-    max: 1
+    max: 270
     do:
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
+    - wait: 20
     ocr:
       name: screen
       region:
@@ -422,9 +409,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: matches
-      pattern: .
-      words:
+      mode: says_any
+      words: &id001
       - - select
         - your
         - country
@@ -486,22 +472,9 @@ steps:
       fact: anything1
 - name: the copy runs, look 2 of at most 8
   loop:
-    # ONE ATTEMPT: WAIT FIFTEEN MINUTES, THEN READ THE SCREEN ONCE.
-    #
-    # `max: 1` WITH `until: matches '.'` IS HOW A STEP SPENDS A FIXED TIME WITHOUT FAILING ON TIMEOUT.
-    # The seven `wait: 120` below are fourteen minutes; the read at the end brings it to fifteen. A
-    # condition that could be FALSE would make `loop:` fail when the install had simply not finished -
-    # which is the normal case for every look but the last - so the condition is one the reading always
-    # answers, and the SETUP ASSISTANT is tested by the step after the eighth reset.
-    max: 1
+    max: 9
     do:
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
+    - wait: 20
     ocr:
       name: screen
       region:
@@ -517,39 +490,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: matches
-      pattern: .
-      words:
-      - - select
-        - your
-        - country
-        - or
-        - region
-      - - how
-        - do
-        - you
-        - want
-        - to
-        - connect
-        - to
-        - the
-        - internet
-      - - transfer
-        - your
-        - information
-        - to
-        - this
-        - mac
-      - - choose
-        - a
-        - wireless
-        - network
-      - - sign
-        - in
-        - with
-        - your
-        - apple
-        - id
+      mode: says_any
+      words: *id001
     until:
       fact: done
 - name: reset the guest after look 2, because this installer stalls and a reset is what moves it
@@ -581,22 +523,9 @@ steps:
       fact: anything2
 - name: the copy runs, look 3 of at most 8
   loop:
-    # ONE ATTEMPT: WAIT FIFTEEN MINUTES, THEN READ THE SCREEN ONCE.
-    #
-    # `max: 1` WITH `until: matches '.'` IS HOW A STEP SPENDS A FIXED TIME WITHOUT FAILING ON TIMEOUT.
-    # The seven `wait: 120` below are fourteen minutes; the read at the end brings it to fifteen. A
-    # condition that could be FALSE would make `loop:` fail when the install had simply not finished -
-    # which is the normal case for every look but the last - so the condition is one the reading always
-    # answers, and the SETUP ASSISTANT is tested by the step after the eighth reset.
-    max: 1
+    max: 9
     do:
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
+    - wait: 20
     ocr:
       name: screen
       region:
@@ -612,39 +541,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: matches
-      pattern: .
-      words:
-      - - select
-        - your
-        - country
-        - or
-        - region
-      - - how
-        - do
-        - you
-        - want
-        - to
-        - connect
-        - to
-        - the
-        - internet
-      - - transfer
-        - your
-        - information
-        - to
-        - this
-        - mac
-      - - choose
-        - a
-        - wireless
-        - network
-      - - sign
-        - in
-        - with
-        - your
-        - apple
-        - id
+      mode: says_any
+      words: *id001
     until:
       fact: done
 - name: reset the guest after look 3, because this installer stalls and a reset is what moves it
@@ -676,22 +574,9 @@ steps:
       fact: anything3
 - name: the copy runs, look 4 of at most 8
   loop:
-    # ONE ATTEMPT: WAIT FIFTEEN MINUTES, THEN READ THE SCREEN ONCE.
-    #
-    # `max: 1` WITH `until: matches '.'` IS HOW A STEP SPENDS A FIXED TIME WITHOUT FAILING ON TIMEOUT.
-    # The seven `wait: 120` below are fourteen minutes; the read at the end brings it to fifteen. A
-    # condition that could be FALSE would make `loop:` fail when the install had simply not finished -
-    # which is the normal case for every look but the last - so the condition is one the reading always
-    # answers, and the SETUP ASSISTANT is tested by the step after the eighth reset.
-    max: 1
+    max: 9
     do:
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
+    - wait: 20
     ocr:
       name: screen
       region:
@@ -707,39 +592,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: matches
-      pattern: .
-      words:
-      - - select
-        - your
-        - country
-        - or
-        - region
-      - - how
-        - do
-        - you
-        - want
-        - to
-        - connect
-        - to
-        - the
-        - internet
-      - - transfer
-        - your
-        - information
-        - to
-        - this
-        - mac
-      - - choose
-        - a
-        - wireless
-        - network
-      - - sign
-        - in
-        - with
-        - your
-        - apple
-        - id
+      mode: says_any
+      words: *id001
     until:
       fact: done
 - name: reset the guest after look 4, because this installer stalls and a reset is what moves it
@@ -771,22 +625,9 @@ steps:
       fact: anything4
 - name: the copy runs, look 5 of at most 8
   loop:
-    # ONE ATTEMPT: WAIT FIFTEEN MINUTES, THEN READ THE SCREEN ONCE.
-    #
-    # `max: 1` WITH `until: matches '.'` IS HOW A STEP SPENDS A FIXED TIME WITHOUT FAILING ON TIMEOUT.
-    # The seven `wait: 120` below are fourteen minutes; the read at the end brings it to fifteen. A
-    # condition that could be FALSE would make `loop:` fail when the install had simply not finished -
-    # which is the normal case for every look but the last - so the condition is one the reading always
-    # answers, and the SETUP ASSISTANT is tested by the step after the eighth reset.
-    max: 1
+    max: 9
     do:
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
+    - wait: 20
     ocr:
       name: screen
       region:
@@ -802,39 +643,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: matches
-      pattern: .
-      words:
-      - - select
-        - your
-        - country
-        - or
-        - region
-      - - how
-        - do
-        - you
-        - want
-        - to
-        - connect
-        - to
-        - the
-        - internet
-      - - transfer
-        - your
-        - information
-        - to
-        - this
-        - mac
-      - - choose
-        - a
-        - wireless
-        - network
-      - - sign
-        - in
-        - with
-        - your
-        - apple
-        - id
+      mode: says_any
+      words: *id001
     until:
       fact: done
 - name: reset the guest after look 5, because this installer stalls and a reset is what moves it
@@ -866,22 +676,9 @@ steps:
       fact: anything5
 - name: the copy runs, look 6 of at most 8
   loop:
-    # ONE ATTEMPT: WAIT FIFTEEN MINUTES, THEN READ THE SCREEN ONCE.
-    #
-    # `max: 1` WITH `until: matches '.'` IS HOW A STEP SPENDS A FIXED TIME WITHOUT FAILING ON TIMEOUT.
-    # The seven `wait: 120` below are fourteen minutes; the read at the end brings it to fifteen. A
-    # condition that could be FALSE would make `loop:` fail when the install had simply not finished -
-    # which is the normal case for every look but the last - so the condition is one the reading always
-    # answers, and the SETUP ASSISTANT is tested by the step after the eighth reset.
-    max: 1
+    max: 9
     do:
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
+    - wait: 20
     ocr:
       name: screen
       region:
@@ -897,39 +694,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: matches
-      pattern: .
-      words:
-      - - select
-        - your
-        - country
-        - or
-        - region
-      - - how
-        - do
-        - you
-        - want
-        - to
-        - connect
-        - to
-        - the
-        - internet
-      - - transfer
-        - your
-        - information
-        - to
-        - this
-        - mac
-      - - choose
-        - a
-        - wireless
-        - network
-      - - sign
-        - in
-        - with
-        - your
-        - apple
-        - id
+      mode: says_any
+      words: *id001
     until:
       fact: done
 - name: reset the guest after look 6, because this installer stalls and a reset is what moves it
@@ -961,22 +727,9 @@ steps:
       fact: anything6
 - name: the copy runs, look 7 of at most 8
   loop:
-    # ONE ATTEMPT: WAIT FIFTEEN MINUTES, THEN READ THE SCREEN ONCE.
-    #
-    # `max: 1` WITH `until: matches '.'` IS HOW A STEP SPENDS A FIXED TIME WITHOUT FAILING ON TIMEOUT.
-    # The seven `wait: 120` below are fourteen minutes; the read at the end brings it to fifteen. A
-    # condition that could be FALSE would make `loop:` fail when the install had simply not finished -
-    # which is the normal case for every look but the last - so the condition is one the reading always
-    # answers, and the SETUP ASSISTANT is tested by the step after the eighth reset.
-    max: 1
+    max: 9
     do:
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
+    - wait: 20
     ocr:
       name: screen
       region:
@@ -992,39 +745,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: matches
-      pattern: .
-      words:
-      - - select
-        - your
-        - country
-        - or
-        - region
-      - - how
-        - do
-        - you
-        - want
-        - to
-        - connect
-        - to
-        - the
-        - internet
-      - - transfer
-        - your
-        - information
-        - to
-        - this
-        - mac
-      - - choose
-        - a
-        - wireless
-        - network
-      - - sign
-        - in
-        - with
-        - your
-        - apple
-        - id
+      mode: says_any
+      words: *id001
     until:
       fact: done
 - name: reset the guest after look 7, because this installer stalls and a reset is what moves it
@@ -1056,22 +778,9 @@ steps:
       fact: anything7
 - name: the copy runs, look 8 of at most 8
   loop:
-    # ONE ATTEMPT: WAIT FIFTEEN MINUTES, THEN READ THE SCREEN ONCE.
-    #
-    # `max: 1` WITH `until: matches '.'` IS HOW A STEP SPENDS A FIXED TIME WITHOUT FAILING ON TIMEOUT.
-    # The seven `wait: 120` below are fourteen minutes; the read at the end brings it to fifteen. A
-    # condition that could be FALSE would make `loop:` fail when the install had simply not finished -
-    # which is the normal case for every look but the last - so the condition is one the reading always
-    # answers, and the SETUP ASSISTANT is tested by the step after the eighth reset.
-    max: 1
+    max: 9
     do:
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
-    - wait: 120
+    - wait: 20
     ocr:
       name: screen
       region:
@@ -1087,39 +796,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: matches
-      pattern: .
-      words:
-      - - select
-        - your
-        - country
-        - or
-        - region
-      - - how
-        - do
-        - you
-        - want
-        - to
-        - connect
-        - to
-        - the
-        - internet
-      - - transfer
-        - your
-        - information
-        - to
-        - this
-        - mac
-      - - choose
-        - a
-        - wireless
-        - network
-      - - sign
-        - in
-        - with
-        - your
-        - apple
-        - id
+      mode: says_any
+      words: *id001
     until:
       fact: done
 - name: the Setup Assistant is on screen, which is what this stage exists to reach
