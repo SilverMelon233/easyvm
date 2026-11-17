@@ -75,50 +75,70 @@ steps:
   terminal_wait: 8
   type_gap: 0.15
   wait_after: 10
-- name: wait for the installer launcher
+# THE DESKTOP ICON IS OBSERVED, THEN OPENED WITH THE KEYBOARD - `double:` DOES NOT OPEN IT.
+#
+# MEASURED, three attempts on the same frame:
+#
+#	double at (114,47)             nothing
+#	double at (114,52)             nothing
+#	click at (114,52)              the label turns blue, the icon is SELECTED
+#	click at (114,52) then ret     the Install window is up
+#
+# The icon's disc was located by its own pixels: a pale blob with centroid (114,52), bounding box
+# x=69..164 y=32..91 on the 1920 frame - so the coordinate was never wrong. CINNAMON'S DESKTOP IS
+# CLICK-TO-SELECT, and the launcher opens on Return; a double-click is not one of its gestures here.
+#
+# THE WAIT IS THE SELECTION ITSELF: `Install Linux Mint` is the icon's LABEL, and it is already on
+# screen before anything happens, so the loop waits for the label to be HIGHLIGHTED - which needs no
+# colour test to state: the step after it presses Return and the Install window appearing IS the
+# verdict that the selection took.
+- name: the desktop's install icon is on screen
+  ocr:
+    name: desktop
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
+
+- name: that icon names the installer
+  check:
+    name: launcher
+    from: desktop
+    mode: says
+    # ONE TOKEN: `says` compares whole words, so a phrase here would never match. `Install` is the
+    # label's first word and nothing else on an idle desktop carries it.
+    words: [Install]
+
+- name: select the installer's icon
+  click: [114, 52]
+  wait_after: 3
+
+- name: open it with the keyboard, because a double-click does not
+  key: ret
+  wait_after: 25
+
+- name: the installer window is up
   loop:
-    max: 120
+    max: 30
     do:
-    - click:
-      - 420
-      - 300
-      wait_after: 5
+    - wait: 6
     ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
+      name: installer
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
       scale: 1
-      wait: 0
+      wait: 2
     check:
-      name: done
-      from: screen
+      name: up
+      from: installer
       mode: says_any
       words:
-      - - welcome
-        - to
-        - linux
-        - mint
-      - - choose
-        - your
-        - language
-      - - installation
-        - type
+      - - Welcome
+      - - Keyboard
+      - - Multimedia
     until:
-      fact: done
-- name: install linux mint
-  double:
-  - 114
-  - 47
-  expect_any:
-  - - welcome
-  - - install
-  wait_after: 25
+      fact: up
+
 - name: welcome
   click:
   - 1306
