@@ -220,6 +220,57 @@ steps:
   type: '{{ password }}'
   wait_after: 3
 
+# THE FORM IS TALLER THAN THE PAGE, SO `Accept` HAS TO BE SCROLLED TO BEFORE IT CAN BE CLICKED.
+#
+# MEASURED: with the account filled in, the visible page ends at `Root login method [Disabled]` and
+# `Accept` is BELOW the fold. A click at its layout position (92, 1016) lands on whatever is drawn
+# there, which is not the button - and the run then sat on Authentication with the form complete and
+# `Defining a user ... is required` still at the top, while the steps after it acted on a summary page
+# that was never reached.
+#
+# THE SCROLL IS THE FOCUS: pressing Tab moves focus to the next control and the browser scrolls it
+# into view, so the button arrives at a position that can be clicked. MEASURED by hand: ten Tabs put
+# `Accept` on screen at (61, 677) in the 1280 view, which is (92, 1016) on this frame.
+- name: scroll the form to its buttons, by tabbing focus down it
+  key: tab
+  wait_after: 1
+
+- name: tab 1 of the scroll
+  key: tab
+  wait_after: 1
+
+- name: tab 2 of the scroll
+  key: tab
+  wait_after: 1
+
+- name: tab 3 of the scroll
+  key: tab
+  wait_after: 1
+
+- name: tab 4 of the scroll
+  key: tab
+  wait_after: 1
+
+- name: tab 5 of the scroll
+  key: tab
+  wait_after: 1
+
+- name: tab 6 of the scroll
+  key: tab
+  wait_after: 1
+
+- name: tab 7 of the scroll
+  key: tab
+  wait_after: 1
+
+- name: tab 8 of the scroll
+  key: tab
+  wait_after: 1
+
+- name: tab to Accept, which scrolls it into view
+  key: tab
+  wait_after: 2
+
 - name: accept the account
   click:
   - 92
