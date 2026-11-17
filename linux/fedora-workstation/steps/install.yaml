@@ -487,39 +487,56 @@ steps:
 #
 # `ext4 filesystem` at (460, 363) is the Type cell of the same row and selects the row without
 # navigating.
-- name: select the root partition's row
+# THE PARTITION'S DETAIL PAGE IS THE RELIABLE WAY TO ITS SHRINK BUTTON.
+#
+# MEASURED, five runs: the LIST page's row-menu (the four-pixel kebab at (1185, 363)) opens only when
+# the row is already hovered, and pressing it from a cold pointer sometimes opens a menu and sometimes
+# nothing - which is why `the partition menu is open` failed on runs where the table plainly showed
+# `vda1 ext4 filesystem / 137 GB`.
+#
+# THE `vda1` LABEL IS A LINK TO A DETAIL PAGE, and that page has its OWN `Shrink` button at a fixed
+# place, drawn whether or not anything is hovered:
+#
+#	Storage > vda - VirtIO Disk > vda1
+#	Partition          Name -   UUID 4d012aae...   Type Linux filesystem data   Size 137 GB
+#	                   [Shrink]  [Grow]  kebab                                  <- at y=178 in 1280
+#	ext4 filesystem    Name root   Mount point /
+#
+# MEASURED off that page's own frame: `Shrink` is at (672, 178) in the 1280-wide view, which is
+# (1008, 267) on this frame.
+- name: open the root partition's detail page
   click:
-  - 700
+  - 460
   - 363
-  wait_after: 3
+  wait_after: 6
 
-- name: the partition menu is open
+- name: the detail page is up
   loop:
     max: 12
     do:
     - wait: 2
     ocr:
-      name: the_partition_menu_is_open
+      name: detail
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
       scale: 1
       wait: 0
     check:
       name: up
-      from: the_partition_menu_is_open
+      from: detail
       mode: says_any
+      # `UUID` and `Mount point` are on this page and not on the table it came from.
       words:
-      - - Edit
-      - - Delete
-      - - Shrink
+      - - UUID
+      - - Mount
     until:
       fact: up
 
-- name: the root partition's menu, to make room for the ESP
+- name: shrink it from the detail page
   click:
-  - 1185
-  - 363
-  wait_after: 4
+  - 1008
+  - 267
+  wait_after: 6
 
 - name: the shrink dialog is up
   loop:
@@ -527,19 +544,18 @@ steps:
     do:
     - wait: 2
     ocr:
-      name: the_shrink_dialog_is_up
+      name: shrink_dialog
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
       scale: 1
       wait: 0
     check:
       name: up
-      from: the_shrink_dialog_is_up
+      from: shrink_dialog
       mode: says_any
       words:
       - - Shrink
       - - Size
-      - - Cancel
     until:
       fact: up
 
@@ -579,6 +595,39 @@ steps:
   - 700
   - 400
   wait_after: 8
+
+# THE SHRINK LEAVES THE DETAIL PAGE OPEN, SO THE LIST IS RETURNED TO BY ITS BREADCRUMB.
+#
+# MEASURED: after `Shrink`, the page is still `Storage > vda - VirtIO Disk > vda1`, and the new
+# `Free space 1.44 GB` row exists on the LIST page behind it. `Storage` in that breadcrumb is at
+# (196, 143) in the 1280-wide view - (294, 215) here - and is the link back up.
+- name: back to the partition list
+  click:
+  - 294
+  - 215
+  wait_after: 6
+
+- name: the list is up, with free space on it
+  loop:
+    max: 12
+    do:
+    - wait: 2
+    ocr:
+      name: back_at_list
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: up
+      from: back_at_list
+      mode: says_any
+      # `Free space` only exists once the shrink has taken and the list is redrawn.
+      words:
+      - - Free
+      - - space
+    until:
+      fact: up
 
 - name: the new free space's menu
   click:
