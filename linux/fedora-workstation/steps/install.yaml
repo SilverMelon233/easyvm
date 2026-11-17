@@ -495,6 +495,43 @@ steps:
   type: boot
   wait_after: 2
 
+# THE ESP'S DIALOG IS VERIFIED BEFORE ITS BUTTON IS PRESSED, BECAUSE THIS IS WHERE IT WENT WRONG.
+#
+# MEASURED: `vda1 ext4 filesystem / 136 GB` was created and the shrink left `Free space 1.44 GB`, then
+#
+#	=== name it boot
+#	  typed 4 character(s)
+#	=== create it, and the mount point is filled in for us
+#	  no pixel within 45 of rgb(177,56,11)
+#
+# - so the four characters went somewhere and the dialog was not on screen when the colour was looked
+# for. The ESP type is what closes that dialog, and its Type list sits at a different height from the
+# root dialog's because this one arrives with the mount point already filled to /boot/efi.
+#
+# SO THE DIALOG IS READ FIRST: `Create` is its heading and `EFI` is its Type row. If either is missing
+# the step fails here rather than at a colour press with an empty screenshot.
+- name: the ESP dialog is up
+  loop:
+    max: 12
+    do:
+    - wait: 2
+    ocr:
+      name: esp_dialog
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: up
+      from: esp_dialog
+      mode: says_any
+      words:
+      - - Create
+      - - EFI
+    until:
+      fact: up
+
+
 - name: create it, and the mount point is filled in for us
   # THE COLOUR IS MEASURED, NOT ESTIMATED. MEASURED over the button's own box (x 404..478, y 608..648)
   # on the hand run's frame: rgb(177, 56, 11) occurs 2280 times there and nothing else comes close.
