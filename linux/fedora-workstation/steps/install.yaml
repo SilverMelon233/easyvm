@@ -525,10 +525,10 @@ steps:
       name: up
       from: detail
       mode: says_any
-      # `UUID` and `Mount point` are on this page and not on the table it came from.
+      # `UUID` IS ON THE DETAIL PAGE AND NOWHERE ON THE LIST IT CAME FROM.
       words:
       - - UUID
-      - - Mount
+      - - filesystem
     until:
       fact: up
 
@@ -622,10 +622,22 @@ steps:
       name: up
       from: back_at_list
       mode: says_any
-      # `Free space` only exists once the shrink has taken and the list is redrawn.
+      # `Free` IS IN BLIVET'S RIGHT-HAND PANEL ON EVERY PAGE - `You can either free up enough space
+      # here` - so it proved nothing. MEASURED:
+      #
+      #	back_at_list: 92 word(s): ... Storage > vda-VirtIO Disk > vdal ... You can either free up
+      #	                             enough space here ...
+      #	back_at_list [check]: up = true (mode says_any: read "Free")
+      #
+      # on a frame that was STILL THE DETAIL PAGE. The breadcrumb `Storage > vda - VirtIO Disk > vda1`
+      # is what those words came from, and the steps after it pressed the LIST's kebab coordinate into
+      # that detail page, so the ESP dialog was never opened.
+      #
+      # `Unformatted` OR `locate` ARE THE LIST'S OWN: the free-space row's Type cell reads
+      # `Unformatted data`, and the detail page's Type cell reads `Linux filesystem data`.
       words:
-      - - Free
-      - - space
+      - - Unformatted
+      - - GPT
     until:
       fact: up
 
