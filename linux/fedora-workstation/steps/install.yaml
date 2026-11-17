@@ -323,9 +323,25 @@ steps:
       name: up
       from: blivet
       mode: says_any
+      # `Storage` IS ON THE PAGE BEFORE THIS ONE, WHICH IS WHY THIS LOOP PASSED WITHOUT THE EDITOR.
+      #
+      # MEASURED:
+      #
+      #	blivet: 41 word(s): Fedora Linux 45 (Workstation Edition) installation : 1 Welcome
+      #	                    Storage configuration ...
+      #	the editor is up [check]: up = true (mode says_any: read "Storage")
+      #
+      # - the frame was Anaconda's `Storage configuration` page, which carries the word `Storage` in
+      # its title. The loop satisfied itself after ONE attempt, every click below went into that page
+      # instead of blivet-gui, and the run ended back on `Storage configuration` with the disk at 0.
+      #
+      # THE WORDS BELOW ARE INSIDE BLIVET-GUI AND NOWHERE ELSE: its right-hand panel is headed
+      # `Requirements` and says `Fedora Linux requires at least 8.30 GB of disk space`, and its table
+      # has a column headed `Type` whose row reads `Unformatted data`.
       words:
-      - - Storage
       - - Requirements
+      - - Unformatted
+      - - Type
     until:
       fact: up
 
