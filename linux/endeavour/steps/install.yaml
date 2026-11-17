@@ -47,7 +47,7 @@ steps:
 # than needing a second press to take focus.
 - name: start the installer
   click: [748, 431]
-  wait_after: 25
+  settle: 25
 
 # ENDEAVOUROS ASKS FOR AN INSTALL METHOD BEFORE CALAMARES: `Online` or `Offline`.
 #
@@ -56,7 +56,7 @@ steps:
 # either way. The button is at (1084, 591).
 - name: choose the offline method
   click: [1084, 591]
-  wait_after: 30
+  settle: 30
 
 - name: calamares is up
   ocr:
@@ -102,23 +102,23 @@ steps:
 # locale list's order.
 - name: open the language list
   click: [980, 661]
-  wait_after: 4
+  settle: 4
 
 - name: jump to the English group
   key: e
-  wait_after: 2
+  settle: 2
 
 - name: step up to British English
   key: up
-  wait_after: 1
+  settle: 1
 
 - name: step up to American English
   key: up
-  wait_after: 1
+  settle: 1
 
 - name: choose it
   key: ret
-  wait_after: 6
+  settle: 6
 
 - name: the installer speaks English
   ocr:
@@ -141,18 +141,18 @@ steps:
 # Welcome -> Location
 - name: next from welcome
   click: [1410, 878]
-  wait_after: 9
+  settle: 9
 
 # Location IS LEFT AS IT IS. Location -> Keyboard
 - name: next from location
   click: [1410, 878]
-  wait_after: 9
+  settle: 9
 
 # Keyboard -> Bootloader, where `systemd-boot` is preselected and the walk keeps it: the Summary reads
 # `Install option: systemd-boot`, and the disk this produces boots from it.
 - name: next from keyboard
   click: [1410, 878]
-  wait_after: 9
+  settle: 9
 
 - name: the bootloader page
   ocr:
@@ -165,7 +165,7 @@ steps:
 # Bootloader -> Partitions
 - name: next from bootloader
   click: [1410, 878]
-  wait_after: 9
+  settle: 9
 
 - name: the partitions page
   ocr:
@@ -179,7 +179,7 @@ steps:
 # are empty and the panel under them reads `Unpartitioned space or unknown partition table`.
 - name: select erase disk
   click: [679, 252]
-  wait_after: 8
+  settle: 8
 
 - name: the partitions page with erase selected
   ocr:
@@ -209,7 +209,7 @@ steps:
 # Partitions -> Users
 - name: next from partitions
   click: [1410, 878]
-  wait_after: 10
+  settle: 10
 
 - name: the users page
   ocr:
@@ -227,30 +227,30 @@ steps:
 - name: the full name
   click: [850, 299]
   type: '{{ user }}'
-  wait_after: 2
+  settle: 2
 
 - name: the login name
   click: [850, 354]
   clear: true
   type: '{{ user }}'
-  wait_after: 2
+  settle: 2
 
 - name: the computer name
   click: [850, 434]
   clear: true
   type: endeavouros
-  wait_after: 2
+  settle: 2
 
 - name: the password
   click: [700, 515]
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 
 - name: the password again
   click: [900, 515]
   clear: true
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 
 # THE ROOT PASSWORD IS REUSED, WHICH IS A CHECKBOX ON THIS INSTALLER AND NOT A DEFAULT.
 #
@@ -259,12 +259,12 @@ steps:
 # them and sets root's password to the user's, which is what every other distribution here does.
 - name: reuse the user password for root
   click: [585, 646]
-  wait_after: 3
+  settle: 3
 
 # AND THE ACCOUNT LOGS ITSELF IN: an unattended client cannot type at a login screen.
 - name: log in automatically
   click: [585, 697]
-  wait_after: 3
+  settle: 3
 
 - name: the users page is filled in
   ocr:
@@ -290,7 +290,7 @@ steps:
 # Users -> Summary
 - name: next from users
   click: [1410, 878]
-  wait_after: 10
+  settle: 10
 
 - name: the summary page arrives before install is clicked
   loop:
@@ -333,7 +333,7 @@ steps:
 # button itself sits further right, and clicking (1456, 886) landed on its edge and did nothing.
 - name: start the install
   click: [1412, 868]
-  wait_after: 10
+  settle: 10
 
 - name: the confirmation dialog
   ocr:
@@ -346,7 +346,7 @@ steps:
 # `Install Now` INSIDE THE DIALOG, AT (1067, 539).
 - name: install now
   click: [1057, 527]
-  wait_after: 25
+  settle: 25
 
 - name: the install writes the disk
   disk_settle: 300

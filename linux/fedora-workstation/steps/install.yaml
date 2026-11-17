@@ -42,7 +42,7 @@ steps:
     - click:
       - 420
       - 300
-      wait_after: 5
+      settle: 5
     ocr:
       name: screen
       region:
@@ -69,44 +69,44 @@ steps:
     until:
       fact: done
 - name: install fedora linux
-  wait_after: 3
+  settle: 3
   do:
   - click:
     - 838
     - 708
-    wait_after: 3
+    settle: 3
   - click:
     - 838
     - 708
-    wait_after: 3
+    settle: 3
 - name: install fedora linux (again, if anaconda is not up)
   unless:
   - installation
   - method
-  wait_after: 25
+  settle: 25
   do:
   - click:
     - 838
     - 708
-    wait_after: 3
+    settle: 3
   - click:
     - 838
     - 708
-    wait_after: 3
+    settle: 3
 - name: install fedora linux (and once more)
   unless:
   - installation
   - method
-  wait_after: 30
+  settle: 30
   do:
   - click:
     - 838
     - 708
-    wait_after: 3
+    settle: 3
   - click:
     - 838
     - 708
-    wait_after: 3
+    settle: 3
 - name: anaconda is up
   loop:
     max: 30
@@ -114,7 +114,7 @@ steps:
     - click:
       - 420
       - 300
-      wait_after: 10
+      settle: 10
     ocr:
       name: screen
       region:
@@ -145,7 +145,7 @@ steps:
   expect_any:
   - - installation
     - method
-  wait_after: 15
+  settle: 15
 - name: installation method
   click:
   - 729
@@ -156,7 +156,7 @@ steps:
   - - configuracion
     - de
     - almacenamiento
-  wait_after: 12
+  settle: 12
 - name: storage configuration
   click:
   - 729
@@ -168,12 +168,12 @@ steps:
   - - revisar
     - e
     - instalar
-  wait_after: 12
+  settle: 12
 - name: erase data and install
   click:
   - 780
   - 1002
-  wait_after: 20
+  settle: 20
 - name: the install is written
   disk_settle: 180
   disk_min_mb: 512
@@ -184,7 +184,7 @@ steps:
   click:
   - 963
   - 364
-  wait_after: 10
+  settle: 10
 - name: first boot
   loop:
     max: 90
@@ -223,47 +223,47 @@ steps:
   - 960
   - 492
   type: united states
-  wait_after: 5
+  settle: 5
 - name: language - pick English (United States)
   click:
   - 960
   - 550
-  wait_after: 6
+  settle: 6
 - name: language
   click:
   - 1432
   - 181
-  wait_after: 10
+  settle: 10
 - name: typing
   click:
   - 1432
   - 181
-  wait_after: 10
+  settle: 10
 - name: location services off
   click:
   - 1209
   - 485
-  wait_after: 2
+  settle: 2
 - name: automatic problem reporting off
   click:
   - 1209
   - 601
-  wait_after: 2
+  settle: 2
 - name: privacy
   click:
   - 1432
   - 181
-  wait_after: 10
+  settle: 10
 - name: time zone
   click:
   - 1432
   - 181
-  wait_after: 12
+  settle: 12
 - name: third party repositories
   click:
   - 1432
   - 181
-  wait_after: 10
+  settle: 10
 - name: about you - full name
   click:
   - 1000
@@ -271,39 +271,39 @@ steps:
   type: '{{ user }}'
   expect:
   - '{{ user }}'
-  wait_after: 2
+  settle: 2
 - name: about you
   click:
   - 1432
   - 181
-  wait_after: 10
+  settle: 10
 - name: password - password
   click:
   - 960
   - 493
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: password - confirm
   click:
   - 960
   - 630
   type: '{{ password }}'
-  wait_after: 3
+  settle: 3
 - name: password
   click:
   - 1432
   - 181
-  wait_after: 20
+  settle: 20
 - name: start using fedora linux
   click:
   - 959
   - 709
-  wait_after: 25
+  settle: 25
 - name: skip the tour
   click:
   - 852
   - 756
-  wait_after: 12
+  settle: 12
 - name: stop the machine
   shutdown: kill
   timeout: 120

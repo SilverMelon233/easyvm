@@ -21,32 +21,32 @@ steps:
   timeout: 900
 - name: greeter - wake the screen
   key: esc
-  wait_after: 5
+  settle: 5
 - name: greeter - the user tile
   click:
   - 960
   - 488
-  wait_after: 4
+  settle: 4
 - name: greeter - the password box
   click:
   - 936
   - 628
   type: '{{ password }}'
   clear: false
-  wait_after: 4
+  settle: 4
 - name: greeter - submit
   key: ret
-  wait_after: 12
+  settle: 12
 - name: let the session finish starting
   wait: 240
 - name: skip the welcome dialog
   click:
   - 858
   - 748
-  wait_after: 5
+  settle: 5
 - name: clear anything left over
   key: esc
-  wait_after: 2
+  settle: 2
 - name: the desktop is up
   loop:
     max: 12
@@ -54,7 +54,7 @@ steps:
     - click:
       - 420
       - 300
-      wait_after: 10
+      settle: 10
     ocr:
       name: screen
       region:
@@ -80,13 +80,13 @@ steps:
   click:
   - 960
   - 700
-  wait_after: 2
+  settle: 2
 - name: open the overview
   key: meta_l
-  wait_after: 4
+  settle: 4
 - name: search for the terminal
   type: terminal
-  wait_after: 3
+  settle: 3
 - name: wait for the Console result
   loop:
     max: 18
@@ -94,7 +94,7 @@ steps:
     - click:
       - 420
       - 300
-      wait_after: 5
+      settle: 5
     ocr:
       name: screen
       region:
@@ -119,24 +119,24 @@ steps:
   click:
   - 960
   - 160
-  wait_after: 20
+  settle: 20
 - name: declare openssh in configuration.nix
   run: 'echo {{ password }} | sudo -S sh -c ''sed -i "$ d" /etc/nixos/configuration.nix; printf "  services.openssh.enable = true;\n  services.openssh.settings.PasswordAuthentication = true;\n  networking.firewall.enable = false;\n}\n" >> /etc/nixos/configuration.nix''
 
     '
   terminal_wait: 0
   type_gap: 0.15
-  wait_after: 6
+  settle: 6
 - name: rebuild the system
   run: echo {{ password }} | sudo -S nixos-rebuild switch 2>&1 | tail -8
   terminal_wait: 0
   type_gap: 0.15
-  wait_after: 300
+  settle: 300
 - name: prove sshd is active
   run: systemctl is-active sshd
   terminal_wait: 0
   type_gap: 0.15
-  wait_after: 5
+  settle: 5
 - name: wait for sshd
   require_ssh: true
   timeout: 600

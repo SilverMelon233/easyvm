@@ -45,29 +45,29 @@ steps:
   expect_any:
   - - welcome
   - - location
-  wait_after: 35
+  settle: 35
 - name: open the installer (once more, if it did not)
   unless:
   - welcome
   double:
   - 960
   - 760
-  wait_after: 40
+  settle: 40
 - name: welcome
   click:
   - 1325
   - 801
-  wait_after: 18
+  settle: 18
 - name: location
   click:
   - 1325
   - 801
-  wait_after: 18
+  settle: 18
 - name: keyboard
   click:
   - 1325
   - 801
-  wait_after: 18
+  settle: 18
 # `Erase disk` IS PRESELECTED ON THIS MEDIUM - unlike CachyOS and EndeavourOS, where both radio
 # buttons start empty. Measured: the page opens with `Erase disk` already chosen and the panel under
 # it showing `300.00 MiB FAT32  127.71 GiB btrfs`.
@@ -75,7 +75,7 @@ steps:
   click:
   - 653
   - 340
-  wait_after: 6
+  settle: 6
 
 # AND THE FILESYSTEM COMBO DEFAULTS TO btrfs, WHICH THIS WALK DOES NOT WANT.
 #
@@ -93,13 +93,13 @@ steps:
   click:
   - 955
   - 396
-  wait_after: 5
+  settle: 5
 
 - name: choose ext4
   click:
   - 933
   - 459
-  wait_after: 6
+  settle: 6
 
 - name: the partitions page after choosing ext4
   ocr:
@@ -127,68 +127,68 @@ steps:
   click:
   - 1325
   - 801
-  wait_after: 20
+  settle: 20
 - name: users - full name
   click:
   - 741
   - 320
   type: '{{ user }}'
-  wait_after: 2
+  settle: 2
 - name: users - login name
   click:
   - 741
   - 385
   type: '{{ user }}'
-  wait_after: 2
+  settle: 2
 - name: users - password
   click:
   - 724
   - 523
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: users - confirm password
   click:
   - 944
   - 523
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: users - root password
   click:
   - 741
   - 650
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: users - confirm root password
   click:
   - 944
   - 650
   type: '{{ password }}'
-  wait_after: 3
+  settle: 3
 - name: users
   click:
   - 1325
   - 801
-  wait_after: 20
+  settle: 20
 - name: office suite - no office suite
   click:
   - 700
   - 288
-  wait_after: 6
+  settle: 6
 - name: office suite
   click:
   - 1334
   - 794
-  wait_after: 20
+  settle: 20
 - name: summary - install
   click:
   - 1318
   - 799
-  wait_after: 18
+  settle: 18
 - name: the install confirmation's install now
   click:
   - 1055
   - 537
-  wait_after: 30
+  settle: 30
 - name: the installer finishes
   loop:
     max: 180
@@ -196,7 +196,7 @@ steps:
     - click:
       - 420
       - 300
-      wait_after: 20
+      settle: 20
     ocr:
       name: screen
       region:

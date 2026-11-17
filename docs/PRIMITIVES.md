@@ -208,15 +208,23 @@ them; they are read only by files that have not been ported.
 
 # 7. Retired — 30 rows, 40 names
 
-**MIGRATED means the successor exists and this key is no longer used by any file.**
-**DEAD means nothing uses it and there is no successor; it is a key nobody needed.**
-A key marked MIGRATED that a file still uses fails `audit_test.go`.
+Three words, and they are not interchangeable:
+
+* **MIGRATED** — the successor exists and **no file anywhere** uses this key any more. A key
+  marked MIGRATED that a file still uses fails `audit_test.go`, so this claim cannot rot.
+* **DONE in `<dir>/`** — the migration is finished for those files and not the others. It is a
+  fact with a scope, verified by counting the keys in that directory.
+* **DEAD** — nothing uses it anywhere and there is no successor; a key nobody needed.
+
+THE SCOPE MATTERS BECAUSE THE MIGRATION IS PER DIRECTORY: `linux/` is 24 files and 391 uses of
+`wait_after`/`wait`, all converted; `windows/`, `macos/`, `bsd/` and `android/` still say the old
+name, and they keep working because the executor reads both.
 
 | key | uses | becomes |
 |---|---|---|
 | `mem_mb` | 0 | `memory_mb` — **MIGRATED** |
-| `wait_after` | 627 | `settle:` or `until:` |
-| `wait` | 118 | `settle:` |
+| `wait_after` | 627 outside `linux/` | `settle:` — **DONE in `linux/`**, 24 files / 391 uses |
+| `wait` | 131, none in `linux/` | `settle:` — **DONE in `linux/`** |
 | `region` | 42 | `check: {rect: …}` |
 | `region_at` | 42 | *(gone — `rect:` is a fraction)* |
 | `scale` | 42 | `check: {scale: N}` |

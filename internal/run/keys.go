@@ -25,6 +25,9 @@ func ExecutableKeys() []string {
 		// `see:` MEASURES and `want:` DECIDES - the pair that makes a screen test data rather than a
 		// function in the binary. Both have a branch in runOne.
 		"see", "want",
+		// `settle:` IS BOTH A STEP AND A MODIFIER - it absorbs `wait:` and `wait_after:`, which the
+		// files use 745 times between them.
+		"settle",
 		"unless", "unless_any", "until", "until_any", "until_console", "expect", "expect_any", "at_color",
 		"at_button", "host_log", "run", "disk_settle", "do",
 		"repeat_until",

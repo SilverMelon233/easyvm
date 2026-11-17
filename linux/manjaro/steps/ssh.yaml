@@ -24,15 +24,15 @@ steps:
   - 936
   - 628
   optional: true
-  wait_after: 3
+  settle: 3
 - name: greeter - log in
   type: '{{ password }}'
   optional: true
-  wait_after: 3
+  settle: 3
 - name: greeter - submit
   key: ret
   optional: true
-  wait_after: 12
+  settle: 12
 - name: wait for the desktop
   desktop: linux
   timeout: 900
@@ -41,34 +41,34 @@ steps:
   click:
   - 960
   - 540
-  wait_after: 3
+  settle: 3
 - name: open the terminal
   key: ctrl+alt+t
-  wait_after: 8
+  settle: 8
 - name: open the terminal again, in case the first chord was dropped
   key: ctrl+alt+t
-  wait_after: 8
+  settle: 8
 - name: install openssh
   run: echo {{ password }} | sudo -S pacman -Sy --noconfirm --needed openssh 2>&1 | tail -5
   terminal_wait: 15
-  wait_after: 45
+  settle: 45
 - name: allow password authentication
   run: echo {{ password }} | sudo -S -p '' sh -c 'mkdir -p /etc/ssh/sshd_config.d; printf "PasswordAuthentication yes\n" > /etc/ssh/sshd_config.d/99-vm.conf; sed -i "s/^#\?\s*PasswordAuthentication.*/PasswordAuthentication yes/" /etc/ssh/sshd_config; grep
     -q "^PasswordAuthentication yes" /etc/ssh/sshd_config || printf "PasswordAuthentication yes\n" >> /etc/ssh/sshd_config' 2>&1 | tail -3
   terminal_wait: 0
-  wait_after: 3
+  settle: 3
 - name: enable sshd at boot
   run: echo {{ password }} | sudo -S systemctl enable sshd 2>&1 | tail -3
   terminal_wait: 0
-  wait_after: 8
+  settle: 8
 - name: start sshd
   run: echo {{ password }} | sudo -S systemctl restart sshd 2>&1 | tail -3
   terminal_wait: 0
-  wait_after: 10
+  settle: 10
 - name: prove sshd is active
   run: systemctl is-active sshd
   terminal_wait: 0
-  wait_after: 5
+  settle: 5
 - name: wait for sshd
   require_ssh: true
   timeout: 600

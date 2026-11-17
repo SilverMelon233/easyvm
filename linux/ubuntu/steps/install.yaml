@@ -42,7 +42,7 @@ steps:
     - click:
       - 420
       - 300
-      wait_after: 5
+      settle: 5
     ocr:
       name: screen
       region:
@@ -72,7 +72,7 @@ steps:
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: wait for the accessibility page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
@@ -121,7 +121,7 @@ steps:
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: wait for the keyboard layout page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
@@ -171,7 +171,7 @@ steps:
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: wait for the internet connection page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
@@ -221,7 +221,7 @@ steps:
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: read whether the installer offered to update itself, which blocks every page behind it
   # THE INSTALLER PUTS A MODAL IN FRONT OF THE WALK, AND IT ARRIVES AFTER THE NETWORK PAGE BECAUSE THAT
   # IS WHEN IT FIRST HAS A NETWORK TO ASK WITH.
@@ -296,7 +296,7 @@ steps:
     click:
     - 1355
     - 848
-    wait_after: 8
+    settle: 8
 - name: wait for the what do you want to do with ubuntu page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
@@ -346,7 +346,7 @@ steps:
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: wait for the type of installation page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
@@ -396,7 +396,7 @@ steps:
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: wait for the applications page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
@@ -445,7 +445,7 @@ steps:
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: wait for the optimise your computer page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
@@ -494,7 +494,7 @@ steps:
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: wait for the disk setup page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
@@ -544,7 +544,7 @@ steps:
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: wait for the encryption page, because a click that assumes the page before it is a click that
     can miss
   # EVERY PAGE BELOW IS REACHED BY WAITING FOR ITS OWN HEADING FIRST. The walk used to click
@@ -593,7 +593,7 @@ steps:
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: wait for the account page before typing into it
   loop:
     max: 24
@@ -626,38 +626,38 @@ steps:
   - 393
   type: '{{ user }}'
   clear: true
-  wait_after: 2
+  settle: 2
 - name: create your account - username
   click:
   - 1139
   - 501
   type: '{{ user }}'
   clear: true
-  wait_after: 2
+  settle: 2
 - name: create your account - password
   click:
   - 1050
   - 563
   type: '{{ password }}'
   clear: true
-  wait_after: 2
+  settle: 2
 - name: create your account - confirm password
   click:
   - 1139
   - 616
   type: '{{ password }}'
   clear: true
-  wait_after: 3
+  settle: 3
 - name: clear 'require my password to log in'
   click:
   - 923
   - 670
-  wait_after: 3
+  settle: 3
 - name: create your account
   click:
   - 1355
   - 848
-  wait_after: 12
+  settle: 12
 - name: wait for the time zone page
   loop:
     max: 24
@@ -687,17 +687,17 @@ steps:
   click:
   - 762
   - 483
-  wait_after: 4
+  settle: 4
 - name: time zone
   click:
   - 1355
   - 848
-  wait_after: 14
+  settle: 14
 - name: ready to install - the green install button
   click:
   - 1355
   - 848
-  wait_after: 30
+  settle: 30
 - name: the installer finishes
   loop:
     max: 270
@@ -705,7 +705,7 @@ steps:
     - click:
       - 420
       - 300
-      wait_after: 20
+      settle: 20
     ocr:
       name: screen
       region:

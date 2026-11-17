@@ -241,3 +241,59 @@ func countYAMLKeys(raw []byte, use map[string]int) {
 		}
 	}
 }
+
+// TestADirectoryMarkedDoneHasNoOldKey makes "DONE in `linux/`" a claim with a test.
+//
+// THE MIGRATION IS PER DIRECTORY, so "the old key is gone" is only ever true of a scope. This walks
+// the directory the table names and fails if the retired key is still written there — which is what
+// stops "DONE" from meaning "we did some of it".
+func TestADirectoryMarkedDoneHasNoOldKey(t *testing.T) {
+	// The pairs the table claims as DONE, with the directory it claims them for.
+	//
+	// `wait:` IS DELIBERATELY NOT IN THIS LIST, AND THE REASON IS A DIFFERENT MEANING, NOT AN
+	// EXEMPTION. `ocr:` carries its own `wait:` - the pause before the crop is READ, which is a
+	// subkey of the reading and not the step verb `wait:`/`settle:` replaces. Measured: 96 of them
+	// under `linux/`, every one nested inside an `ocr:` mapping. A test that counted them would be
+	// asking the migration to rename a key that means something else.
+	done := []struct {
+		key string
+		dir string
+		ok  string // what replaced it, for the failure message
+	}{
+		{"wait_after", "linux", "settle:"},
+	}
+	for _, d := range done {
+		n := countKeyInDir(t, d.dir, d.key)
+		if n > 0 {
+			t.Errorf("docs/PRIMITIVES.md says `%s:` is DONE in `%s/` and %d step(s) still write it; "+
+				"the replacement is `%s`", d.key, d.dir, n, d.ok)
+		}
+	}
+}
+
+// countKeyInDir counts `key:` as a real step key under dir, ignoring comments.
+func countKeyInDir(t *testing.T, dir, key string) int {
+	t.Helper()
+	root := filepath.Join("..", "..", dir)
+	pattern := regexp.MustCompile(`^\s+` + regexp.QuoteMeta(key) + `:`)
+	n := 0
+	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return nil
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
+			if pattern.MatchString(line) {
+				n++
+			}
+		}
+		return nil
+	})
+	return n
+}

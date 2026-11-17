@@ -396,7 +396,11 @@ func (e *Executor) runOne(s walk.Step) error {
 		return e.doDoubleClick(s)
 	case s.Has("click"):
 		return e.doClick(s)
-	case s.Has("wait"):
+	// `settle:` IS A STEP OF ITS OWN AS WELL AS A MODIFIER, and it is the one name for what `wait:`
+	// and `wait_after:` both meant. MEASURED: `wait_after` 627 uses and `wait` 118 - the same idea
+	// under two names. A file can now say `settle:` either way, and the old names keep working so
+	// the migration is per-file.
+	case s.Has("wait"), s.Has("settle"):
 		return e.doWait(s)
 	}
 	return fail(s.Name, "no implementation for this step's keys")
@@ -533,9 +537,17 @@ func (e *Executor) doType(s walk.Step) error {
 }
 
 func (e *Executor) doWait(s walk.Step) error {
-	seconds, err := s.Float("wait", 0)
+	// `settle:` AND `wait:` ARE THE SAME OPERATION. `settle:` is the name the vocabulary keeps;
+	// `wait:` is what the newer step shape used for the same thing, and it stays readable so a file
+	// written against either still runs.
+	seconds, err := s.Float("settle", 0)
 	if err != nil {
 		return err
+	}
+	if seconds <= 0 {
+		if seconds, err = s.Float("wait", 0); err != nil {
+			return err
+		}
 	}
 	e.Driver.Log(fmt.Sprintf("  waiting %.0fs, as measured", seconds))
 	deadline := time.Now().Add(time.Duration(seconds * float64(time.Second)))
@@ -718,10 +730,26 @@ func (e *Executor) target() guest.Target {
 
 // --- small helpers --------------------------------------------------------------------
 
+// settle waits out a step's own pause — the time between an action and the screen being ready.
+//
+// `settle:` IS THE NAME AND `wait_after:` IS THE OLD ONE, and both are read here rather than in two
+// places. MEASURED across the 57 walkthroughs: `wait_after` 627 uses and `wait` 118, the same idea
+// under two names, and one step in three carried a guess. `docs/PRIMITIVES.md` records the
+// retirement; this function is why the migration is per-file and cannot break a walkthrough — an old
+// file keeps working while a migrated one says `settle:`.
+//
+// A STEP THAT CAN WAIT ON A FACT SHOULD. The validator reports a `settle:` followed by a `check:` of
+// the same region, because a timed guess is what failed cachyos and endeavouros on CI: the number was
+// right on the measuring machine and wrong on the runner.
 func (e *Executor) settle(s walk.Step) error {
-	value, err := s.Float("wait_after", 0)
+	value, err := s.Float("settle", 0)
 	if err != nil {
 		return err
+	}
+	if value <= 0 {
+		if value, err = s.Float("wait_after", 0); err != nil {
+			return err
+		}
 	}
 	if value <= 0 {
 		return nil

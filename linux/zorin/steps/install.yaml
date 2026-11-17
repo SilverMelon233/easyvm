@@ -67,50 +67,50 @@ steps:
     until:
       fact: done
 - name: install zorin os
-  wait_after: 40
+  settle: 40
   do:
   - click:
     - 1223
     - 586
-    wait_after: 3
+    settle: 3
   - click:
     - 1223
     - 586
-    wait_after: 3
+    settle: 3
 - name: install zorin os (once more, if the wizard is not up)
   unless:
   - keyboard
-  wait_after: 40
+  settle: 40
   do:
   - click:
     - 1223
     - 586
-    wait_after: 3
+    settle: 3
   - click:
     - 1223
     - 586
-    wait_after: 3
+    settle: 3
 - name: disable the screen saver and the lock
   run: xrandr --output Virtual-1 --mode 1920x1080 2>/dev/null || xrandr --output Virtual1 --mode 1920x1080 2>/dev/null || xrandr -s 1920x1080 2>/dev/null || true; xset s off; xset -dpms; xset s noblank; gsettings set org.gnome.desktop.session idle-delay
     0; gsettings set org.gnome.desktop.screensaver lock-enabled false; ( for i in $(seq 1 1080); do xdotool mousemove_relative -- 1 0 2>/dev/null; xdotool mousemove_relative -- -1 0 2>/dev/null; sleep 20; done ) >/dev/null 2>&1 & exit
   terminal_wait: 8
   type_gap: 0.15
-  wait_after: 10
+  settle: 10
 - name: welcome
   click:
   - 1361
   - 764
-  wait_after: 15
+  settle: 15
 - name: keyboard - english (us)
   click:
   - 1106
   - 402
-  wait_after: 4
+  settle: 4
 - name: keyboard
   click:
   - 1361
   - 764
-  wait_after: 18
+  settle: 18
 - name: updates and other software, when this build shows it
   unless_any:
   - - installation
@@ -118,7 +118,7 @@ steps:
   click:
   - 1361
   - 764
-  wait_after: 18
+  settle: 18
 - name: the updates pane is done
   loop:
     max: 60
@@ -179,7 +179,7 @@ steps:
   click:
   - 1361
   - 764
-  wait_after: 18
+  settle: 18
 - name: the disk warning is up
   loop:
     max: 60
@@ -248,7 +248,7 @@ steps:
   click:
   - 1293
   - 673
-  wait_after: 20
+  settle: 20
 - name: the disk warning is answered
   loop:
     max: 60
@@ -282,7 +282,7 @@ steps:
   click:
   - 1361
   - 764
-  wait_after: 18
+  settle: 18
 - name: the time zone pane is done
   loop:
     max: 60
@@ -317,30 +317,30 @@ steps:
   - 975
   - 386
   type: '{{ user }}'
-  wait_after: 2
+  settle: 2
 - name: who are you - username
   click:
   - 859
   - 477
   type: '{{ user }}'
-  wait_after: 2
+  settle: 2
 - name: who are you - password
   click:
   - 873
   - 514
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: who are you - confirm password
   click:
   - 883
   - 550
   type: '{{ password }}'
-  wait_after: 3
+  settle: 3
 - name: who are you
   click:
   - 1361
   - 764
-  wait_after: 20
+  settle: 20
 - name: the install runs, as measured
   wait: 2400
   keep_alive: true

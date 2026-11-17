@@ -61,7 +61,7 @@ steps:
       - mint
 - name: answer the menu, which does not count down
   key: ret
-  wait_after: 20
+  settle: 20
 
 - name: wait for the live desktop
   desktop: linux/cinnamon
@@ -74,7 +74,7 @@ steps:
     -- -1 0 2>/dev/null; sleep 20; done ) >/dev/null 2>&1 & exit
   terminal_wait: 8
   type_gap: 0.15
-  wait_after: 10
+  settle: 10
 - name: wait for the installer launcher
   loop:
     max: 120
@@ -82,7 +82,7 @@ steps:
     - click:
       - 420
       - 300
-      wait_after: 5
+      settle: 5
     ocr:
       name: screen
       region:
@@ -118,27 +118,27 @@ steps:
   expect_any:
   - - welcome
   - - install
-  wait_after: 25
+  settle: 25
 - name: welcome
   click:
   - 1306
   - 727
-  wait_after: 12
+  settle: 12
 - name: keyboard
   click:
   - 1306
   - 727
-  wait_after: 12
+  settle: 12
 - name: multimedia codecs
   click:
   - 1306
   - 727
-  wait_after: 12
+  settle: 12
 - name: installation type
   click:
   - 1306
   - 727
-  wait_after: 15
+  settle: 15
 # UBIQUITY HAS NO FILESYSTEM SELECTOR, AND THIS DIALOG IS THE ONLY PLACE IT NAMES ONE.
 #
 # MEASURED on this image, verbatim:
@@ -180,40 +180,40 @@ steps:
   click:
   - 1266
   - 663
-  wait_after: 25
+  settle: 25
 - name: installation type - install now, after the modal
   click:
   - 1307
   - 726
-  wait_after: 30
+  settle: 30
 - name: where are you
   click:
   - 1306
   - 727
-  wait_after: 15
+  settle: 15
 - name: who are you - full name
   click:
   - 965
   - 347
   type: '{{ display_name }}'
-  wait_after: 2
+  settle: 2
 - name: who are you - password
   click:
   - 877
   - 458
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: who are you - confirm password
   click:
   - 877
   - 492
   type: '{{ password }}'
-  wait_after: 3
+  settle: 3
 - name: who are you
   click:
   - 1306
   - 727
-  wait_after: 20
+  settle: 20
 - name: the install runs, as measured
   wait: 2400
   keep_alive: true
