@@ -725,10 +725,17 @@ steps:
       #	esp_dialog [check]: up = true (mode says_any: read "EFI")
       #
       # on a frame with no dialog on it. The breadcrumb `Storage > vda - VirtIO Disk > vda1` is what
-      # this page shows, and `Cancel` is on the dialog and nowhere on the page behind it.
+      # `Cancel` AND `Automatically` ARE ON THIS DIALOG AND OCR RETURNS NEITHER. MEASURED, the
+      # reading of a dialog that was plainly on screen:
+      #
+      #	"Create partition on /dev/vda - Mount point | ] . Type | EXT4 ... size fie] :
+      #	 Overwrite (C Overwrite existing data with zeros (slower) - Encryption | No encryption"
+      #
+      # so the verdict waited on two words never in the text. `Overwrite` and
+      # `Encryption` are on this dialog's own body and come back cleanly.
       words:
-      - - Cancel
-      - - Automatically
+      - - Overwrite
+      - - Encryption
     until:
       fact: up
 
