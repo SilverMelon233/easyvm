@@ -35,6 +35,38 @@ steps:
   timeout: 5400
   poll: 5
   keep_alive: true
+
+# THE SESSION IS KEPT AWAKE, AND THIS MEDIUM NEEDS IT MORE THAN MOST.
+#
+# MEASURED: a run sat at `the editor is up` and the frame came back COMPLETELY BLACK - the GNOME
+# live session's blanking had fired while blivet-gui was loading. `keep_alive` on the desktop wait
+# covers THAT WAIT ONLY; everything after it is unprotected, and this wizard has long quiet pages.
+#
+# IT IS A POINTER NUDGE RATHER THAN `xset` BECAUSE `run:` TYPES INTO A TERMINAL and this live session
+# does not put one on screen - the same reason the file clicks a desktop icon to start Anaconda. A
+# moving pointer resets the idle timer on every desktop, and it is what `keep_alive` itself does.
+- name: the session is kept awake with a pointer nudge
+  loop:
+    max: 3
+    do:
+    - click:
+      - 12
+      - 12
+      wait_after: 4
+    ocr:
+      name: awake
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 1
+    check:
+      name: never
+      from: awake
+      mode: says
+      words:
+      - - zzzzneveraword
+    until:
+      fact: never
 # FEDORA 45's ANACONDA IS A WEB UI, AND THIS STAGE STILL WALKED THE Qt WIZARD.
 #
 # MEASURED: `wait for the anaconda window` spent its whole 60-attempt budget with this on screen:
@@ -205,11 +237,17 @@ steps:
   - 642
   wait_after: 20
 
+# BLIVET-GUI TAKES LONGER THAN TWO MINUTES TO DRAW ON THIS MEDIUM, AND ITS FIRST FRAME SAYS NOTHING.
+#
+# MEASURED by hand: `Launch storage editor` puts up a spinner reading `Loading...` and the real page
+# arrives 20-45 seconds later. `max: 24` x `wait: 5` is 120 seconds, and the loop also read `Loading`
+# as a failed match - so it gave up on a page that was arriving. MEASURED on a run: five minutes at
+# this step and then a failure, with the frame black from the session's blanking.
 - name: the editor is up
   loop:
-    max: 24
+    max: 60
     do:
-    - wait: 5
+    - wait: 10
     ocr:
       name: blivet
       region: [0, 0, 1920, 1080]
