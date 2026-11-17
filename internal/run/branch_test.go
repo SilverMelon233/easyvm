@@ -149,8 +149,14 @@ func TestALoopAssemblesItsPartsWithTheirKeys(t *testing.T) {
 		"name": "screen", "rect": []any{0, 0, 1920, 1080},
 		"rect_at": []any{1920, 1080}, "scale": 1, "wait": 0,
 	}
-	// THE SHAPE THE LOOP MUST BUILD. Built here the same way doLoop builds it.
-	ocrStep := walk.Step{Name: "probe [ocr]", Spec: map[string]any{"ocr": ocrRaw}}
+	// THE SHAPE THE LOOP MUST BUILD - AND IT IS BUILT BY THE LOOP.
+	//
+	// This test used to construct the sub-step itself, and so it asserted on its own copy of the
+	// shape rather than on the code that runs. When `doLoop` started handing `parseOCRStep` the `see:`
+	// mapping under a `see` key, this test still passed and EVERY LOOP IN EVERY WALKTHROUGH failed in
+	// a real run - measured on 44078798458, on a migrated `.walk`. A test that rebuilds the thing it
+	// is testing cannot see the thing change.
+	ocrStep, _, _ := loopParts(walk.Step{Index: 1, Name: "probe"}, ocrRaw, nil, nil)
 	spec, err := parseOCRStep(ocrStep)
 	if err != nil {
 		t.Fatalf("a sub-step built as {ocr: {...}} is refused: %v", err)

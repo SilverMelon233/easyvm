@@ -99,31 +99,16 @@ func (e *Executor) doLoop(s walk.Step) error {
 			"into a boolean. Three parts: do:, ocr:, check:, and `until:` tests the boolean")
 	}
 
-	// THE PARTS ARE STEPS, built once and run through the ordinary dispatcher.
-	// THE SUB-STEP CARRIES THE `ocr:` KEY, NOT ITS CONTENTS.
+	// THE PARTS ARE STEPS, BUILT BY `loopParts` AND RUN THROUGH THE ORDINARY DISPATCHER.
 	//
-	// `parseOCRStep` reads `s.Spec["ocr"]`, because a top-level `ocr:` step is written
-	//
-	//	- name: read the pane
-	//	  ocr: {name: screen, region: [...]}
-	//
-	// so the mapping has to sit UNDER that key. The first version copied the contents straight into
-	// the spec, so the parser looked for an `ocr` key that was not there and every loop in every
-	// walkthrough failed on its first attempt with
-	//
-	//	wait for the installer window [ocr]: `ocr:` must be a mapping
-	//
-	// WHICH READ AS A MISTAKE IN THE FILE, and it was a mistake in this function.
-	ocrStep := walk.Step{Index: s.Index, Name: s.Name + " [ocr]",
-		Spec: map[string]any{"see": ocrRaw}}
+	// IT IS A FUNCTION RATHER THAN FOUR LINES HERE so that a test can call THE SAME CODE that runs.
+	// The test that exists built its own correctly-shaped sub-step and asserted on that, which is a
+	// test of the test: when this function handed `parseOCRStep` the wrong key, the test still
+	// passed and every loop in every walkthrough failed in a real run. MEASURED on 44078798458.
+	ocrStep, checkStep, untilStep := loopParts(s, ocrRaw, checkRaw, untilRaw)
 	if _, err := parseOCRStep(ocrStep); err != nil {
 		return err
 	}
-	untilSpec := map[string]any{"until_fact": untilRaw["fact"]}
-	untilStep := walk.Step{Index: s.Index, Name: s.Name + " [until]", Spec: untilSpec}
-	// THE SAME SHAPE FOR `check:` - its mapping sits under its own key.
-	checkStep := walk.Step{Index: s.Index, Name: s.Name + " [check]",
-		Spec: map[string]any{"check": checkRaw}}
 
 	e.Driver.Log(fmt.Sprintf("  loop: up to %.0f attempt(s) of %d action(s), then read %q",
 		max, len(action), ocrRaw["name"]))
@@ -195,4 +180,21 @@ func (e *Executor) doLoop(s walk.Step) error {
 		time.Sleep(2 * time.Second)
 	}
 	return nil
+}
+
+// loopParts assembles a loop's three sub-steps, each carrying its mapping under the key its own
+// parser reads.
+//
+// THE KEYS ARE `ocr`, `check` AND `until_fact`, and they are NOT the keys the file writes: the file
+// says `see:`, `check:` and `until: {fact: ...}` because that is the vocabulary, and these are the
+// three steps that vocabulary is turned into. Getting one of them wrong produces an error message
+// that names the walkthrough, which is why this is a named function with a caller-shaped test.
+func loopParts(s walk.Step, ocrRaw, checkRaw, untilRaw map[string]any) (ocrStep, checkStep, untilStep walk.Step) {
+	ocrStep = walk.Step{Index: s.Index, Name: s.Name + " [ocr]",
+		Spec: map[string]any{"ocr": ocrRaw}}
+	checkStep = walk.Step{Index: s.Index, Name: s.Name + " [check]",
+		Spec: map[string]any{"check": checkRaw}}
+	untilStep = walk.Step{Index: s.Index, Name: s.Name + " [until]",
+		Spec: map[string]any{"until_fact": untilRaw["fact"]}}
+	return ocrStep, checkStep, untilStep
 }
