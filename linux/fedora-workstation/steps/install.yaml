@@ -465,6 +465,20 @@ steps:
     until:
       fact: there
 
+# THE ROW IS SELECTED BEFORE ITS KEBAB IS PRESSED.
+#
+# MEASURED: after `Create`, the table has two rows - `vda - Virtio Disk` and `vda1 ext4 filesystem /
+# 137 GB` - and their kebabs are at (1185, 318) and (1185, 363). A press on the second one sometimes
+# opens its menu and sometimes does not, because blivet-gui draws the kebab only for the row under the
+# pointer, and the press is the first thing that puts the pointer there.
+#
+# SO THE ROW IS CLICKED FIRST - on its own `vda1` label, which is inert - and the kebab after it.
+- name: select the root partition's row
+  click:
+  - 460
+  - 363
+  wait_after: 3
+
 - name: the partition menu is open
   loop:
     max: 12
