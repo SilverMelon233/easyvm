@@ -46,12 +46,17 @@ steps:
   # minutes remaining" to "About 22". So 12 GiB boots, erases, and installs, and it is the largest
   # request that leaves the runner room for qemu itself and the page cache.
   #
-  # AND THE SAME RUN THEN STALLED, WHICH THIS FILE DOES NOT PRETEND AWAY: the disk stopped growing at
-  # 37.95 GiB, its mtime froze, the screen went black, and qemu burned 400% CPU with no I/O for
-  # fifteen minutes. A SECOND run at 16384 on the larger host produced the 38.40 GiB disk that the
-  # ssh stage was proved against, so the stall is a fact about this size rather than about the walk.
-  # The CI run at 12288 is the test of whether it also stalls there; if it does, the answer is a
-  # larger runner rather than a smaller guest.
+  # AND THE SAME RUN REACHED THE INSTALLER'S OWN FINAL RESTART, WHICH IS WHAT THE BLACK SCREEN WAS.
+  #
+  # An earlier version of this comment called that a stall and was WRONG. The evidence is a frame the
+  # recorder kept, at 18:51:56 - the Apple logo, a progress bar about four fifths full, and the words
+  # "About 21 minutes remaining...". The disk stopped growing at 37.95 GiB because the copy had
+  # finished and the guest was waiting to restart; qemu was still working at 400% CPU until the run
+  # was stopped by hand twelve minutes later. So the sequence at 12288 was
+  #
+  #	erase -> licence -> copy (37.95 GiB) -> installer restart -> progress bar, 21 minutes left
+  #
+  # and the conclusion it supports is the opposite of a stall: 12 GiB takes the install to the end.
   memory_mb: 12288
   timeout: 900
 - name: the recovery menu's rows
