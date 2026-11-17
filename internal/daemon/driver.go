@@ -518,6 +518,7 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		AnswerCD:     spec.AnswerCD,
 		DriverCD:     spec.DriverCD,
 		Recovery:     spec.Recovery,
+		FreshDisk:    spec.FreshDisk,
 		OpenCoreROM:  spec.OpenCoreROM,
 		OpenCoreVars: spec.OpenCoreVars,
 		BootImage:    spec.BootImage,

@@ -109,6 +109,27 @@ type Boot struct {
 	// Boot.StorageArgs' caller: it is not a device, it is the machine's starting state.
 	Incoming string
 
+	// FreshDisk says this run CREATED the target and nothing behind it needs protecting.
+	//
+	// THIS IS A SEPARATE FACT FROM `installing()`, AND CONFLATING THEM WAS TWO DEFECTS. A `boot:` step
+	// that creates its own disk (a `disk_gb:` step just ran) writes to the disk itself; a step that
+	// opens a disk from somewhere - a published artifact, another stage's output, a disk a person
+	// wants to keep - must NOT lose its writes.
+	//
+	// `installing()` used to answer both questions with "is an installer medium attached", so:
+	//
+	//	an installed macOS disk booted WITHOUT `recovery:` got a throwaway overlay, and RUPTURED on
+	//	destroy - measured in easydev-org/easyvm#3 as a Setup Assistant that restarted from the
+	//	country list every time, with 38.40 GiB unchanged on the base disk;
+	//
+	//	and `Discardable()` was its exact negation, so the configurations "writes persist" and
+	//	"TRIM reaches the disk" could never both be true - the same issue measured 26 GiB of freed
+	//	blocks in a published disk that no amount of compression could remove.
+	//
+	// SET BY THE EXECUTOR WHEN IT RUNS A `disk_gb:` STEP, because that is the only thing that knows
+	// the disk was made here.
+	FreshDisk bool
+
 	// THERE IS NO `-kernel` HERE, AND ITS ABSENCE IS A DECISION RATHER THAN AN OMISSION.
 	//
 	// Android-x86 CAN be started by handing qemu its kernel and initrd, and this build did for a
@@ -533,27 +554,34 @@ func (b Boot) installing() bool {
 //	 one commit because a file that let `boot:` make the overlay had no way to tell `compress:` to
 //	 flatten it. Now `boot:` records the overlay it made, so the two are the same path: every
 //	 machine runs on a diff, and publishing flattens it."
-func (b Boot) WantsOverlay() bool { return !b.installing() }
+// WantsOverlay ASKS WHETHER THE DISK CAME FROM SOMEWHERE, NOT WHETHER AN INSTALLER IS ATTACHED.
+//
+// THE OLD RULE WAS `!installing()`, AND IT LOST WRITES. MEASURED IN easydev-org/easyvm#3: a walk that
+// booted an ALREADY INSTALLED macOS disk with a plain `boot: true` got `WantsOverlay() == true`, the
+// daemon made `run-overlay.qcow2`, and `ReleaseDiff` deleted it on destroy - so every pane the Setup
+// Assistant completed went into a throwaway file. The symptom was a wizard that started over at the
+// country list on every run, with nothing in any log, and the base disk byte-for-byte unchanged.
+//
+// A FRESH DISK HAS NOTHING TO PROTECT, so it runs on itself; anything else runs on a diff that
+// `compress:` flattens when the stage publishes.
+func (b Boot) WantsOverlay() bool { return !b.FreshDisk }
 
-// Discardable reports whether `discard=unmap` belongs on the target.
+// Discardable ASKS WHETHER A TRIM MAY REACH THE DISK, AND IT IS NO LONGER THE NEGATION OF THE OVERLAY.
 //
-// TWO ANSWERS, AND BOTH ARE MEASURED: no while an installer is writing (the 17 GiB that vanished),
-// yes for a finished disk (its TRIMs are what keep the published qcow2 small).
+// THE TWO WERE THE SAME EXPRESSION, SO THEY WERE MUTUALLY EXCLUSIVE: a disk that kept its writes could
+// not be trimmed, and a disk that could be trimmed was a throwaway. MEASURED IN easydev-org/easyvm#3
+// on an installed macOS 26 disk:
 //
-// The third input - whether the file is a compressed artifact being read rather than written - is
-// deliberately NOT here. lib/clean_step.py blamed it for the HANDOFF TO XNU death and then found
-// the same death with the flag off; see the note above installing(). It belongs to the overlay,
-// which does not exist in this build yet.
-
-// Discardable reports whether `discard=unmap` belongs on the target.
+//	guest   df -h /          12 GiB used, 108 GiB available
+//	host    disk size        38.4 GiB      30.01% allocated
 //
-// TWO ANSWERS, AND BOTH ARE MEASURED: no while an installer is writing (the 17 GiB that vanished),
-// yes for a finished disk (its TRIMs are what keep the published qcow2 small).
+// - 26 GiB of blocks the guest had already freed, which `qemu-img convert -c` cannot remove because
+// to it they look like live data. Running the same disk with `discard=unmap` and deleting the guest's
+// caches gave 19.7 GiB, WRITABLE, at 6% fragmentation.
 //
-// The third input - whether the file is a compressed artifact being read rather than written - is
-// deliberately NOT here. lib/clean_step.py blamed it for the HANDOFF TO XNU death and then found
-// the same death with the flag off; see the note above installing(). It belongs to the overlay,
-// which does not exist in this build yet.
+// AN INSTALLER MUST NOT SEE discards (the 17 GiB that vanished under an APFS snapshot is measured in
+// the note above `installing`), and a fresh disk being installed has nothing worth trimming yet. Every
+// other boot may trim.
 func (b Boot) Discardable() bool { return !b.installing() }
 
 // FirmwareArgs is the pflash pair.

@@ -83,6 +83,11 @@ func (e *Executor) doBoot(s walk.Step) error {
 		DriverCD:     e.assetPath(s.Get("driver_cd")),
 		Recovery:     e.assetPath(s.Get("recovery")),
 		Incoming:     resumeFrom,
+		// THE DISK IS FRESH IF THIS FILE CREATED IT. `disk_gb:` is the only step that makes a disk
+		// rather than naming one, so it is the only thing that can answer this - and the machine needs
+		// the answer twice: a fresh disk runs on itself (no throwaway diff that `ReleaseDiff` deletes),
+		// and a disk that came from somewhere keeps its writes.
+		FreshDisk: e.madeDisk,
 	}
 	// THE SIZE COMES OFF THE STEP, WHICH IS WHERE `MachineSteps` PUT IT.
 	//
@@ -399,6 +404,10 @@ func (e *Executor) createDisk(s walk.Step) error {
 	if setter, ok := e.Driver.Machine().(interface{ SetDisk(string) }); ok {
 		setter.SetDisk(path)
 	}
+	// THE DISK IS THIS RUN'S, AND A LATER `boot:` MUST KNOW IT. This is the only step that
+	// creates a disk; every other way of naming one points at a file that already existed, whose
+	// writes must survive. See machine.Boot.FreshDisk for what the conflation cost.
+	e.madeDisk = true
 	return nil
 }
 

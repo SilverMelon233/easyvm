@@ -561,6 +561,23 @@ steps:
   # resident and a byte-identical screen for half an hour. A warm reset recovered it - the same disk
   # came back reading "About 29 minutes remaining" - so the guest was thrashing rather than stuck, and
   # the wait is what stands between this step and a published disk.
+  #
+  # THIS STAGE ENDS HERE ON PURPOSE, AND THE WIZARD IT HANDS TO THE ssh STAGE IS NOT ANSWERED IN ONE
+  # PASS. easydev-org/easyvm#3 measured it over two fresh installs and then corrected itself:
+  #
+  #	Setup Assistant does NOT commit every pane as it is answered. Answer the panes up to "Update Mac
+  #	Automatically", reboot, and the APPLE ID PANE COMES BACK - so the second pass re-answers Apple
+  #	ID, Location, Analytics and Choose Your Look, and only after THAT is committed does the wizard
+  #	stop appearing. Two reboots on a fresh install, then a login window and a desktop.
+  #
+  # AND THE PANE THAT FORCES THE REBOOT NEVER ADVANCES: "Update Mac Automatically" draws an enabled
+  # Continue button and a turning spinner, and click, `ret` and `tab`+space all do nothing - measured
+  # over fifteen minutes. A walk that waits on it hangs; a walk that reboots once hangs on its second
+  # appearance, in a state that looks identical to the first hang.
+  #
+  # WHICH IS WHY THIS FILE STOPS AT "the Setup Assistant appears" RATHER THAN TRYING TO DRIVE IT: the
+  # installer's half ends here, and the wizard's half belongs to a stage that can be re-run without
+  # paying for the install again - which is the same reason `macos15` splits setup from ssh.
   loop:
     max: 270
     do:

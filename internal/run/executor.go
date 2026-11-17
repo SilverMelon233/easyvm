@@ -39,6 +39,9 @@ type Executor struct {
 
 	// BootDisk is the disk a `boot:` starts when no `disk:` step named one - the --boot-disk flag.
 	BootDisk string
+	// madeDisk is true once a `disk_gb:` step has created the target, so a later `boot:` knows the
+	// disk is this run's rather than one from somewhere else. See BootSpec.FreshDisk.
+	madeDisk bool
 	// adb is the Android Debug Bridge connection, when a step asked for one.
 	//
 	// IT IS A FIELD BESIDE THE ssh ONE AND NOT A Driver METHOD: adb is one family's transport, not
