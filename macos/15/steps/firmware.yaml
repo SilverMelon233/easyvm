@@ -32,11 +32,11 @@ steps:
   # here: Apple's APFS driver lives inside this image, OVMF has no APFS support of its own, and a boot
   # image built without it starts a firmware that cannot see the installed system - a picker listing
   # only `Reset NVRAM` and `Toggle SIP`, with nothing in any log to say why.
-  require:
+  needs:
   - recovery.dmg
 - name: build the firmware the guest boots through
   release: '15'
   # A PATH, NOT AN ASSET ROLE. `recovery:` takes either, and this file names the file the workflow
   # placed rather than asking the asset layer to go and get it.
   recovery: recovery.dmg
-  build: opencore
+  fetch: opencore

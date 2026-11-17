@@ -57,6 +57,8 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 | `key` | qcode or `ctrl+alt+t` | one keystroke or chord | 170 |
 | `type` | text | type at the focus; with `at:` clicks the field first | 124 |
 | `write` | kind | write one host-side file for a later `scp:` | 17 |
+| `fetch` | kind | produce one host-side input (was `asset:`/`build:`/`generate:`) | 4 |
+| `needs` | list | files that must be on disk before this stage runs | 22 |
 
 ## 1.3 Channels into the guest
 
@@ -229,10 +231,11 @@ name, and they keep working because the executor reads both.
 | `region` | 42 | `check: {rect: …}` |
 | `region_at` | 42 | *(gone — `rect:` is a fraction)* |
 | `scale` | 42 | `check: {scale: N}` |
-| `require` | 22 | `requires:` + the header |
+| `require` | 0 | `needs:` — **MIGRATED**, because one letter from `requires:` was a trap |
 | `expect`, `expect_any` | 9 | `check: {text: …}` |
 | `until`, `until_any` | 79 | `loop: {until:}` |
 | `family` | 0 | `os:` — **MIGRATED** |
+| `asset`, `build`, `generate` | 0 | `fetch:` — **MIGRATED in YAML**, old names still read |
 | `script_shell`, `script_name` | 32 | `script: {shell:, name:}` |
 | `at_bottom` | 8 | `at_button:` |
 | `skip_when_unfinished` | 5 | `if: finished` |

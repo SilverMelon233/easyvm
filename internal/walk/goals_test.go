@@ -663,7 +663,6 @@ func TestEverySCPSourceIsProducedByAnEarlierStep(t *testing.T) {
 	produced["org.vm.bootstrap.plist"] = true
 	produced["demo.sh"] = true
 
-
 	var checked int
 	for _, path := range files {
 		rel, _ := filepath.Rel(root, path)
@@ -2222,10 +2221,13 @@ func TestEveryAssetNameIsAKind(t *testing.T) {
 		}
 		for i, line := range strings.Split(string(body), "\n") {
 			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "#") || !strings.HasPrefix(trimmed, "asset:") {
+			// `fetch:` IS THE NAME NOW; `asset:` IS READ TOO so an unmigrated file is still
+			// checked rather than silently skipped by this guardian.
+			if strings.HasPrefix(trimmed, "#") ||
+				(!strings.HasPrefix(trimmed, "fetch:") && !strings.HasPrefix(trimmed, "asset:")) {
 				continue
 			}
-			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "asset:"))
+			name := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(trimmed, "fetch:"), "asset:"))
 			name = strings.Trim(name, `"'`)
 			checked++
 			// `guest_agent` IS A NAME THE ASSET LAYER RESOLVES, NOT A KIND IT STORES, and the
@@ -2254,7 +2256,7 @@ func TestEveryAssetNameIsAKind(t *testing.T) {
 		}
 	}
 	if checked == 0 {
-		t.Fatal("no `asset:` step was found in any walkthrough, so this checks nothing")
+		t.Fatal("no `fetch:` or `asset:` step was found in any walkthrough, so this checks nothing")
 	}
 	t.Logf("checked %d `asset:` name(s) against %d kind(s)", checked, len(kinds))
 }
@@ -2345,9 +2347,15 @@ func TestEveryStageRequiresTheAssetsItsLegPulls(t *testing.T) {
 			continue
 		}
 		first := doc.Steps[0]
-		raw, ok := first.Spec["require"]
+		// `needs:` IS THE NAME; `require:` WAS ONE LETTER FROM `requires:`, WHICH ASSERTS A
+		// CAPABILITY RATHER THAN A FILE. Both are accepted here so an unmigrated file still passes
+		// its own guardian test, and the vocabulary is what stops the old spelling being written.
+		raw, ok := first.Spec["needs"]
 		if !ok {
-			t.Errorf("%s: the first step is %q and it is not a `require:`. The leg pulls %v, so a "+
+			raw, ok = first.Spec["require"]
+		}
+		if !ok {
+			t.Errorf("%s: the first step is %q and it is not a `needs:`. The leg pulls %v, so a "+
 				"missing one of those must fail here rather than at a `boot:` that names the medium "+
 				"instead of the pull", stage, first.Name, files)
 			continue

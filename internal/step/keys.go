@@ -92,8 +92,16 @@ var Keys = map[string]Key{
 	"optional": {Name: "optional", Kind: KindBool,
 		Summary: "a step that may fail without failing the stage - only for a check whose " +
 			"NEGATIVE result is information, never for a verdict"},
-	"require": {Name: "require", Kind: KindBool,
-		Summary: "the whole walkthrough fails if this step did not run"},
+	// `needs:` IS THE NAME AND `require:` WAS THE TRAP. `require:` named the FILES a stage needs on
+	// disk; `requires:` names the CAPABILITIES the machine must answer. One letter apart, two
+	// completely different assertions, and 43 uses between them - a reader had to count the `s`.
+	// MEASURED: `require:` 22, `requires:` 21.
+	"needs": {Name: "needs", Kind: KindList,
+		Summary: "files that must be on disk before this stage runs; the first step of every stage " +
+			"names its medium here so a missing input fails in the first second rather than forty " +
+			"minutes in"},
+	"require": {Name: "require", Kind: KindList,
+		Summary: "the older spelling of `needs:`, kept so a file that has not been renamed runs"},
 	"requires": {Name: "requires", Kind: KindList,
 		Summary: "capabilities that must answer before the step runs (ssh, qga, share, " +
 			"network, overlay); missing is a StepError, never a quiet fallback"},
@@ -617,18 +625,20 @@ var Keys = map[string]Key{
 	// A NAME THAT SAYS "fetch" FOR ALL THREE HIDES THE BUILD AND THE GENERATE BEHIND A WORD THAT
 	// PROMISES A DOWNLOAD, and a reader who saw `fetch: opencore` had no way to know it was reading
 	// a 888 MiB recovery image.
-	"asset": {Name: "asset", Kind: KindString,
-		Summary: "take a host-side file this build ships or pulls: linux_iso, windows_iso, " +
-			"virtio_win, recovery_macos, guest_agent. It is a file that exists somewhere and is " +
-			"copied or downloaded here"},
-	"build": {Name: "build", Kind: KindString,
-		Summary: "assemble a host-side artifact from another asset: `build: opencore` reads " +
-			"Apple's APFS driver out of the recovery image and writes boot.img, macos.rom and " +
-			"macos.vars. Use `asset:` instead when nothing is being assembled"},
-	"generate": {Name: "generate", Kind: KindString,
-		Summary: "produce a file from a template and this walkthrough's variables: " +
-			"`generate: answer_iso` renders `template:` and packs the result into a CD image. " +
-			"Use `asset:` instead when nothing is being rendered"},
+	// `asset:`, `build:` AND `generate:` WERE ONE OPERATION UNDER THREE NAMES.
+	//
+	// All three dispatched to `doFetch` and differed only in which WORD the file chose: take a
+	// published file, assemble one, render one. MEASURED: `asset:` 1 use, `build:` 2, `generate:` 1
+	// - the distinction was never load-bearing, because the KIND is the value.
+	"fetch": {Name: "fetch", Kind: KindList,
+		Summary: "produce one host-side input: an installer image, a guest agent, a firmware, an " +
+			"answer CD. The value names WHAT, not how it is obtained"},
+	"asset": {Name: "asset", Kind: KindList,
+		Summary: "the older spelling of `fetch:`, kept so a file that has not been renamed runs"},
+	"build": {Name: "build", Kind: KindList,
+		Summary: "the older spelling of `fetch:`, kept so a file that has not been renamed runs"},
+	"generate": {Name: "generate", Kind: KindList,
+		Summary: "the older spelling of `fetch:`, kept so a file that has not been renamed runs"},
 	"template": {Name: "template", Kind: KindString,
 		Summary: "with `generate: answer_iso`: the answer file to substitute into. It is a path in " +
 			"the repository because the placeholders are the file's vocabulary, not a download"},

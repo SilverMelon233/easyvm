@@ -54,7 +54,7 @@ steps:
   # the MSI's service binds through, and a driver from another release is a device that installs and
   # never starts.
   os: windows
-  asset: guest_agent
+  fetch: guest_agent
 - name: copy the driver in
   scp:
   - vioserial/vioser.inf

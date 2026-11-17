@@ -289,7 +289,13 @@ func (e *Executor) runOne(s walk.Step) error {
 		return e.doLoop(s)
 	case s.Has("if"):
 		return e.doIf(s)
-	case s.Has("require"):
+	case s.Has("needs"), s.Has("require"):
+		// `needs:` IS THE NAME; `require:` IS THE OLD ONE AND IS READ SO AN UNMIGRATED FILE RUNS.
+		//
+		// THE RENAME IS ABOUT ONE LETTER. `require:` names the FILES that must be on disk before a
+		// stage starts; `requires:` names the CAPABILITIES the machine must answer (ssh, qga, share).
+		// Two keys one letter apart, two completely different assertions, and 43 uses between them -
+		// a reader had to count the `s`. MEASURED: `require:` 22, `requires:` 21.
 		return e.doRequire(s)
 	case s.Has("require_ssh"):
 		return e.doRequireSSH(s)
@@ -387,7 +393,7 @@ func (e *Executor) runOne(s walk.Step) error {
 	// THE THREE PREPARATION KINDS ARE ONE DISPATCHER, because they are one operation with three
 	// names: a file is obtained, assembled, or rendered, and all three end as a path in the work
 	// directory that a later step names. `doFetch` reads whichever key is present.
-	case s.Has("asset"), s.Has("build"), s.Has("generate"):
+	case s.Has("fetch"), s.Has("asset"), s.Has("build"), s.Has("generate"):
 		return e.doFetch(s)
 	case s.Has("scp"):
 		return e.doSCP(s)

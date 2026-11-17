@@ -29,7 +29,7 @@ steps:
   # forty minutes into a run. Every one of these files is declared by this leg's
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
-  require:
+  needs:
   - windows.iso
   - virtio-win.iso
 - name: start recording
@@ -39,7 +39,7 @@ steps:
   disk_gb: 128
 - name: build the answer CD
   template: windows/11/answer/Autounattend.xml
-  generate: answer_iso
+  fetch: answer_iso
 - name: boot the installer
   boot: true
   os: windows

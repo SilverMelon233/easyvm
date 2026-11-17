@@ -72,13 +72,13 @@ func (e *Executor) doBoot(s walk.Step) error {
 		}
 	}
 	spec := BootSpec{
-		OS:           osName,
-		Disk:         e.bootDisk(),
-		ISO:          e.assetPath(s.Get("iso")),
-		AnswerCD:     e.assetPath(s.Get("answer_cd")),
-		DriverCD:     e.assetPath(s.Get("driver_cd")),
-		Recovery:     e.assetPath(s.Get("recovery")),
-		Incoming:     resumeFrom,
+		OS:       osName,
+		Disk:     e.bootDisk(),
+		ISO:      e.assetPath(s.Get("iso")),
+		AnswerCD: e.assetPath(s.Get("answer_cd")),
+		DriverCD: e.assetPath(s.Get("driver_cd")),
+		Recovery: e.assetPath(s.Get("recovery")),
+		Incoming: resumeFrom,
 	}
 	// THE SIZE COMES OFF THE STEP, WHICH IS WHERE `MachineSteps` PUT IT.
 	//
@@ -618,16 +618,41 @@ func (e *Executor) doScript(s walk.Step) error {
 	if client == nil {
 		return fail(s.Name, "no ssh connection; a `require_ssh:` step must come first")
 	}
+	// `script:` TAKES EITHER A BODY OR A MAPPING, and the mapping exists because its two settings
+	// were KEYS OF THEIR OWN. MEASURED: `script_shell:` 16 uses and `script_name:` 16 - the same
+	// sixteen steps, every time, which is what a subkey looks like and what a top-level key does not.
+	//
+	//	script:                        script:
+	//	  |                            body: |
+	//	  #!/bin/sh                      #!/bin/sh
+	//	                               shell: sh
+	//	                               name: run-xcode-install.sh
+	//
+	// THE OLD SPELLING IS STILL READ, so a file that has not been migrated runs.
+	body := s.Get("script")
 	shell := s.Get("script_shell")
+	name := s.Get("script_name")
+	if m, ok := s.Spec["script"].(map[string]any); ok {
+		if v, ok := m["body"].(string); ok {
+			body = v
+		}
+		if v, ok := m["shell"].(string); ok {
+			shell = v
+		}
+		if v, ok := m["name"].(string); ok {
+			name = v
+		}
+	}
 	if shell == "" {
 		shell = "powershell"
 	}
-	name := scriptName(s)
+	if name == "" {
+		name = scriptName(s)
+	}
 	local := filepath.Join(e.Work, name)
 	if err := os.MkdirAll(e.Work, 0o755); err != nil {
 		return fail(s.Name, "%v", err)
 	}
-	body := s.Get("script")
 	if shell == "cmd" {
 		// cmd.exe reads a .bat byte for byte, and a stray \n is a command name.
 		body = strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\n", "\r\n")
@@ -1068,9 +1093,17 @@ func (e *Executor) userForPaths() string {
 // that took them from the environment instead would be a second place those facts live, and the
 // disk would be installed with one account and driven with another.
 func (e *Executor) doFetch(s walk.Step) error {
-	// ONE KIND, THREE KEY NAMES. Which key the file used says what is being done - taking a
-	// published file, assembling one, or rendering one - and this reads it without caring which.
-	kind := s.Get("asset")
+	// ONE KIND, FOUR KEY NAMES, AND NOW ONE. `asset:`, `build:` and `generate:` all dispatched to
+	// this function and differed only in the WORD the file chose - taking a published file,
+	// assembling one, or rendering one. MEASURED: `asset:` 1, `build:` 2, `generate:` 1, so the
+	// distinction was never load-bearing; the KIND is the value, and `fetch:` is the verb.
+	//
+	// THE OLD THREE ARE STILL READ so a file that has not been renamed runs, and the migration is
+	// per file.
+	kind := s.Get("fetch")
+	if kind == "" {
+		kind = s.Get("asset")
+	}
 	if kind == "" {
 		kind = s.Get("build")
 	}
@@ -1078,9 +1111,12 @@ func (e *Executor) doFetch(s walk.Step) error {
 		kind = s.Get("generate")
 	}
 	if kind == "" {
-		return fail(s.Name, "the step must name what it prepares: `asset:`, `build:` or `generate:`")
+		return fail(s.Name, "the step must name what it prepares: `fetch: <kind>` - an installer "+
+			"image, a guest agent, a firmware, an answer CD")
 	}
-	family := s.Get("family")
+	// `os:` AND NOT `family:`: the family spelling is gone from the vocabulary, and this was the
+	// last reader of it.
+	family := s.Get("os")
 	if family == "" && e.File != nil {
 		for _, other := range e.File.Steps {
 			if v := other.Get("os"); v != "" {
