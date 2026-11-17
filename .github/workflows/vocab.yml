@@ -99,6 +99,7 @@ jobs:
     timeout-minutes: 45
     outputs:
       tag: ${{ steps.tag.outputs.name }}
+      owner: ${{ steps.tag.outputs.owner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -158,7 +159,16 @@ jobs:
         id: tag
         run: |
           set -euo pipefail
-          slug=$(printf '%s' "${{ inputs.branch }}" | tr '/_' '--' | tr -cd 'a-zA-Z0-9.-')
+          # LOWERCASE, because a registry repository name may not carry a capital and the OWNER
+          # here is `SilverMelon233`. MEASURED: the push failed with
+          #
+          #	ERROR: failed to build: invalid tag "ghcr.io/SilverMelon233/easyvm:vocab-...":
+          #	repository name must be lowercase
+          #
+          # - after every test had passed, which is the expensive place to learn it.
+          owner=$(printf '%s' "${{ github.repository_owner }}" | tr 'A-Z' 'a-z')
+          echo "owner=${owner}" >> "$GITHUB_OUTPUT"
+          slug=$(printf '%s' "${{ inputs.branch }}" | tr '/_' '--' | tr -cd 'a-zA-Z0-9.-' | tr 'A-Z' 'a-z')
           echo "name=vocab-${slug}" >> "$GITHUB_OUTPUT"
 
       - name: build and push the branch image
@@ -168,7 +178,7 @@ jobs:
           file: ./Containerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/easyvm:${{ steps.tag.outputs.name }}
+          tags: ghcr.io/${{ steps.tag.outputs.owner }}/easyvm:${{ steps.tag.outputs.name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -185,7 +195,7 @@ jobs:
       packages: write
       checks: write
     container:
-      image: ghcr.io/${{ github.repository_owner }}/easyvm:${{ needs.image.outputs.tag }}
+      image: ghcr.io/${{ needs.image.outputs.owner }}/easyvm:${{ needs.image.outputs.tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
