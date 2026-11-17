@@ -578,6 +578,36 @@ steps:
   - 405
   wait_after: 8
 
+- name: the ESP dialog is up
+  loop:
+    max: 12
+    do:
+    - wait: 2
+    ocr:
+      name: esp_dialog
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: up
+      from: esp_dialog
+      mode: says_any
+      # `EFI` IS IN BLIVET'S RIGHT-HAND PANEL ON EVERY PAGE - it lists `/boot/efi` under
+      # `Partitions (advanced)` - so that word proved nothing. MEASURED:
+      #
+      #	esp_dialog: 80 word(s): ... Storage > vda-VirtIO Disk > vdal Requirements ...
+      #	esp_dialog [check]: up = true (mode says_any: read "EFI")
+      #
+      # on a frame with no dialog on it. The breadcrumb `Storage > vda - VirtIO Disk > vda1` is what
+      # this page shows, and `Cancel` is on the dialog and nowhere on the page behind it.
+      words:
+      - - Cancel
+      - - Automatically
+    until:
+      fact: up
+
+
 - name: choose the ESP type, because the dialog defaults to ext4
   click:
   - 882
@@ -612,36 +642,6 @@ steps:
 #
 # SO THE DIALOG IS READ FIRST: `Create` is its heading and `EFI` is its Type row. If either is missing
 # the step fails here rather than at a colour press with an empty screenshot.
-- name: the ESP dialog is up
-  loop:
-    max: 12
-    do:
-    - wait: 2
-    ocr:
-      name: esp_dialog
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
-      wait: 0
-    check:
-      name: up
-      from: esp_dialog
-      mode: says_any
-      # `EFI` IS IN BLIVET'S RIGHT-HAND PANEL ON EVERY PAGE - it lists `/boot/efi` under
-      # `Partitions (advanced)` - so that word proved nothing. MEASURED:
-      #
-      #	esp_dialog: 80 word(s): ... Storage > vda-VirtIO Disk > vdal Requirements ...
-      #	esp_dialog [check]: up = true (mode says_any: read "EFI")
-      #
-      # on a frame with no dialog on it. The breadcrumb `Storage > vda - VirtIO Disk > vda1` is what
-      # this page shows, and `Cancel` is on the dialog and nowhere on the page behind it.
-      words:
-      - - Cancel
-      - - Automatically
-    until:
-      fact: up
-
-
 - name: create it, and the mount point is filled in for us
   # THE COLOUR IS MEASURED, NOT ESTIMATED. MEASURED over the button's own box (x 404..478, y 608..648)
   # on the hand run's frame: rgb(177, 56, 11) occurs 2280 times there and nothing else comes close.
