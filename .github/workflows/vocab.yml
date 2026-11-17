@@ -333,7 +333,12 @@ jobs:
               echo "=== $tag is not published; the download step below is expected to provide $dest"
             fi
           done
-          if [ -z "${{ inputs.assets }}" ]; then
+          # A LEG THAT BOOTS A PUBLISHED DISK NEEDS NO INSTALLER. `boot_disk` names a system somebody
+          # else installed, so pulling `iso-<distro>-desktop` for it would download 4.8 GiB that
+          # nothing reads - and it is the FIRST thing the job does, so the wait is the whole leg's
+          # start. MEASURED on the ubuntu ssh leg, which sat in this step pulling an ISO it never
+          # opened.
+          if [ -z "${{ inputs.assets }}" ] && [ -z "${{ inputs.boot_disk }}" ]; then
             sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
               ghcr.io "$upstream" \
               "iso-${{ inputs.distro }}-desktop" \
