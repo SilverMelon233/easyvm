@@ -50,16 +50,19 @@ steps:
 # always false ends by failing - MEASURED, `the session is kept awake with a pointer nudge: the loop
 # ran 3 attempt(s) and the condition never held`. So these are plain steps, one press each, and the
 # pauses between them are what keep the timer reset across the wizard's quiet pages.
-- name: a pointer nudge, so the idle timer starts again
+# THE KEEP-AWAKE IS IN THE MIDDLE OF THE SCREEN, NOT IN A CORNER.
+#
+# The first version clicked (12,12) and (24,24) - the top-left - to reset GNOME's idle timer. MEASURED
+# on the run that followed: the frame went COMPLETELY BLACK from that point on and stayed black for
+# the rest of the stage, with qemu alive and the framebuffer still 1920x1080. A click in that corner
+# is the Activities hot corner on GNOME, which opens the overview; a second one there can leave the
+# session in a state whose screen is the overview's backdrop - which is what a black frame is.
+#
+# SO THE PRESS LANDS ON THE WALLPAPER, well away from every edge and from the desktop's own icons.
+- name: a pointer nudge on the wallpaper, so the idle timer starts again
   click:
-  - 12
-  - 12
-  wait_after: 20
-
-- name: another, while the editor loads
-  click:
-  - 24
-  - 24
+  - 960
+  - 300
   wait_after: 20
 
 # FEDORA 45's ANACONDA IS A WEB UI, AND THIS STAGE STILL WALKED THE Qt WIZARD.
@@ -122,12 +125,24 @@ steps:
       name: ready
       from: anaconda
       mode: says_any
-      # ONE TOKEN PER SET. The web UI's first page reads `Welcome. Let's install Fedora Linux now.`
-      # - `Welcome` alone is what it, the storage page and the review page all carry.
+      # NEITHER WORD MAY BE ONE THE DESKTOP ALREADY CARRIES.
+      #
+      # MEASURED: this check passed on a frame that was still the DESKTOP -
+      #
+      #	anaconda: 75 word(s): -_ Nov17 6:52PM na? O qv e or . ss . U%e ...
+      #
+      # - because its set was `Welcome | Installation | Storage` and the live session's wallpaper
+      # carries a desktop icon labelled `Install Fedora Linux`. `Installation` is not `Install`, but
+      # the OCR of this desktop is noisy enough to produce it, and the loop therefore satisfied
+      # itself before Anaconda had a window.
+      #
+      # THE WORDS BELOW ARE THE WEB UI'S OWN SENTENCES: its welcome page reads `Welcome. Let's
+      # install Fedora Linux now.` and `This program will ask you some questions`... - `questions` and
+      # `nowhere`-style words the wallpaper never shows.
       words:
-      - - Welcome
-      - - Installation
-      - - Storage
+      - - questions
+      - - Destination
+      - - Encryption
     until:
       fact: ready
 
@@ -159,9 +174,11 @@ steps:
     name: asking
     from: method
     mode: says_any
+    # `Destination` AND `Encryption` ARE THIS WIZARD'S OWN HEADINGS - the live desktop carries
+    # neither, which is what the previous version of this check got wrong by including `install`.
     words:
     - - Destination
-    - - install
+    - - Encryption
     - - storage
 
 - name: installation method
