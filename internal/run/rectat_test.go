@@ -1,6 +1,11 @@
 package run
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+
+	"github.com/easydev-org/easyvm/internal/walk"
+)
 
 // The macos recovery frame is 640x480 and its rects were written at 1920x1080 - the file says so with
 // `rect_at:`. Scaling by the FRAME instead of that size asked for a 1400-wide crop of a 640-wide image:
@@ -33,4 +38,79 @@ func TestRectAtScalesByTheScreenItWasWrittenFor(t *testing.T) {
 		t.Fatalf("a rect with no `rect_at:` invented a size: %+v", bare)
 	}
 	t.Logf("1920x1080 rect [760 200 1400 560] -> [%.0f %.0f %.0f %.0f] on 640x480", x0, y0, x1, y1)
+}
+
+// AND THE MAPPING IS READ FROM THE `see:` BLOCK, WHICH IS WHERE IT LIVES.
+//
+// The step is `see: {name, of, rect, rect_at}` - `rect_at:` is INSIDE the mapping, not beside the
+// `see:` key. A first fix called `pairAt(s)`, which reads `s.Spec`, found nothing, and left the rect
+// scaled by the frame: the macos run failed with the identical 640x480 crop on the next dispatch.
+// This test reads it the way the executor does.
+func TestRectAtIsReadFromInsideTheSeeMapping(t *testing.T) {
+	spec := map[string]any{
+		"see": map[string]any{
+			"name": "recovery", "of": []any{"text"},
+			"rect": []any{760, 200, 1400, 560},
+			// THE FILE'S OWN LINE, copied from macos/15/steps/setup.walk.
+			"rect_at": []any{1920, 1080},
+			"scale":   float64(6), "wait": float64(5),
+		},
+	}
+	raw := spec["see"].(map[string]any)
+	at, ok := pairOfMapping(raw, "rect_at")
+	if !ok {
+		t.Fatal("`rect_at:` inside the `see:` mapping was not found - it is not on the step")
+	}
+	if at != [2]int{1920, 1080} {
+		t.Fatalf("read %v, want [1920 1080]", at)
+	}
+	r, err := parseRectAt(raw["rect"], at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The property that failed twice: the rect fits a 640x480 frame.
+	if r.XTo/float64(r.AtW)*640 > 640 || r.To/float64(r.AtH)*480 > 480 {
+		t.Fatalf("rect %+v does not fit a 640x480 frame", r)
+	}
+}
+
+// THE SIZE IS READ ONCE AND HANDED TO BOTH PATHS, so a text reading and a numeric one cannot disagree
+// about which screen a rect was written for. This is the assertion that would have caught the second
+// dispatch: the `see:` mapping is where `rect_at:` lives, and a reader that looks at `s.Spec` gets
+// nothing back and silently falls back to the frame.
+func TestBothSeePathsGetTheirRectAtFromTheSamePlace(t *testing.T) {
+	step := walk.Step{Name: "the recovery menu's rows", Spec: map[string]any{
+		"see": map[string]any{
+			"name": "recovery", "of": []any{"text"},
+			"rect": []any{760, 200, 1400, 560}, "rect_at": []any{1920, 1080},
+			"scale": float64(6), "wait": float64(5),
+		},
+	}}
+	raw, _, rectRaw, ofRaw, err := parseSeeStep(step)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ofRaw) != 1 || fmt.Sprint(ofRaw[0]) != "text" {
+		t.Fatalf("this test is about the TEXT path; of=%v", ofRaw)
+	}
+	at, ok := pairOfMapping(raw, "rect_at")
+	if !ok || at != [2]int{1920, 1080} {
+		t.Fatalf("`rect_at:` was not read from the mapping: %v %v", at, ok)
+	}
+	// AND THE TEXT PATH MUST PLACE THE SAME RECT THE NUMERIC PATH WOULD, which is what passing `at`
+	// down guarantees and what a second lookup could get wrong.
+	text, err := parseRectAt(rectRaw, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	num, err := parseRectAt(rectRaw, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != num {
+		t.Fatalf("the two paths disagree: %+v vs %+v", text, num)
+	}
+	if text.AtW != 1920 || text.AtH != 1080 {
+		t.Fatalf("the size did not reach the rect: %+v", text)
+	}
 }

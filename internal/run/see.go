@@ -45,14 +45,23 @@ func (e *Executor) doSee(s walk.Step) error {
 	}
 	_ = raw
 
+	// `rect_at:` IS READ HERE, ONCE, AND HANDED DOWN. The step is `see: {name, of, rect, rect_at}` -
+	// the size is INSIDE the mapping, not beside the key - so reading it from `s.Spec` finds nothing
+	// and leaves the rect scaled by the frame. That mistake survived one dispatch: the macos recovery
+	// frame is 640x480 and its rect was written at 1920x1080, and the failure was identical to the one
+	// this whole change exists to fix.
+	at, _ := pairOfMapping(raw, "rect_at")
+	if at == ([2]int{}) {
+		at, _ = pairOfMapping(raw, "region_at")
+	}
+
 	// A TEXT rect is read with the OCR path rather than measured, because its result is words.
 	for _, want := range ofRaw {
 		if fmt.Sprint(want) == "text" {
-			return e.seeText(s, name, rectRaw)
+			return e.seeText(s, name, rectRaw, at)
 		}
 	}
 
-	at, _ := pairAt(s)
 	rect, err := parseRectAt(rectRaw, at)
 	if err != nil {
 		return fail(s.Name, "%v", err)
@@ -92,8 +101,7 @@ func (e *Executor) doSee(s walk.Step) error {
 
 // seeText reads a rect with OCR. It exists so a `see:` step can produce WORDS as well as numbers,
 // which is what makes `see:` a generalisation of `ocr:` rather than a second mechanism beside it.
-func (e *Executor) seeText(s walk.Step, name string, rectRaw any) error {
-	at, _ := pairAt(s)
+func (e *Executor) seeText(s walk.Step, name string, rectRaw any, at [2]int) error {
 	rect, err := parseRectAt(rectRaw, at)
 	if err != nil {
 		return fail(s.Name, "%v", err)
