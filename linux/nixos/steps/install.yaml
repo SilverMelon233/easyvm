@@ -35,11 +35,22 @@ steps:
   timeout: 5400
   poll: 5
   keep_alive: true
+# THE CLICK THAT OPENS THE INSTALLER DOES NOT ALSO GET TO DECIDE WHETHER IT OPENED.
+#
+# MEASURED, on this medium: this step carried `expect_any: [welcome | language | install]` and an
+# 8-second `wait_after`, and it FAILED with
+#
+#	open the installer: did not advance: wanted "welcome" or "language" or "install",
+#	                   read "-_- Nov 17 13:30 mm O Q Type to search"
+#
+# - the reading was the DESKTOP's status bar, one frame before the window appeared. A screenshot
+# taken right after showed `Welcome to the NixOS installer` plainly on screen. The window was
+# opening; the verdict was taken too early, and it is a VERDICT, so the walk stopped there and the
+# retry loop below (`calamares is up`, 30 attempts) never got to run.
+#
+# SO THIS STEP ONLY CLICKS. The waiting belongs to the loop, which is allowed to be wrong thirty
+# times; a check on a single click is allowed to be wrong once and ends the run.
 - name: open the installer
-  expect_any:
-  - - welcome
-  - - language
-  - - install
   wait_after: 8
   do:
   - click:
@@ -49,34 +60,6 @@ steps:
   - click:
     - 960
     - 640
-    wait_after: 3
-- name: open the installer (desktop icon, if the window was not there)
-  unless:
-  - welcome
-  - language
-  wait_after: 8
-  do:
-  - click:
-    - 88
-    - 240
-    wait_after: 3
-  - click:
-    - 88
-    - 240
-    wait_after: 3
-- name: open the installer (desktop icon again)
-  unless:
-  - welcome
-  - language
-  wait_after: 25
-  do:
-  - click:
-    - 88
-    - 240
-    wait_after: 3
-  - click:
-    - 88
-    - 240
     wait_after: 3
 - name: calamares is up
   loop:
