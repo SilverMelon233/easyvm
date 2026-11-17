@@ -37,6 +37,13 @@ on:
       disks_repository:
         type: string
         default: "easydev-org/easyvm"
+      image_tag:
+        description: >-
+          the image tag this stage runs inside. `latest` is the product and is what every operating
+          system's workflow uses; a BRANCH tag is how a change to the vocabulary is driven by real
+          guests before it merges, without publishing over `:latest`.
+        type: string
+        default: "latest"
 
 # NO WORKFLOW-LEVEL `concurrency` HERE. THE CALLER OWNS THE RUN.
 #
@@ -52,7 +59,7 @@ jobs:
     # a default chosen for a 70-minute Windows stage.
     timeout-minutes: ${{ matrix.timeout }}
     container:
-      image: ghcr.io/${{ github.repository }}:latest
+      image: ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
