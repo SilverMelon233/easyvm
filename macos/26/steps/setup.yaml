@@ -542,27 +542,20 @@ steps:
   - 1005
   - 712
   wait_after: 10
-- name: the copy runs, look 1 of at most 3
+- name: the copy runs, look 1 of at most 8
+  # FIFTEEN MINUTES: 45 x 20 s. A SHORT LOOK IS THE POINT, NOT THRIFT WITH THE BUDGET.
+  #
+  # MEASURED ON THE RUN THAT FINISHED: the installer writes in BURSTS - 8.7 GiB inside one minute,
+  # then 0 MB in five seconds, then 2023 MB in twenty - and it STALLS outright several times before the
+  # Setup Assistant appears. A long look spends its whole budget on a guest that has stopped, and the
+  # STEP THAT FOLLOWS THIS ONE is what moves it on: a warm reset.
+  #
+  # THE MEASUREMENT THAT SET 15 MINUTES: from a cold recovery boot to the Setup Assistant took
+  # twenty resets' worth of stalling in one trial and two in another, and each stall showed the same
+  # shape - disk size frozen, `/proc/<qemu>/io` at zero, screen byte-identical. Fifteen minutes is long
+  # enough that a burst is never interrupted and short enough that a stall is not paid for twice.
   loop:
-    # NINETY MINUTES: 270 x 20 s. THE CEILING IS A LOOP'S ATTEMPTS, NOT A WALL CLOCK.
-    #
-    # AND THE LOOP RUNNING OUT IS NOT THE END: when it spends its attempts the step AFTER this one
-    # RESETS THE GUEST AND THE NEXT LOOK STARTS OVER. MEASURED, TWICE: a guest that has stopped making
-    # progress comes back into the SAME install and moves again - "About 1 hour and 31 minutes
-    # remaining" before a reset, "About 29 minutes remaining" after.
-    #
-    # THE ALTERNATIVE WAS ONE LONGER LOOP AND IT DOES NOT WORK HERE: at 16 GiB the installer reaches
-    # 36.62 GiB in about five minutes and then crawls at ~300 KB/s with four vCPUs pegged and 15.9 GiB
-    # resident, and IT STAYS THERE. A loop of 270 attempts measured end to end:
-    #
-    #	07:00  step begins
-    #	07:05  disk.qcow2 reaches 36.62 GiB, and its mtime never changes again
-    #	08:20  the installer's pane still reads "About 1 hour and 26 minutes remaining"
-    #	08:41  the 270 attempts are spent and the step fails
-    #
-    # so a single ninety-minute wait is not enough for this install, and a reset is what makes the next
-    # ninety minutes different from the first.
-    max: 270
+    max: 45
     do:
     - wait: 20
     ocr:
@@ -614,27 +607,20 @@ steps:
         - id
     until:
       fact: done
-- name: reset the guest, because ninety minutes of this installer is not enough
-  # A WARM RESET, NOT A STOP AND START. MEASURED: the same disk rebooted came back into the same
-  # install and moved again, where it had been frozen on one frame for half an hour. `reboot:` is
-  # qemu's own reset, so the disk keeps every write and the boot image, recovery image and target stay
-  # attached; `WriteConfig` sets ShowPicker=false and Timeout=0, so OpenCore boots the disk with no
-  # menu to wait at.
-  #
-  # IT ALSO COSTS NOTHING WHEN THE INSTALL IS ALREADY DONE: the guest comes back to the Setup
-  # Assistant from the disk it just wrote, which is what the look after this one is looking for.
+- name: reset the guest after look 1, because this installer stalls and a reset is what moves it
+  # MEASURED, REPEATEDLY: the disk stops growing, `/proc/<qemu>/io` reads zero in both directions, and
+  # the screen is byte-identical - and a WARM RESET brings the same install back and it advances.
+  # `reboot:` is qemu's own reset, so every write the disk has taken stays on it, and the boot image,
+  # recovery image and target stay attached.
   reboot: true
   timeout: 300
-- name: wait for the guest to be drawing again after the reset
-  # `matches: '.'` IS "A SESSION IS DRAWN" - the same test this repository uses elsewhere. Without this
-  # the next look's `ocr:` can land during the boot and read an empty frame, which would burn an
-  # attempt and look identical to "not the Setup Assistant yet".
+- name: wait for the guest to be drawing again after reset 1
   loop:
     max: 40
     do:
     - wait: 10
     ocr:
-      name: back
+      name: back1
       region:
       - 0
       - 0
@@ -646,33 +632,26 @@ steps:
       scale: 1
       wait: 0
     check:
-      name: anything
-      from: back
+      name: anything1
+      from: back1
       mode: matches
       pattern: '.'
     until:
-      fact: anything
-- name: the copy runs, look 2 of at most 3
+      fact: anything1
+- name: the copy runs, look 2 of at most 8
+  # FIFTEEN MINUTES: 45 x 20 s. A SHORT LOOK IS THE POINT, NOT THRIFT WITH THE BUDGET.
+  #
+  # MEASURED ON THE RUN THAT FINISHED: the installer writes in BURSTS - 8.7 GiB inside one minute,
+  # then 0 MB in five seconds, then 2023 MB in twenty - and it STALLS outright several times before the
+  # Setup Assistant appears. A long look spends its whole budget on a guest that has stopped, and the
+  # STEP THAT FOLLOWS THIS ONE is what moves it on: a warm reset.
+  #
+  # THE MEASUREMENT THAT SET 15 MINUTES: from a cold recovery boot to the Setup Assistant took
+  # twenty resets' worth of stalling in one trial and two in another, and each stall showed the same
+  # shape - disk size frozen, `/proc/<qemu>/io` at zero, screen byte-identical. Fifteen minutes is long
+  # enough that a burst is never interrupted and short enough that a stall is not paid for twice.
   loop:
-    # NINETY MINUTES: 270 x 20 s. THE CEILING IS A LOOP'S ATTEMPTS, NOT A WALL CLOCK.
-    #
-    # AND THE LOOP RUNNING OUT IS NOT THE END: when it spends its attempts the step AFTER this one
-    # RESETS THE GUEST AND THE NEXT LOOK STARTS OVER. MEASURED, TWICE: a guest that has stopped making
-    # progress comes back into the SAME install and moves again - "About 1 hour and 31 minutes
-    # remaining" before a reset, "About 29 minutes remaining" after.
-    #
-    # THE ALTERNATIVE WAS ONE LONGER LOOP AND IT DOES NOT WORK HERE: at 16 GiB the installer reaches
-    # 36.62 GiB in about five minutes and then crawls at ~300 KB/s with four vCPUs pegged and 15.9 GiB
-    # resident, and IT STAYS THERE. A loop of 270 attempts measured end to end:
-    #
-    #	07:00  step begins
-    #	07:05  disk.qcow2 reaches 36.62 GiB, and its mtime never changes again
-    #	08:20  the installer's pane still reads "About 1 hour and 26 minutes remaining"
-    #	08:41  the 270 attempts are spent and the step fails
-    #
-    # so a single ninety-minute wait is not enough for this install, and a reset is what makes the next
-    # ninety minutes different from the first.
-    max: 270
+    max: 45
     do:
     - wait: 20
     ocr:
@@ -724,10 +703,14 @@ steps:
         - id
     until:
       fact: done
-- name: reset the guest again, for the same reason and with the same measurement behind it
+- name: reset the guest after look 2, because this installer stalls and a reset is what moves it
+  # MEASURED, REPEATEDLY: the disk stops growing, `/proc/<qemu>/io` reads zero in both directions, and
+  # the screen is byte-identical - and a WARM RESET brings the same install back and it advances.
+  # `reboot:` is qemu's own reset, so every write the disk has taken stays on it, and the boot image,
+  # recovery image and target stay attached.
   reboot: true
   timeout: 300
-- name: wait for the guest to be drawing again after the second reset
+- name: wait for the guest to be drawing again after reset 2
   loop:
     max: 40
     do:
@@ -751,27 +734,500 @@ steps:
       pattern: '.'
     until:
       fact: anything2
-- name: the copy runs, look 3 of at most 3
+- name: the copy runs, look 3 of at most 8
+  # FIFTEEN MINUTES: 45 x 20 s. A SHORT LOOK IS THE POINT, NOT THRIFT WITH THE BUDGET.
+  #
+  # MEASURED ON THE RUN THAT FINISHED: the installer writes in BURSTS - 8.7 GiB inside one minute,
+  # then 0 MB in five seconds, then 2023 MB in twenty - and it STALLS outright several times before the
+  # Setup Assistant appears. A long look spends its whole budget on a guest that has stopped, and the
+  # STEP THAT FOLLOWS THIS ONE is what moves it on: a warm reset.
+  #
+  # THE MEASUREMENT THAT SET 15 MINUTES: from a cold recovery boot to the Setup Assistant took
+  # twenty resets' worth of stalling in one trial and two in another, and each stall showed the same
+  # shape - disk size frozen, `/proc/<qemu>/io` at zero, screen byte-identical. Fifteen minutes is long
+  # enough that a burst is never interrupted and short enough that a stall is not paid for twice.
   loop:
-    # NINETY MINUTES: 270 x 20 s. THE CEILING IS A LOOP'S ATTEMPTS, NOT A WALL CLOCK.
-    #
-    # AND THE LOOP RUNNING OUT IS NOT THE END: when it spends its attempts the step AFTER this one
-    # RESETS THE GUEST AND THE NEXT LOOK STARTS OVER. MEASURED, TWICE: a guest that has stopped making
-    # progress comes back into the SAME install and moves again - "About 1 hour and 31 minutes
-    # remaining" before a reset, "About 29 minutes remaining" after.
-    #
-    # THE ALTERNATIVE WAS ONE LONGER LOOP AND IT DOES NOT WORK HERE: at 16 GiB the installer reaches
-    # 36.62 GiB in about five minutes and then crawls at ~300 KB/s with four vCPUs pegged and 15.9 GiB
-    # resident, and IT STAYS THERE. A loop of 270 attempts measured end to end:
-    #
-    #	07:00  step begins
-    #	07:05  disk.qcow2 reaches 36.62 GiB, and its mtime never changes again
-    #	08:20  the installer's pane still reads "About 1 hour and 26 minutes remaining"
-    #	08:41  the 270 attempts are spent and the step fails
-    #
-    # so a single ninety-minute wait is not enough for this install, and a reset is what makes the next
-    # ninety minutes different from the first.
-    max: 270
+    max: 45
+    do:
+    - wait: 20
+    ocr:
+      name: screen
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - select
+        - your
+        - country
+        - or
+        - region
+      - - how
+        - do
+        - you
+        - want
+        - to
+        - connect
+        - to
+        - the
+        - internet
+      - - transfer
+        - your
+        - information
+        - to
+        - this
+        - mac
+      - - choose
+        - a
+        - wireless
+        - network
+      - - sign
+        - in
+        - with
+        - your
+        - apple
+        - id
+    until:
+      fact: done
+- name: reset the guest after look 3, because this installer stalls and a reset is what moves it
+  # MEASURED, REPEATEDLY: the disk stops growing, `/proc/<qemu>/io` reads zero in both directions, and
+  # the screen is byte-identical - and a WARM RESET brings the same install back and it advances.
+  # `reboot:` is qemu's own reset, so every write the disk has taken stays on it, and the boot image,
+  # recovery image and target stay attached.
+  reboot: true
+  timeout: 300
+- name: wait for the guest to be drawing again after reset 3
+  loop:
+    max: 40
+    do:
+    - wait: 10
+    ocr:
+      name: back3
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: anything3
+      from: back3
+      mode: matches
+      pattern: '.'
+    until:
+      fact: anything3
+- name: the copy runs, look 4 of at most 8
+  # FIFTEEN MINUTES: 45 x 20 s. A SHORT LOOK IS THE POINT, NOT THRIFT WITH THE BUDGET.
+  #
+  # MEASURED ON THE RUN THAT FINISHED: the installer writes in BURSTS - 8.7 GiB inside one minute,
+  # then 0 MB in five seconds, then 2023 MB in twenty - and it STALLS outright several times before the
+  # Setup Assistant appears. A long look spends its whole budget on a guest that has stopped, and the
+  # STEP THAT FOLLOWS THIS ONE is what moves it on: a warm reset.
+  #
+  # THE MEASUREMENT THAT SET 15 MINUTES: from a cold recovery boot to the Setup Assistant took
+  # twenty resets' worth of stalling in one trial and two in another, and each stall showed the same
+  # shape - disk size frozen, `/proc/<qemu>/io` at zero, screen byte-identical. Fifteen minutes is long
+  # enough that a burst is never interrupted and short enough that a stall is not paid for twice.
+  loop:
+    max: 45
+    do:
+    - wait: 20
+    ocr:
+      name: screen
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - select
+        - your
+        - country
+        - or
+        - region
+      - - how
+        - do
+        - you
+        - want
+        - to
+        - connect
+        - to
+        - the
+        - internet
+      - - transfer
+        - your
+        - information
+        - to
+        - this
+        - mac
+      - - choose
+        - a
+        - wireless
+        - network
+      - - sign
+        - in
+        - with
+        - your
+        - apple
+        - id
+    until:
+      fact: done
+- name: reset the guest after look 4, because this installer stalls and a reset is what moves it
+  # MEASURED, REPEATEDLY: the disk stops growing, `/proc/<qemu>/io` reads zero in both directions, and
+  # the screen is byte-identical - and a WARM RESET brings the same install back and it advances.
+  # `reboot:` is qemu's own reset, so every write the disk has taken stays on it, and the boot image,
+  # recovery image and target stay attached.
+  reboot: true
+  timeout: 300
+- name: wait for the guest to be drawing again after reset 4
+  loop:
+    max: 40
+    do:
+    - wait: 10
+    ocr:
+      name: back4
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: anything4
+      from: back4
+      mode: matches
+      pattern: '.'
+    until:
+      fact: anything4
+- name: the copy runs, look 5 of at most 8
+  # FIFTEEN MINUTES: 45 x 20 s. A SHORT LOOK IS THE POINT, NOT THRIFT WITH THE BUDGET.
+  #
+  # MEASURED ON THE RUN THAT FINISHED: the installer writes in BURSTS - 8.7 GiB inside one minute,
+  # then 0 MB in five seconds, then 2023 MB in twenty - and it STALLS outright several times before the
+  # Setup Assistant appears. A long look spends its whole budget on a guest that has stopped, and the
+  # STEP THAT FOLLOWS THIS ONE is what moves it on: a warm reset.
+  #
+  # THE MEASUREMENT THAT SET 15 MINUTES: from a cold recovery boot to the Setup Assistant took
+  # twenty resets' worth of stalling in one trial and two in another, and each stall showed the same
+  # shape - disk size frozen, `/proc/<qemu>/io` at zero, screen byte-identical. Fifteen minutes is long
+  # enough that a burst is never interrupted and short enough that a stall is not paid for twice.
+  loop:
+    max: 45
+    do:
+    - wait: 20
+    ocr:
+      name: screen
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - select
+        - your
+        - country
+        - or
+        - region
+      - - how
+        - do
+        - you
+        - want
+        - to
+        - connect
+        - to
+        - the
+        - internet
+      - - transfer
+        - your
+        - information
+        - to
+        - this
+        - mac
+      - - choose
+        - a
+        - wireless
+        - network
+      - - sign
+        - in
+        - with
+        - your
+        - apple
+        - id
+    until:
+      fact: done
+- name: reset the guest after look 5, because this installer stalls and a reset is what moves it
+  # MEASURED, REPEATEDLY: the disk stops growing, `/proc/<qemu>/io` reads zero in both directions, and
+  # the screen is byte-identical - and a WARM RESET brings the same install back and it advances.
+  # `reboot:` is qemu's own reset, so every write the disk has taken stays on it, and the boot image,
+  # recovery image and target stay attached.
+  reboot: true
+  timeout: 300
+- name: wait for the guest to be drawing again after reset 5
+  loop:
+    max: 40
+    do:
+    - wait: 10
+    ocr:
+      name: back5
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: anything5
+      from: back5
+      mode: matches
+      pattern: '.'
+    until:
+      fact: anything5
+- name: the copy runs, look 6 of at most 8
+  # FIFTEEN MINUTES: 45 x 20 s. A SHORT LOOK IS THE POINT, NOT THRIFT WITH THE BUDGET.
+  #
+  # MEASURED ON THE RUN THAT FINISHED: the installer writes in BURSTS - 8.7 GiB inside one minute,
+  # then 0 MB in five seconds, then 2023 MB in twenty - and it STALLS outright several times before the
+  # Setup Assistant appears. A long look spends its whole budget on a guest that has stopped, and the
+  # STEP THAT FOLLOWS THIS ONE is what moves it on: a warm reset.
+  #
+  # THE MEASUREMENT THAT SET 15 MINUTES: from a cold recovery boot to the Setup Assistant took
+  # twenty resets' worth of stalling in one trial and two in another, and each stall showed the same
+  # shape - disk size frozen, `/proc/<qemu>/io` at zero, screen byte-identical. Fifteen minutes is long
+  # enough that a burst is never interrupted and short enough that a stall is not paid for twice.
+  loop:
+    max: 45
+    do:
+    - wait: 20
+    ocr:
+      name: screen
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - select
+        - your
+        - country
+        - or
+        - region
+      - - how
+        - do
+        - you
+        - want
+        - to
+        - connect
+        - to
+        - the
+        - internet
+      - - transfer
+        - your
+        - information
+        - to
+        - this
+        - mac
+      - - choose
+        - a
+        - wireless
+        - network
+      - - sign
+        - in
+        - with
+        - your
+        - apple
+        - id
+    until:
+      fact: done
+- name: reset the guest after look 6, because this installer stalls and a reset is what moves it
+  # MEASURED, REPEATEDLY: the disk stops growing, `/proc/<qemu>/io` reads zero in both directions, and
+  # the screen is byte-identical - and a WARM RESET brings the same install back and it advances.
+  # `reboot:` is qemu's own reset, so every write the disk has taken stays on it, and the boot image,
+  # recovery image and target stay attached.
+  reboot: true
+  timeout: 300
+- name: wait for the guest to be drawing again after reset 6
+  loop:
+    max: 40
+    do:
+    - wait: 10
+    ocr:
+      name: back6
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: anything6
+      from: back6
+      mode: matches
+      pattern: '.'
+    until:
+      fact: anything6
+- name: the copy runs, look 7 of at most 8
+  # FIFTEEN MINUTES: 45 x 20 s. A SHORT LOOK IS THE POINT, NOT THRIFT WITH THE BUDGET.
+  #
+  # MEASURED ON THE RUN THAT FINISHED: the installer writes in BURSTS - 8.7 GiB inside one minute,
+  # then 0 MB in five seconds, then 2023 MB in twenty - and it STALLS outright several times before the
+  # Setup Assistant appears. A long look spends its whole budget on a guest that has stopped, and the
+  # STEP THAT FOLLOWS THIS ONE is what moves it on: a warm reset.
+  #
+  # THE MEASUREMENT THAT SET 15 MINUTES: from a cold recovery boot to the Setup Assistant took
+  # twenty resets' worth of stalling in one trial and two in another, and each stall showed the same
+  # shape - disk size frozen, `/proc/<qemu>/io` at zero, screen byte-identical. Fifteen minutes is long
+  # enough that a burst is never interrupted and short enough that a stall is not paid for twice.
+  loop:
+    max: 45
+    do:
+    - wait: 20
+    ocr:
+      name: screen
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: done
+      from: screen
+      mode: says_any
+      words:
+      - - select
+        - your
+        - country
+        - or
+        - region
+      - - how
+        - do
+        - you
+        - want
+        - to
+        - connect
+        - to
+        - the
+        - internet
+      - - transfer
+        - your
+        - information
+        - to
+        - this
+        - mac
+      - - choose
+        - a
+        - wireless
+        - network
+      - - sign
+        - in
+        - with
+        - your
+        - apple
+        - id
+    until:
+      fact: done
+- name: reset the guest after look 7, because this installer stalls and a reset is what moves it
+  # MEASURED, REPEATEDLY: the disk stops growing, `/proc/<qemu>/io` reads zero in both directions, and
+  # the screen is byte-identical - and a WARM RESET brings the same install back and it advances.
+  # `reboot:` is qemu's own reset, so every write the disk has taken stays on it, and the boot image,
+  # recovery image and target stay attached.
+  reboot: true
+  timeout: 300
+- name: wait for the guest to be drawing again after reset 7
+  loop:
+    max: 40
+    do:
+    - wait: 10
+    ocr:
+      name: back7
+      region:
+      - 0
+      - 0
+      - 1920
+      - 1080
+      region_at:
+      - 1920
+      - 1080
+      scale: 1
+      wait: 0
+    check:
+      name: anything7
+      from: back7
+      mode: matches
+      pattern: '.'
+    until:
+      fact: anything7
+- name: the copy runs, look 8 of at most 8
+  # FIFTEEN MINUTES: 45 x 20 s. A SHORT LOOK IS THE POINT, NOT THRIFT WITH THE BUDGET.
+  #
+  # MEASURED ON THE RUN THAT FINISHED: the installer writes in BURSTS - 8.7 GiB inside one minute,
+  # then 0 MB in five seconds, then 2023 MB in twenty - and it STALLS outright several times before the
+  # Setup Assistant appears. A long look spends its whole budget on a guest that has stopped, and the
+  # STEP THAT FOLLOWS THIS ONE is what moves it on: a warm reset.
+  #
+  # THE MEASUREMENT THAT SET 15 MINUTES: from a cold recovery boot to the Setup Assistant took
+  # twenty resets' worth of stalling in one trial and two in another, and each stall showed the same
+  # shape - disk size frozen, `/proc/<qemu>/io` at zero, screen byte-identical. Fifteen minutes is long
+  # enough that a burst is never interrupted and short enough that a stall is not paid for twice.
+  loop:
+    max: 45
     do:
     - wait: 20
     ocr:
