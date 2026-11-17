@@ -33,6 +33,19 @@ on:
         default: "kubuntu"
         type: choice
         options: [kubuntu, ubuntu]
+      walk:
+        description: >-
+          the walkthrough file to run, relative to the repository. Empty means
+          linux/<distro>/steps/install.yaml. THIS IS HOW THE MICROVM IS DRIVEN: its file is a .walk
+          and it installs nothing, so the distro matrix's install path would not find it.
+        default: ""
+        type: string
+      assets:
+        description: >-
+          space-separated `tag:file` pairs to pull before the run, for a walkthrough whose media are
+          not an installer ISO. The alpine microvm needs three files out of one ISO.
+        default: ""
+        type: string
       run_walkthrough:
         description: "run the real install (40-90 minutes), not just the compile and unit tests"
         default: true
@@ -234,11 +247,70 @@ jobs:
             exit 1
           }
           upstream=$(printf '%s' "${{ inputs.upstream }}" | tr '[:upper:]' '[:lower:]')
-          sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
-            ghcr.io "$upstream" \
-            "iso-${{ inputs.distro }}-desktop" \
-            "$GITHUB_WORKSPACE/work/${{ inputs.distro }}.iso"
-          ls -l "work/${{ inputs.distro }}.iso"
+          # `assets:` NAMES `tag:file` PAIRS, so a walkthrough whose media are not an installer ISO
+          # can say what it needs. The alpine microvm takes three files, two of which live INSIDE
+          # the third - see the extraction below.
+          for pair in ${{ inputs.assets }}; do
+            tag="${pair%%:*}"
+            dest="${pair#*:}"
+            echo "=== pull $tag -> $dest"
+            sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+              ghcr.io "$upstream" "$tag" "$GITHUB_WORKSPACE/work/$dest"
+            ls -l "work/$dest"
+          done
+          if [ -z "${{ inputs.assets }}" ]; then
+            sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+              ghcr.io "$upstream" \
+              "iso-${{ inputs.distro }}-desktop" \
+              "$GITHUB_WORKSPACE/work/${{ inputs.distro }}.iso"
+            ls -l "work/${{ inputs.distro }}.iso"
+          fi
+
+      - name: a microvm's medium, downloaded because upstream publishes none
+        # THE ALPINE README (63 MiB) IS SMALL ENOUGH TO FETCH DIRECTLY, and that is the point of a
+        # microvm: a walkthrough that proves the vocabulary should not wait on a 4.8 GiB installer.
+        #
+        # IT IS AN INPUT LIKE ANY OTHER, so it is downloaded BEFORE the run and nothing fetches
+        # inside the guest - the rule every stage here follows.
+        if: contains(inputs.assets, 'alpine')
+        run: |
+          set -eu
+          cd "$GITHUB_WORKSPACE/work"
+          iso=alpine-virt-3.21.0-x86_64.iso
+          if [ ! -f alpine.iso ]; then
+            echo "=== downloading $iso"
+            curl -fsSL --retry 3 --retry-delay 5 \
+              -o "$iso" "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/$iso"
+            mv "$iso" alpine.iso
+          fi
+          ls -l alpine.iso
+          echo "the medium is $(( $(stat -c %s alpine.iso) >> 20 )) MiB"
+
+      - name: a microvm's kernel, out of its own ISO
+        # A MICROVM IS HANDED ITS KERNEL, because there is no firmware to read a boot sector. Alpine
+        # ships both inside its ISO, so the extract happens here rather than as a published asset:
+        # the files are derived, and a derived file that is published is a second thing to keep in
+        # step with the ISO it came from.
+        #
+        # 7z RATHER THAN `mount`, because a container step has no loop device - MEASURED: `mount -o
+        # loop` answers "failed to setup loop device" in the runner and in the lab pod alike.
+        run: |
+          set -eu
+          cd "$GITHUB_WORKSPACE/work"
+          for iso in *.iso; do
+            [ -e "$iso" ] || continue
+            case "$iso" in
+              alpine*)
+                echo "=== extracting the kernel and initramfs from $iso"
+                boot=$(7z l "$iso" | awk '/boot\/(vmlinuz|initramfs)/ {print $NF}' | head -20)
+                printf '%s\n' "$boot"
+                7z e -y -o. "$iso" boot/vmlinuz-virt boot/initramfs-virt
+                mv vmlinuz-virt alpine-vmlinuz
+                mv initramfs-virt alpine-initramfs
+                ls -l alpine-vmlinuz alpine-initramfs
+                ;;
+            esac
+          done
 
       - name: start the daemon
         # `easyvm run` IS A CLIENT: it sends a request and returns, and the daemon drives the file.
@@ -287,7 +359,10 @@ jobs:
         # POSIX SH ONLY: a container step runs /bin/sh, and `$SECONDS` is a bash variable.
         run: |
           set -eu
-          easyvm run "linux/${{ inputs.distro }}/steps/install.yaml" \
+          file="${{ inputs.walk }}"
+          if [ -z "$file" ]; then file="linux/${{ inputs.distro }}/steps/install.yaml"; fi
+          echo "the walkthrough is $file"
+          easyvm run "$file" \
             --work "$GITHUB_WORKSPACE/work" \
             --out "$GITHUB_WORKSPACE/vocab-${{ inputs.distro }}.qcow2" \
             --password admin
