@@ -214,9 +214,9 @@ steps:
       from: at_location
       mode: says_any
       words:
-      - - location
-      - - timezone
-      - - region
+      - - Region
+      - - zone
+      - - system language
     until:
       fact: here
 
@@ -241,7 +241,9 @@ steps:
       from: at_keyboard
       mode: says_any
       words:
-      - - keyboard
+      - - Keyboard model
+      - - Layout
+      - - Type here to test
     until:
       fact: here
 
@@ -265,10 +267,9 @@ steps:
       from: at_bootloader
       mode: says_any
       words:
-      - - bootloader
-      - - grub
-      - - refind
-      - - systemd-boot
+      - - snapshot
+      - - chainloading
+      - - multiprotocol
     until:
       fact: here
 
@@ -327,9 +328,9 @@ steps:
       from: at_partitions
       mode: says_any
       words:
-      - - erase
-      - - partition
-      - - manual
+      - - Select storage
+      - - Erase disk
+      - - Manual partitioning
     until:
       fact: here
 
@@ -377,8 +378,9 @@ steps:
       from: at_partitions_again
       mode: says_any
       words:
-      - - partition
-      - - erase
+      - - Select storage
+      - - Erase disk
+      - - Manual partitioning
     until:
       fact: here
 
@@ -444,8 +446,9 @@ steps:
       from: at_users
       mode: says_any
       words:
-      - - password
-      - - name
+      - - What is your name
+      - - Computer Name
+      - - Repeat Password
     until:
       fact: here
 
@@ -523,8 +526,8 @@ steps:
       from: at_summary
       mode: says_any
       words:
-      - - summary
-      - - install
+      - - overview
+      - - happen
     until:
       fact: here
 

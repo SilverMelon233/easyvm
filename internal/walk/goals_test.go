@@ -2401,3 +2401,64 @@ func workflowAssetsByStage(t *testing.T) map[string][]string {
 	}
 	return out
 }
+
+// A LOOP WITHOUT `until:` RUNS FOREVER, AND NOTHING BEFORE A GUEST IS STARTED SAYS SO.
+//
+// MEASURED. Adding page-arrival waits to cachyos cut each wait's `check:` block short, and the
+// `until: {fact: here}` on SEVEN of them went with it. The tree still loaded, `easyvm check` still
+// printed all sixty steps, and `go test ./internal/walk/` was green - because `until:` is enforced
+// in `internal/run/loop.go` when the loop RUNS:
+//
+//	error: the location page arrives after welcome: `loop:` must say `until: {fact: <name>}` -
+//	       the boolean a `check:` step produced
+//
+// - which is step 18 of 60, three minutes into an install, on a machine that was already up. A
+// loop with no `until:` presses or waits until the stage's timeout, so the cost of catching this
+// late is the whole budget of every loop in the file.
+//
+// THE RULE IS CHEAP AND TOTAL: every `loop:` names the boolean it ends on.
+func TestEveryLoopSaysWhatEndsIt(t *testing.T) {
+	root := filepath.Join("..", "..")
+	var files []string
+	for _, pat := range []string{
+		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
+		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
+		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
+		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
+		filepath.Join(root, "android", "*", "steps", "*.yaml"),
+	} {
+		matches, err := filepath.Glob(pat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, matches...)
+	}
+
+	loops := 0
+	for _, path := range files {
+		rel, _ := filepath.Rel(root, path)
+		f, err := Load(path, nil)
+		if err != nil {
+			continue // TestEveryWalkthroughLoads reports the reason
+		}
+		for _, s := range f.Steps {
+			if !s.Has("loop") {
+				continue
+			}
+			loops++
+			inner, ok := s.Spec["loop"].(map[string]any)
+			if !ok {
+				t.Errorf("%s: %q: `loop:` is not a mapping", rel, s.Name)
+				continue
+			}
+			if _, ok := inner["until"]; !ok {
+				t.Errorf("%s: %q: `loop:` has no `until:`, so it ends only when the stage times "+
+					"out. Say `until: {fact: <name>}` naming the boolean its `check:` binds",
+					rel, s.Name)
+			}
+		}
+	}
+	if loops == 0 {
+		t.Fatal("no `loop:` found anywhere, so this test checked nothing")
+	}
+}
