@@ -240,6 +240,36 @@ jobs:
             "$GITHUB_WORKSPACE/work/${{ inputs.distro }}.iso"
           ls -l "work/${{ inputs.distro }}.iso"
 
+      - name: start the daemon
+        # `easyvm run` IS A CLIENT: it sends a request and returns, and the daemon drives the file.
+        # MEASURED on run 44022381236, where this step did not exist:
+        #
+        #	FAILED: POST http://127.0.0.1:8080/api/command: dial tcp 127.0.0.1:8080: connect:
+        #	connection refused
+        #
+        # - after the binary, the tools and the 4.8 GiB medium had all been proven good.
+        #
+        # THE READY LINE IS THE CONTRACT, not the socket file: a file that exists is not a daemon
+        # that answers. The output is CAPTURED FIRST and matched with `case`, because `| grep -q`
+        # closes the pipe on its first match and `pipefail` turns that into exit 141 for a check
+        # that succeeded.
+        run: |
+          set -eu
+          easyvm serve --work "$GITHUB_WORKSPACE/work" \
+            > "$GITHUB_WORKSPACE/work/daemon.log" 2>&1 &
+          echo $! > "$GITHUB_WORKSPACE/work/daemon.pid"
+          for i in $(seq 1 30); do
+            logs=$(cat "$GITHUB_WORKSPACE/work/daemon.log" || true)
+            case "$logs" in *"listening on"*) break ;; esac
+            sleep 1
+          done
+          logs=$(cat "$GITHUB_WORKSPACE/work/daemon.log" || true)
+          printf '%s\n' "$logs"
+          case "$logs" in
+            *"listening on"*) echo "the daemon is up" ;;
+            *) echo "=== THE DAEMON DID NOT COME UP ==="; exit 1 ;;
+          esac
+
       - name: install, and prove the disk was written
         run: |
           set -e
