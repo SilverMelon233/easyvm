@@ -151,30 +151,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: the unit tests, in the machine they describe
-        # `--target tester` is this image plus a Go toolchain, so the tools a test reaches for are the
-        # ones the walkthroughs get. `internal/run`'s GPT test spawns `qemu-img`, which a bare runner
-        # does not have - and the fix for that is not to skip the test.
-        run: |
-          set -euo pipefail
-          docker build -f ./Containerfile --target runtime -t easyvm-ci:local .
-          docker build -f ./Containerfile --target tester -t easyvm-tester:ci .
-          docker run --rm \
-            -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache \
-            easyvm-tester:ci test ./... -count=1 -timeout 900s
-
-      - name: the vocabulary tables match the code
-        run: |
-          set -euo pipefail
-          docker run --rm -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache easyvm-tester:ci \
-            test ./internal/step/ -run 'TestEveryKey|TestNoKey|TestMerged' -v -count=1
-
-      - name: the measurements reproduce the desktop verdicts
-        run: |
-          set -euo pipefail
-          docker run --rm -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache easyvm-tester:ci \
-            test ./internal/screen/ -run 'TestTheMeasurementsReproduce' -v -count=1
-
       - name: the tag
         id: tag
         run: |
@@ -203,10 +179,53 @@ jobs:
           cache-to: type=gha,mode=max
 
   # ===========================================================================
+  # THE TESTS, IN THE MACHINE THEY DESCRIBE. A PARALLEL JOB, NOT A STEP IN `image`.
+  # ===========================================================================
+  #
+  # THEY USED TO LIVE INSIDE `image`, WHICH MADE THE WALL CLOCK THE SUM OF THE TWO: MEASURED, that job
+  # took 7.7 minutes and about 5.5 of them were `go test ./...` - `internal/run` alone is 331 seconds,
+  # because it drives real QMP and OCR paths. Nothing about the image depends on the tests having
+  # finished, so serialising them bought nothing and cost every dispatch five minutes.
+  #
+  # THE TWO RERUNS ARE GONE WITH IT. `test ./...` already covers `./internal/step/` and
+  # `./internal/screen/`, so the two extra `docker run`s that repeated a subset of it were pure
+  # duplication - and duplication that costs a container start each time.
+  test:
+    needs: compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: the unit tests, in the machine they describe
+        # `--target tester` IS THIS IMAGE PLUS A GO TOOLCHAIN, so the tools a test reaches for are the
+        # ones the walkthroughs get. `internal/run`'s GPT test spawns `qemu-img`, which a bare runner
+        # does not have - and the fix for that is not to skip the test.
+        #
+        # THE SAME CACHE `image` WRITES, READ-ONLY HERE: the apt layer is the one expensive thing the
+        # two jobs share, and a second cache scope would build it twice. Only `image` writes, so the
+        # two cannot race on a cache key.
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --file ./Containerfile --target tester --load \
+            --cache-from type=gha \
+            --tag easyvm-tester:ci .
+          docker run --rm \
+            -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache \
+            easyvm-tester:ci test ./... -count=1 -timeout 900s
+
+  # ===========================================================================
   # THE REAL INSTALL, IN THE IMAGE JUST PUSHED. THIS IS THE JOB THAT ANSWERS THE QUESTION.
   # ===========================================================================
   walkthrough:
-    needs: image
+    # BOTH LEGS, AND IT COSTS NOTHING: they run in parallel, so the gate is ready when the slower one
+    # is. What it buys is that a red test does not send a 40-minute install after it.
+    needs: [image, test]
     if: inputs.run_walkthrough
     runs-on: ubuntu-24.04
     timeout-minutes: 120
