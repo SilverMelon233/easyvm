@@ -29,7 +29,11 @@ steps:
 - name: boot the disk
   boot: true
   os: macos
-  memory_mb: 16384
+  # THE SAME 12288 THE SETUP STAGE USES, because this stage continues on the disk that one produced
+  # and a guest that could install at 12 GiB must boot at 12 GiB. See macos/26/steps/setup.yaml for
+  # the measurement: 16 GiB is killed on a 15 GiB runner, and a 12 GiB guest's qemu RSS plateaus at
+  # 12.01 GiB with the install advancing normally.
+  memory_mb: 12288
   timeout: 900
 - name: answer the wizard until the desktop appears
   loop:

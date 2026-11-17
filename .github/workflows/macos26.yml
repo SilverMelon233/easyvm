@@ -33,37 +33,59 @@ permissions:
   checks: write
 
 jobs:
-  # THE GUEST ASKS FOR 16 GiB AND THE STANDARD RUNNER HAS 16 GB, SO qemu IS KILLED BY THE OOM KILLER
-  # THREE MINUTES INTO THE COPY.
+  # THE GUEST'S MEMORY HAS TO FIT IN THE RUNNER'S, AND THE CHECK READS THE WALK RATHER THAN A CONSTANT.
   #
-  # MEASURED ON RUN 44122437321: the erase and the licence sheet passed, the destination card was
-  # selected, "the copy runs, look 1" began, and at its tenth attempt the QMP connection became
-  # `write: broken pipe` and every later attempt said the same. The daemon logged no error, the qemu
-  # console had nothing after `HANDOFF TO XNU`, and the machine was still "up" - which is what an OOM
-  # kill looks like from inside the process that survives it. The same walk had already produced a
-  # working disk on a pod with a 24 GiB limit.
+  # MEASURED ON RUN 44122437321, at the 16384 this file used to ask for: the erase and the licence
+  # sheet passed, the destination card was selected, "the copy runs, look 1" began, and at its tenth
+  # attempt the QMP connection became `write: broken pipe` and every later attempt said the same. The
+  # daemon logged no error, the qemu console had nothing after `HANDOFF TO XNU`, and disk.qcow2 was
+  # still 194 KiB - it had never grown. That is an OOM kill seen from the process that survives it:
+  # qemu allocates a guest's RAM on demand, so a guest larger than the runner boots, looks healthy,
+  # and dies once the copy touches enough pages.
   #
-  # A GUEST THIS SIZE NEEDS A LARGER RUNNER. GitHub's standard `ubuntu-24.04` has 4 vCPU / 16 GB; the
-  # pod this walk was measured on has 12 vCPU / 24 GiB. So this job fails in the first minute, naming
-  # the two numbers, instead of spending twenty minutes installing and then dying with a broken pipe
-  # that points at screendump.
+  # THE WALK NOW ASKS FOR 12288, measured on a host with room: qemu's RSS plateaus at 12.01 GiB while
+  # the install advances normally. 12288 + 8 leaves the runner room for qemu itself, the page cache
+  # the recording writes through, and the 128 GiB qcow2's metadata.
   #
   # IT IS A SEPARATE JOB SO THE MESSAGE IS THE WHOLE JOB. A check inside `setup` would be one step of
   # forty and would read as "prepare failed".
   room:
     runs-on: ubuntu-24.04
     steps:
+      # THE FILE THIS CHECK READS HAS TO BE HERE, which is what the checkout is for - the check would
+      # otherwise compare the runner against an empty string and pass everything.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: macos/26/steps/setup.yaml
       - name: the guest's memory has to fit in the runner's
         run: |
           set -eu
-          need_gib=16
+          # THE NUMBER COMES FROM THE FILE THE STAGE RUNS, so raising it there is caught here instead
+          # of turning into a broken pipe nobody can attribute.
+          need_mib=$(awk '/^[[:space:]]*memory_mb:/{gsub(/[^0-9]/,"",$0); print; exit}' macos/26/steps/setup.yaml)
+          if [ -z "$need_mib" ]; then
+            echo "::error::macos/26/steps/setup.yaml declares no memory_mb, so this check cannot say whether the guest fits"
+            exit 1
+          fi
+          need_gib=$(( need_mib / 1024 ))
           total_kib=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
           total_gib=$(( total_kib / 1024 / 1024 ))
-          echo "runner: ${total_gib} GiB, guest: ${need_gib} GiB (macos/26/steps/setup.yaml memory_mb: 16384)"
-          # QEMU ITSELF, THE PAGE CACHE THE RECORDING WRITES THROUGH, AND THE 38 GiB DISK'S METADATA ALL
-          # SIT NEXT TO THE GUEST, so a runner that only just fits is a runner that will be killed.
-          if [ "$total_gib" -lt $(( need_gib + 8 )) ]; then
-            echo "::error::this runner has ${total_gib} GiB and macOS 26 needs ${need_gib} GiB plus qemu's own overhead. The guest will be killed by the OOM killer a few minutes into the copy, with no error in any log - measured on run 44122437321. Use a larger runner (this walk was measured on a pod with a 24 GiB limit)."
+          echo "runner: ${total_gib} GiB, guest: ${need_gib} GiB (macos/26/steps/setup.yaml memory_mb: ${need_mib})"
+          # THE MARGIN IS TWO GIB, AND IT COMES FROM THE MEASUREMENT RATHER THAN FROM FEAR.
+          #
+          # Measured on a host with room: a 12 GiB guest's qemu RSS climbs to 12.01 GiB during the copy
+          # and plateaus - the guest uses essentially all of its own RAM, and qemu's own footprint on
+          # top is small. The page cache the recording writes through is RECLAIMABLE, so it does not
+          # cause an OOM kill; the cgroup this was measured in reported `max 1539` with `oom_kill 0`,
+          # which is the kernel reclaiming page cache rather than killing anything.
+          #
+          # SO THE TEST IS "THE GUEST'S RAM PLUS TWO GIB", NOT "PLUS EIGHT". A margin larger than the
+          # real overhead would fail a runner that can actually do the work, which is the mistake the
+          # first version of this check made: it demanded 20 GiB and would have refused the 15 GiB
+          # runner that this walk is now sized for.
+          margin_gib=2
+          if [ "$total_gib" -lt $(( need_gib + margin_gib )) ]; then
+            echo "::error::this runner has ${total_gib} GiB and the macOS 26 setup walk asks for ${need_gib} GiB plus about ${margin_gib} GiB for qemu itself. The guest will be killed by the OOM killer a few minutes into the copy, with no error in any log - measured on run 44122437321, where a 16 GiB guest on a 15 GiB runner left disk.qcow2 at 194 KiB. Lower memory_mb in macos/26/steps/setup.yaml, or use a larger runner."
             exit 1
           fi
 

@@ -29,7 +29,27 @@ steps:
   boot: true
   os: macos
   recovery: recovery.dmg
-  memory_mb: 16384
+  # TWELVE GIBABYTES, AND THE NUMBER IS SET BY THE CI RUNNER RATHER THAN BY THE GUEST.
+  #
+  # 16384 WAS THE VALUE UNTIL IT WAS MEASURED AGAINST THE RUNNER. GitHub's standard `ubuntu-24.04`
+  # reports `MemTotal` of 15 GiB, and qemu allocates a guest's RAM on demand, so a 16 GiB guest boots,
+  # looks healthy for three minutes, and is then killed once the copy touches enough pages:
+  #
+  #	run 44122437321   erase, licence and destination all passed; at look 1 attempt 10 the QMP
+  #	                  connection became `write: broken pipe` and stayed that way, the daemon logged
+  #	                  no error, the console had nothing after HANDOFF TO XNU, and disk.qcow2 was
+  #	                  still 194 KiB - it had never grown at all
+  #
+  # MEASURED ON A HOST WITH ROOM, WHICH IS WHAT MAKES 12288 A NUMBER RATHER THAN A GUESS: qemu's RSS
+  # during the copy climbs to 12.01 GiB for a 12 GiB guest and plateaus there, while the disk grows
+  # 14.35 -> 16.81 -> 28.42 -> 29.63 GiB and the pane reads "About 55 minutes remaining". So the guest
+  # uses essentially all of what it is given, and 12 GiB is the largest value that leaves the runner
+  # room for qemu itself, the page cache the recording writes through, and the 128 GiB qcow2's
+  # metadata.
+  #
+  # 12 GiB IS ALSO ENOUGH FOR THE INSTALL, not merely for the boot: the same measurement is the
+  # install, not a boot of a finished disk.
+  memory_mb: 12288
   timeout: 900
 - name: the recovery menu's rows
   ocr:
