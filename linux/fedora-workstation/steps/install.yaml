@@ -335,11 +335,18 @@ steps:
   - 363
   wait_after: 4
 
+# `Create partition` IS THE FIRST ITEM OF THE ROW'S MENU, 42 PIXELS BELOW THE KEBAB.
+#
+# MEASURED off the menu's own frame, crop 980..1300 x 330..420 scaled 4x: the item's text centre is
+# (610, 300) in that crop, which is (980+610/4, 330+300/4) = (1132, 405) on the frame. The file had
+# (1120, 450) - 45 pixels low, on the menu's shadow - so the dialog never opened and the steps after
+# it typed into the page. That is why the failure was `no pixel within 45 of rgb(177,56,11)` at the
+# Create press two steps later: there was no dialog for the button to be in.
 - name: create the root partition
   click:
-  - 1120
-  - 450
-  wait_after: 6
+  - 1132
+  - 405
+  wait_after: 8
 
 - name: name it root
   click:
@@ -465,9 +472,9 @@ steps:
 
 - name: create the ESP
   click:
-  - 1120
-  - 450
-  wait_after: 6
+  - 1132
+  - 405
+  wait_after: 8
 
 - name: choose the ESP type, because the dialog defaults to ext4
   click:
