@@ -808,6 +808,25 @@ func TestAnInstallerIsWaitedForTheWayItAppears(t *testing.T) {
 		if err != nil {
 			continue
 		}
+		// A FORM-ONLY INSTALLER HAS NO SESSION TO DRAW, AND SAYING SO IS THE POINT.
+		//
+		// MEASURED on openSUSE Leap 16.1: its Agama installer is a WEB UI that the live session opens
+		// straight into - `Select a mode`, then an `Installation` summary of five form sections. There
+		// is no panel at any point, and the two frames before the chooser measure:
+		//
+		//	a solid teal splash    body 154.7  top 154.7  bottom 154.7  drop 0.0 / 0.0
+		//	the product chooser    body 254.1  top 236.4  bottom 247.2  drop 17.7 / 6.9
+		//
+		// `IsLinuxDesktop` wants `drop > 15`, so `desktop: linux` would spend its whole budget on both
+		// - an honest measurement of a medium that does not have what it measures.
+		//
+		// SO THE EXEMPTION IS DECLARED IN THE FILE, in `notes:`, and the test only honours it for a
+		// file that says the words `form-only installer`. A blanket list of names here would be
+		// "some files do not count"; this is a file stating why it is not that shape.
+		if strings.Contains(doc.Notes, "form-only installer") {
+			checked++
+			continue
+		}
 		waitAt := -1
 		for i, s := range doc.Steps {
 			name := strings.ToLower(s.Name)
