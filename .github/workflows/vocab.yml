@@ -426,7 +426,13 @@ jobs:
         #
         # IT RUNS ONLY FOR A WALKTHROUGH THAT ASKS FOR IT, because it costs about two minutes of apk
         # and every other leg would pay for a root filesystem it never opens.
-        if: github.event_name != 'workflow_dispatch' || inputs.walk == 'linux/alpine-microvm/steps/desktop.walk'
+        #
+        # THE CONDITION IS THE DIRECTORY, NOT ONE FILE NAME. It used to name exactly
+        # `.../steps/desktop.walk`, which meant RENAMING that file silently stopped the root
+        # filesystem from being built - and the failure mode is a `needs:` miss at step 1, forty
+        # minutes into an apk run nobody was waiting for. Every walkthrough under this directory
+        # boots the same three files, so the directory is what identifies the leg.
+        if: github.event_name != 'workflow_dispatch' || startsWith(inputs.walk, 'linux/alpine-microvm/')
         run: |
           set -eu
           mkdir -p work
