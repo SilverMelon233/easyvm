@@ -749,18 +749,34 @@ steps:
 #
 # A NATIVE SELECT RESPONDS TO TYPE-AHEAD: focus it, type the option's first letters, and press Return.
 # `EFI system partition` is the only option starting with `EF`, so two keys are enough.
-- name: focus the type list
+# THE TYPE LIST IS A CUSTOM WIDGET, NOT A NATIVE SELECT - TYPE-AHEAD DOES NOTHING.
+#
+# MEASURED: `type: 'EF'` then Return left the combo reading `EXT4`, because this is a styled div, not
+# an HTML `<select>`. Typing into it changes nothing and Return dismisses it.
+#
+# THE LIST ITSELF, MEASURED off its own frame (crop 370..820 x 240..410 scaled 3x):
+#
+#	XFS
+#	EXT4                     <- where the dialog opens
+#	BTRFS
+#	VFAT
+#	NTFS
+#	Swap
+#	EFI system partition     <- item centre (657, 567) on this frame
+#	No filesystem
+#
+# So the combo is clicked to open the list and the item by its measured coordinate. (648, 576) - the
+# previous pair - is nine pixels down and nine left, on the list's own border.
+- name: open the type list
   click:
   - 882
   - 396
   wait_after: 3
 
-- name: type the option's own prefix
-  type: 'EF'
-  wait_after: 3
-
-- name: and take it, which a native select does on Return
-  key: ret
+- name: choose EFI system partition from it
+  click:
+  - 657
+  - 567
   wait_after: 4
 
 - name: the type is the ESP now
