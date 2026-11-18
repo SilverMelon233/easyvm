@@ -118,7 +118,9 @@ func TestNoStepKeyIsAGoal(t *testing.T) {
 // before the dialog is drawn lands on wallpaper and looks identical in a log to one that dismissed
 // it (run 42162859846).
 func TestTheDismissalKeepsItsMeasuredShape(t *testing.T) {
-	for _, name := range []string{"ssh.yaml", "sequoia.yaml"} {
+	// `ssh` IS THE ONE THAT DRIVES THIS DISMISSAL. `sequoia.yaml` had the same shape and is gone: it was
+	// an orphan - no workflow dispatched it - and its wizard was already covered by `ssh`'s own loop.
+	for _, name := range []string{"ssh.walk"} {
 		path := filepath.Join("..", "..", "macos", "15", "steps", name)
 		f, err := Load(path, nil)
 		if err != nil {

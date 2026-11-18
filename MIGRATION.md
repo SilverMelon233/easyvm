@@ -1,16 +1,22 @@
 # The migration, verified
 
-Eighteen walkthroughs became `.walk` files. SEVENTEEN have been RUN to a finish - not parsed, not
-converted back, not loaded: `easyvm run` drove a real guest through every step and the daemon reported
-`status: finished step N/N` with `answered N step(s)`. That is every file in the four OS families
-except one.
+FIFTEEN walkthroughs remain as `.walk` files, and FOURTEEN of them have been RUN to a finish - not
+parsed, not converted back, not loaded: `easyvm run` drove a real guest through every step and the
+daemon reported `status: finished step N/N` with `answered N step(s)`. The fifteenth is
+`windows/11/steps/dev.walk`, below.
 
-THE EXCEPTION IS `windows/11/steps/dev.walk`, AND IT IS OUT OF SCOPE BY DECISION: a `dev` leg installs a
-multi-gigabyte toolchain from public vendor endpoints and proves nothing about the walkthrough format
-that the same file's install, ssh and vm-configure legs do not already prove. It is recorded honestly
-below rather than fixed further.
+THE COUNT CHANGED FROM EIGHTEEN, AND THAT IS A CORRECTION RATHER THAN A LOSS. Three macOS files -
+`primitives`, `lifecycle` and `sequoia` - were ORPHANS: no workflow in the repository dispatched any of
+them, and `sequoia`'s wizard duplicated the loop `ssh.walk` already runs and passes. They were converted
+because they existed as `.yaml`, they were driven to a finish to prove the format covered them, and they
+have now been deleted so the tree holds only files something actually runs.
 
-## The seventeen that pass
+`windows/11/steps/dev.walk` IS ALSO OUT OF SCOPE BY DECISION and is the one file present that does not
+pass: a `dev` leg installs a multi-gigabyte toolchain from public vendor endpoints and proves nothing
+about the walkthrough format that the same family's install, ssh and vm-configure legs do not already
+prove. What it reached is recorded below.
+
+## The fourteen that pass
 
 Every row below is a CI run of the branch, in the image that run built, with the log line quoted.
 
@@ -24,12 +30,9 @@ Every row below is a CI run of the branch, in the image that run built, with the
 | `bsd/freebsd/steps/vm-configure.walk` | 23 | 44123507364 | `status: finished step 23/23` · `answered 23 step(s)` |
 | `macos/15/steps/setup.walk` | 35 | 44105336457 | `status: finished step 35/35` · `answered 35 step(s)` |
 | `macos/15/steps/ssh.walk` | 32 | 44124857572 | `status: finished step 32/32` · `answered 32 step(s)` |
-| `macos/15/steps/lifecycle.walk` | 7 | 44144030102 | `status: finished step 7/7` · `answered 7 step(s)` |
 | `macos/15/steps/firmware.walk` | 2 | 44142319557 | `status: finished step 2/2` · `answered 2 step(s)` |
-| `macos/15/steps/primitives.walk` | 19 | 44157758150 | `status: finished step 19/19` · `answered 19 step(s)` |
 | `macos/15/steps/vm-configure.walk` | 32 | 44164173754 | `status: finished step 32/32` · `answered 32 step(s)` · `TIMEZONE_OK` · `BOTH_HALVES_OK` |
 | `macos/15/steps/dev.walk` | 18 | 44165292877 | `status: finished step 18/18` · `answered 18 step(s)` · `found /Users/vmuser/xcode-expand/Xcode.app` |
-| `macos/15/steps/sequoia.walk` | 25 | 44186958607 | `status: finished step 25/25` · `answered 25 step(s)` |
 | `windows/11/steps/install.walk` | 16 | 44117639979 | `status: finished step 16/16` · `answered 16 step(s)` |
 | `windows/11/steps/ssh.walk` | 31 | 44123555530 | `status: finished step 31/31` · `answered 31 step(s)` |
 | `windows/11/steps/vm-configure.walk` | 30 | 44127574005 | `status: finished step 30/30` · `answered 30 step(s)` |
@@ -39,7 +42,8 @@ The three install legs produced systems: ubuntu 5.0 GiB, freebsd 2.3 GiB, macos 
 vm-configure legs proved the host share both ways (`a file written on the host is readable in the
 guest - the share is real`).
 
-All eighteen accounted for: seventeen above, and the eighteenth here.
+Fourteen of the fifteen are the four OS families' own legs; the fifteenth is `firmware`, which
+`artifacts-publish.yml` dispatches. The one file that does not pass follows.
 
 ## The one that does not, and why it is out of scope
 
