@@ -194,4 +194,17 @@ type BootSpec struct {
 	// one qemu, the dispatcher still reads the screen, and `see:`/`want:` still decide. Only the
 	// qemu arguments differ.
 	MicroVM bool
+	// MicroVMDisplay is serial, terminal or desktop: whether a microvm gets a VGA adapter at all.
+	MicroVMDisplay string
+	// KernelAppend is the guest's OWN kernel command line.
+	//
+	// WITHOUT IT A MICROVM CAN ONLY RUN ALPINE'S DISKLESS NETBOOT. The engine always sent
+	//
+	//	console=ttyS0 modules=loop,squashfs,sd-mod modloop=/dev/vda
+	//
+	// MEASURED: a guest whose root is an EXT4 disk on /dev/vda mounted it, then had `modloop=/dev/vda`
+	// mounted over it, then dropped to `initramfs emergency recovery shell launched` - and the walk
+	// sat in "the console will say login" until its timeout. The default is right for one shape and
+	// wrong for every other.
+	KernelAppend string
 }

@@ -583,19 +583,21 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	// THE BOOT DESCRIPTION GOES THROUGH Validate BEFORE ANY PATH IS USED. A stage that never ran
 	// its `fetch:` gets a sentence naming what is missing, not qemu's message about a drive.
 	boot := machine.Boot{
-		OS:           guestOS,
-		Disk:         spec.Disk,
-		ISO:          spec.ISO,
-		AnswerCD:     spec.AnswerCD,
-		DriverCD:     spec.DriverCD,
-		MicroVM:      spec.MicroVM,
-		Kernel:       spec.Kernel,
-		Initrd:       spec.Initrd,
-		Recovery:     spec.Recovery,
-		OpenCoreROM:  spec.OpenCoreROM,
-		OpenCoreVars: spec.OpenCoreVars,
-		BootImage:    spec.BootImage,
-		Incoming:     spec.Incoming,
+		OS:             guestOS,
+		Disk:           spec.Disk,
+		ISO:            spec.ISO,
+		AnswerCD:       spec.AnswerCD,
+		DriverCD:       spec.DriverCD,
+		MicroVM:        spec.MicroVM,
+		MicroVMDisplay: spec.MicroVMDisplay,
+		KernelAppend:   spec.KernelAppend,
+		Kernel:         spec.Kernel,
+		Initrd:         spec.Initrd,
+		Recovery:       spec.Recovery,
+		OpenCoreROM:    spec.OpenCoreROM,
+		OpenCoreVars:   spec.OpenCoreVars,
+		BootImage:      spec.BootImage,
+		Incoming:       spec.Incoming,
 	}
 	if err := boot.Validate(); err != nil {
 		return err

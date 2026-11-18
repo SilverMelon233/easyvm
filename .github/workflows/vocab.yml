@@ -408,6 +408,21 @@ jobs:
             esac
           done
 
+      - name: a microvm's root filesystem, and an initramfs that can mount it
+        # A MICROVM HAS NO INSTALLER, so the disk arrives ready. `.github/alpine-rootfs.sh` builds it:
+        # apk populates a directory, `mke2fs -d` writes it to an image, and `mkinitfs` rebuilds the
+        # initramfs WITH ext4. That last part is not optional - MEASURED, the stock netboot initramfs
+        # carries 72 modules and ext4 is not one of them, so the guest answers
+        # `mount: /dev/vda: No such device` and drops to an emergency shell.
+        #
+        # IT RUNS ONLY FOR A WALKTHROUGH THAT ASKS FOR IT, because it costs about two minutes of apk
+        # and every other leg would pay for a root filesystem it never opens.
+        if: github.event_name != 'workflow_dispatch' || inputs.walk == 'linux/alpine-microvm/steps/desktop.walk'
+        run: |
+          set -eu
+          mkdir -p work
+          sh "$GITHUB_WORKSPACE/.github/alpine-rootfs.sh" "$GITHUB_WORKSPACE/work"
+
       - name: start the daemon
         # `easyvm run` IS A CLIENT: it sends a request and returns, and the daemon drives the file.
         # MEASURED on run 44022381236, where this step did not exist:

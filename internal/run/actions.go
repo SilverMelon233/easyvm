@@ -105,6 +105,11 @@ func (e *Executor) doBoot(s walk.Step) error {
 		spec.MicroVM = true
 		spec.Kernel = e.assetPath(s.Get("kernel"))
 		spec.Initrd = e.assetPath(s.Get("initrd"))
+		spec.KernelAppend = s.Get("kernel_append")
+		spec.MicroVMDisplay = s.Get("microvm_display")
+		if spec.MicroVMDisplay == "" {
+			spec.MicroVMDisplay = "terminal"
+		}
 		if spec.CPUs == 0 {
 			spec.CPUs = 1
 		}
