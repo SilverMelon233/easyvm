@@ -31,6 +31,78 @@ steps:
   os: linux
   iso: mx.iso
   timeout: 1800
+
+# THE MEDIUM STOPS AT ITS OWN BOOT MENU, EXACTLY AS MINT'S DOES, AND IT DOES NOT COUNT DOWN.
+#
+# MEASURED: after `boot:` the frame is MX's text menu -
+#
+#	Welcome to MX-25.3_Xfce (Infinity)!
+#	===> Language - Keyboard - Timezone
+#	  Language (lang=en_US)
+#	  Keyboard (kbd=us)
+#	  Timezone (tz=America/New_York)
+#	  Reset
+#	<=== Back to main menu
+#	Use up and down. Hit >>ENTER<< to select/deselect.
+#
+# - `Language (lang=en_US)` is ALREADY highlighted, so one Return takes the default and boots. This
+# walk waited out the whole desktop budget against that menu: MEASURED, thirteen minutes in
+# `wait for the live desktop` with the disk at 0 MiB.
+#
+# AND THE RETURN IS NOT ENOUGH BY ITSELF: THIS FIRST MENU IS THE LANGUAGE SUBMENU, WHICH OPENS
+# INSIDE THE BOOT MENU AND CANNOT BOOT ANYTHING.
+#
+# MEASURED, step by step on the live medium:
+#
+#	after boot:                `===> Language - Keyboard - Timezone` with `Language (lang=en_US)`
+#	                           highlighted, footnoted `Hit >>ENTER<< to SELECT/DESELECT`
+#	one `ret`:                 the highlight disappears - it toggled a checkbox, nothing booted
+#	one `esc`:                 the REAL boot menu: `MX-25.3 Xfce x64 (sysvinit)` first,
+#	                           then the same build as `(systemd)`, then `Check integrity`,
+#	                           the language submenu, Advanced Options, Memory Test, Rescue
+#	three `up` then `ret`:     the live desktop with the installer open
+#
+# so the sequence is esc (leave the submenu), up x3 (from the submenu entry back to `sysvinit`),
+# then ret. MEASURED: with only the `ret`, fourteen minutes went by in `wait for the live desktop`
+# with the disk at 0 MiB and the menu still up.
+- name: the medium's boot menu is up
+  ocr:
+    name: mxmenu
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 5
+
+- name: that menu is the language submenu this medium opens on
+  check:
+    name: is_mx_menu
+    from: mxmenu
+    mode: says_any
+    words:
+    - - Language
+    - - Keyboard
+    - - Timezone
+
+- name: leave the language submenu for the real boot menu
+  key: esc
+  wait_after: 4
+
+- name: up to the first entry, which is the live session
+  key: up
+  wait_after: 1
+
+- name: up again
+  key: up
+  wait_after: 1
+
+- name: and once more
+  key: up
+  wait_after: 1
+
+- name: boot it
+  key: ret
+  wait_after: 25
+
 - name: wait for the live desktop
   desktop: linux/xfce
   timeout: 5400

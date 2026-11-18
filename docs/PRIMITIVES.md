@@ -190,7 +190,7 @@ the measuring machine and wrong on the runner.
 | `flat_rows`, `min`, `max`, `contrast`, `vs` | `see` | the numbers a measurement binds | 291 |
 | `contains_any`, `not_contains`, `ratio`, `fuzzy`, `at_least`, `at_most`, `between`, `greater_than` | — | **DEAD**: declared and read by nothing since `want:` went | 0 |
 | `reference` | `see` | an image to compare the rect against; binds `<name>.similarity` 0..1 | 0 |
-| `do`, `until`, `max`, `fact` | `loop` | the action, the stop test, the ceiling | 79 |
+| `do`, `until`, `max`, `fact`, `every`, `clock` | `loop` | the action, the stop test, the ceiling, and the clock that fires once | 79 |
 | `then`, `else` | `if` | the branches | 21 |
 | `template`, `release`, `recovery` | `fetch` | inputs to one asset build | 5 |
 | `argv`, `path`, `body` | `qga` | the command line, the guest file, the bytes | 0 |
@@ -221,9 +221,11 @@ Three words, and they are not interchangeable:
   fact with a scope, verified by counting the keys in that directory.
 * **DEAD** — nothing uses it anywhere and there is no successor; a key nobody needed.
 
-THE SCOPE MATTERS BECAUSE THE MIGRATION IS PER DIRECTORY: `linux/` is 24 files and 391 uses of
-`wait_after`/`wait`, all converted; `windows/`, `macos/`, `bsd/` and `android/` still say the old
-name, and they keep working because the executor reads both.
+THE SCOPE MATTERS BECAUSE THE MIGRATION IS PER DIRECTORY, AND IT IS NOT FINISHED EVERYWHERE. The four
+families that were converted - `windows/11`, `macos/15`, `linux/ubuntu`, `bsd/freebsd` - say
+`settle:`. THE OTHER DISTRIBUTIONS STILL SAY `wait_after:`, because their `.yaml` files came back with
+the upstream merge and have not been converted yet: cachyos, endeavour, fedora-workstation, kubuntu,
+manjaro, mint, mx, nixos, opensuse-leap-16.1, popos and zorin. Each is converted in its own time.
 
 | key | uses | becomes |
 |---|---|---|

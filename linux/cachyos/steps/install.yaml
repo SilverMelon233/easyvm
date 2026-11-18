@@ -21,8 +21,10 @@ steps:
   # forty minutes into a run. Every one of these files is declared by this leg's
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
-  needs:
+  require:
   - cachyos.iso
+- name: start recording
+  record: cachyos-install.mp4
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
@@ -56,9 +58,12 @@ steps:
 - name: wait for the live desktop
   desktop: linux/kde
   timeout: 5400
+  poll: 5
+  keep_alive: true
 
 - name: let the desktop settle
-  settle: 15
+  wait: 15
+  keep_alive: true
 
 # CACHYOS HELLO IS THE FIRST WINDOW, AND `Launch installer` IS A BUTTON INSIDE IT - ONCE, NOT TWICE.
 #
@@ -66,22 +71,27 @@ steps:
 # Calamares. The button is a Qt push button, so the first click takes focus and the second activates.
 - name: open the installer
   click: [960, 743]
-  settle: 1
+  wait_after: 1
 
 - name: open the installer, second click
   click: [960, 743]
-  settle: 25
+  wait_after: 25
 
 - name: the installer is on screen
   loop:
     max: 40
     do:
-    - settle: 5
-    see: {name: cal}
+    - wait: 5
+    ocr:
+      name: cal
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
     check:
       name: up
       from: cal
-      mode: text
+      mode: says_any
       # THE INSTALLER'S FIRST PAGE IS IN SIMPLIFIED CHINESE AND THIS WAIT RUNS BEFORE THE LANGUAGE
       # IS CHANGED, so it must accept the CHINESE title as well as the English one. MEASURED: the
       # page reads `欢迎使用 CachyOS 安装程序`, and a wait for `welcome installer` ran its whole
@@ -92,8 +102,6 @@ steps:
       - - 欢迎
       - - cachyos
         - 安装
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
     until:
       fact: up
 
@@ -122,56 +130,49 @@ steps:
 #
 # SO THE STEPS ARE THREE KEYS, not a typed word, and the reason is the combo's search rather than the
 # locale list's order.
-- name: open the language list
-  click: [980, 661]
-  settle: 4
-
-- name: jump to the English group
-  key: e
-  settle: 2
-
-- name: step up to British English
-  key: up
-  settle: 1
-
-- name: step up to American English
-  key: up
-  settle: 1
-
-- name: choose it
-  key: ret
-  settle: 6
-
-- name: the installer speaks English now
-  see: {name: english}
-
-- name: the page is in English
-  check:
-    name: ok
-    from: english
-    mode: text
-    words: [welcome, cachyos]
-
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-# CALAMARES' FOOTER: `Next` IS AT (1356, 753) ON EVERY PAGE OF THIS INSTALLER, MEASURED.
+# CHOOSING THE LANGUAGE IS A RETRY, NOT A KEY SEQUENCE THAT WORKED ONCE.
 #
-# THE y IS 753 AND NOT 791, AND 38 PIXELS IS THE WHOLE DIFFERENCE. MEASURED off the frame, row by row
-# across the button's own x range:
+# MEASURED: two runs of this same file on the same medium produced an ENGLISH installer and then a
+# CHINESE one - `CachyOS 安装程序`, `地区`, `区域`, `系统语言将设置为简体中文（中国）`. The five
+# keypresses below are the sequence that works, but the combo's list is opened by a click and a click
+# can miss, and when it does the keys go to the page instead of the list and the language never
+# changes. Nothing noticed, because the check that was supposed to notice read the sidebar.
 #
-#	y=735  35   background above the button
-#	y=739  58   the button's top edge
-#	y=751 172   the word `Next`, at its brightest
-#	y=767  86   the button's bottom edge
-#	y=771  35   background below it
-#
-# A click at 791 lands BELOW the button. The walk then reported every page as visited while the
-# installer stayed on Welcome, which is what the run's own screenshot showed.
-#
-# Welcome -> Location
+# SO THE WHOLE SEQUENCE IS THE LOOP'S `do:`, and the reading is the welcome page's own English body.
+# Each attempt reopens the list from wherever the page is, so a missed click is simply retried.
+- name: choose English, retrying until the page says so
+  loop:
+    max: 6
+    do:
+    - click: [980, 661]
+      wait_after: 4
+    - key: e
+      wait_after: 2
+    - key: up
+      wait_after: 1
+    - key: up
+      wait_after: 1
+    - key: ret
+      wait_after: 6
+    ocr:
+      name: english
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
+    check:
+      name: ok
+      from: english
+      mode: says
+      words:
+      - - program
+      - - questions
+    until:
+      fact: ok
+
 - name: next from welcome
   click: [1356, 751]
-  settle: 8
+  wait_after: 8
 
 # Location IS LEFT AS IT IS: Asia/Hong Kong and English (Hong Kong SAR China) are the defaults and
 # nothing below depends on them. Location -> Keyboard
@@ -194,69 +195,95 @@ steps:
   loop:
     max: 30
     do:
-    - settle: 10
-    see: {name: at_location}
+    - wait: 10
+    ocr:
+      name: at_location
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
     check:
       name: here
       from: at_location
-      mode: text
+      mode: says_any
       words:
-      - - location
-      - - timezone
-      - - region
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
+      - - Region
+      - - zone
     until:
       fact: here
 
 - name: next from location
   click: [1356, 791]
-  settle: 8
+  wait_after: 8
 
 # Keyboard -> Bootloader. The Generic 105-key PC and Default layout are the defaults.
 - name: the keyboard page arrives after location
   loop:
     max: 30
     do:
-    - settle: 10
-    see: {name: at_keyboard}
+    - wait: 10
+    ocr:
+      name: at_keyboard
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
     check:
       name: here
       from: at_keyboard
-      mode: text
+      mode: says_any
       words:
-      - - keyboard
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
+      - - Keyboard
+      - - Layout
     until:
       fact: here
 
+# THE KEYBOARD PAGE'S `Next` IS NOT AT THE HEIGHT THE OTHER PAGES' ARE, AND THAT IS MEASURED.
+#
+# The wizard draws its footer at the bottom of the PAGE CONTENT, and the keyboard page is shorter
+# than the partitions page - the same thing Calamares does, and the reason one `Next` coordinate
+# does not serve a wizard. MEASURED on the live frame, crop 1150..1520 x 760..840 scaled 4x:
+#
+#	Back   (1150+500/4, 760+128/4) = (1275, 792)
+#	Next   (1150+840/4, 760+128/4) = (1360, 792)      <- this page
+#	Cancel (1150+1180/4, 760+128/4) = (1445, 792)
+#
+# - at y=792, not the y=834 this file used, which is the page-name strip below the footer. That
+# click landed on `Keyboard`'s own sidebar entry, so the page never changed and the wait after it
+# spent its whole budget: MEASURED, the frame sat on `Keyboard model: | Generic 105-key PC` with
+# `next` never pressed.
 - name: next from keyboard
-  click: [1356, 834]
-  settle: 8
+  click: [1360, 792]
+  wait_after: 8
 
 - name: the bootloader page arrives after keyboard
   loop:
     max: 30
     do:
-    - settle: 10
-    see: {name: at_bootloader}
+    - wait: 10
+    ocr:
+      name: at_bootloader
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
     check:
       name: here
       from: at_bootloader
-      mode: text
+      mode: says_any
       words:
-      - - bootloader
-      - - grub
-      - - refind
-      - - systemd-boot
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
+      - - snapshot
+      - - chainloading
     until:
       fact: here
 
 - name: the bootloader page
-  see: {name: boot}
+  ocr:
+    name: boot
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
 
 # GRUB, NOT THE DEFAULT LIMINE, AND THE REASON IS THE FILESYSTEM THIS WALK INSTALLS.
 #
@@ -266,51 +293,71 @@ steps:
 # Limine, Limine preselected, and GRUB is at (440, 313).
 - name: choose grub
   click: [500, 305]
-  settle: 5
+  wait_after: 5
 
 - name: grub is selected
-  see: {name: grub}
+  ocr:
+    name: grub
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
 
 - name: the bootloader is grub
   check:
     name: ok
     from: grub
-    mode: text
+    mode: says
     words: [grub]
 
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
 # Bootloader -> Partitions. THIS MEDIUM PRESELECTS NOTHING HERE, so `Erase disk` has to be clicked
 # before it is selected - the opposite of Kubuntu, where it is already on.
 - name: next from bootloader
   click: [1356, 791]
-  settle: 10
+  wait_after: 10
 
 - name: the partitions page arrives after the bootloader
   loop:
     max: 30
     do:
-    - settle: 10
-    see: {name: at_partitions}
+    - wait: 10
+    ocr:
+      name: at_partitions
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
     check:
       name: here
       from: at_partitions
-      mode: text
+      mode: says_any
       words:
-      - - erase
-      - - partition
-      - - manual
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
+      - - storage
+      - - Erase
+      - - Manual
     until:
       fact: here
 
+# THE RADIO, NOT THE LABEL. MEASURED on the live frame, crop 400..1100 x 320..460 scaled 2x:
+#
+#	Erase disk's circle     (400+54/2, 320+92/2)  = (427, 366)
+#	Manual partitioning's   (400+54/2, 320+226/2) = (427, 433)
+#
+# (533, 364) IS ON THE WORD `Erase` AND DOES NOTHING - `label` and `radio` are different widgets, and
+# this one's label is not clickable. MEASURED: with that click the page stayed as it booted, `Erase
+# disk` unselected and `Next` GREY, so `next from bootloader` pressed nothing and the wait after it
+# spent its whole budget on a page that was already there.
 - name: select erase disk
-  click: [533, 364]
-  settle: 8
+  click: [427, 366]
+  wait_after: 8
 
 - name: the partitions page with erase selected
-  see: {name: parts}
+  ocr:
+    name: parts
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
 
 # THE FILESYSTEM COMBO DEFAULTS TO btrfs AND THIS WALK REQUIRES ext4.
 #
@@ -322,83 +369,109 @@ steps:
 # and its list is btrfs / xfs / ext4 / f2fs / zfs, with ext4 the third entry at (526, 516).
 - name: open the filesystem list
   click: [543, 425]
-  settle: 5
+  wait_after: 5
 
 - name: choose ext4
   click: [527, 517]
-  settle: 6
+  wait_after: 6
 
 - name: the partitions page settles after the filesystem list closes
   loop:
     max: 24
     do:
-    - settle: 10
-    see: {name: at_partitions_again}
+    - wait: 10
+    ocr:
+      name: at_partitions_again
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
     check:
       name: here
       from: at_partitions_again
-      mode: text
+      mode: says_any
       words:
-      - - partition
-      - - erase
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
+      - - storage
+      - - Erase
+      - - Manual
     until:
       fact: here
 
 - name: the page after choosing ext4
-  see: {name: fs}
+  ocr:
+    name: fs
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
 
 - name: the root partition is ext4
   check:
     name: ext4
     from: fs
-    mode: text
+    mode: says
     words: [ext4]
 
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
 # Partitions -> Desktop, where Plasma Desktop is preselected.
 - name: next from partitions
   click: [1356, 793]
-  settle: 10
+  wait_after: 10
 
 - name: the desktop page
-  see: {name: desk}
+  ocr:
+    name: desk
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
 
 # Desktop -> Packages, where the CachyOS sets are already ticked.
 - name: next from desktop
   click: [1356, 793]
-  settle: 12
+  wait_after: 12
 
 - name: the packages page
-  see: {name: pkgs}
+  ocr:
+    name: pkgs
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
 
 # Packages -> Users
 - name: next from packages
   click: [1356, 793]
-  settle: 12
+  wait_after: 12
 
 - name: the users page arrives before anything is typed into it
   loop:
     max: 30
     do:
-    - settle: 10
-    see: {name: at_users}
+    - wait: 10
+    ocr:
+      name: at_users
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
     check:
       name: here
       from: at_users
-      mode: text
+      mode: says_any
       words:
-      - - password
-      - - name
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
+      - - Computer
+      - - Repeat
+      - - Password
     until:
       fact: here
 
 - name: the users page
-  see: {name: users}
+  ocr:
+    name: users
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
 
 # THE FIVE FIELDS, MEASURED FROM THE PAGE. `Computer Name` IS NOT FILLED BY HAND: this installer
 # derives `cachyos-x8664` from the live host name once the full name is typed, and overwriting it is a
@@ -406,26 +479,31 @@ steps:
 - name: the full name
   click: [515, 341]
   type: '{{ user }}'
-  settle: 3
+  wait_after: 3
 
 - name: the login name
   click: [515, 412]
   clear: true
   type: '{{ user }}'
-  settle: 3
+  wait_after: 3
 
 - name: the password
   click: [515, 550]
   type: '{{ password }}'
-  settle: 2
+  wait_after: 2
 
 - name: the password again
   click: [720, 552]
   type: '{{ password }}'
-  settle: 3
+  wait_after: 3
 
 - name: the users page is filled in
-  see: {name: filled}
+  ocr:
+    name: filled
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
 
 # THE FORM IS COMPLETE WHEN THE USER NAME IS THERE AND NO MISMATCH IS SHOWN.
 #
@@ -436,37 +514,43 @@ steps:
   check:
     name: ok
     from: filled
-    mode: text
+    mode: says_without
     words: [vmuser]
     without: [match]
 
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
 # Users -> Summary
 - name: next from users
   click: [1356, 793]
-  settle: 10
+  wait_after: 10
 
 - name: the summary page arrives before install is clicked
   loop:
     max: 30
     do:
-    - settle: 10
-    see: {name: at_summary}
+    - wait: 10
+    ocr:
+      name: at_summary
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 3
     check:
       name: here
       from: at_summary
-      mode: text
+      mode: says_any
       words:
-      - - summary
-      - - install
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
+      - - overview
+      - - happen
     until:
       fact: here
 
 - name: the summary page
-  see: {name: summary}
+  ocr:
+    name: summary
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 4
 
 # THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM - the
 # first being the partitions page after the combo was changed.
@@ -474,26 +558,29 @@ steps:
   check:
     name: ext4
     from: summary
-    mode: text
+    mode: says
     words: [ext4]
 
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
 # Summary -> the confirmation dialog. `Install` IS LOWER THAN `Next`: on the summary page the buttons
 # sit at y=887 rather than y=791, measured - which is why a shared coordinate for both pages clicks
 # the summary's progress text and nothing happens.
 - name: start the install
   click: [1362, 872]
-  settle: 10
+  wait_after: 10
 
 - name: the confirmation dialog
-  see: {name: confirm}
+  ocr:
+    name: confirm
+    region: [0, 0, 1920, 1080]
+    region_at: [1920, 1080]
+    scale: 1
+    wait: 3
 
 # `Install Now` INSIDE THE DIALOG, AT (1055, 616). The dialog's title is the check, so a click that
 # missed it is visible as a page with no dialog rather than as a silent no-op.
 - name: install now
   click: [1055, 617]
-  settle: 25
+  wait_after: 25
 
 # THE INSTALL WRITES FOR TWENTY MINUTES AND THE PROGRESS BAR IS THE ONLY SIGNAL. `disk_settle` waits
 # for the DISK to stop changing rather than for a clock.
@@ -501,20 +588,25 @@ steps:
   disk_settle: 300
   disk_min_mb: 4000
   timeout: 3600
+  poll: 20
+  keep_alive: true
 
 - name: the install is done
   loop:
     max: 80
     do:
-    - settle: 15
-    see: {name: done}
+    - wait: 15
+    ocr:
+      name: done
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
     check:
       name: finished
       from: done
-      mode: text
+      mode: says
       words: [installed]
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
     until:
       fact: finished
 
@@ -528,3 +620,5 @@ steps:
 
 - name: publish the disk
   compress: '{{ out }}'
+- name: stop recording
+  record: false

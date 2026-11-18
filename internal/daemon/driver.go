@@ -594,6 +594,7 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		Kernel:         spec.Kernel,
 		Initrd:         spec.Initrd,
 		Recovery:       spec.Recovery,
+		FreshDisk:      spec.FreshDisk,
 		OpenCoreROM:    spec.OpenCoreROM,
 		OpenCoreVars:   spec.OpenCoreVars,
 		BootImage:      spec.BootImage,

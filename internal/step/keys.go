@@ -781,7 +781,16 @@ var Keys = map[string]Key{
 			"tests it and can do nothing else - the comparison belongs to `check:`"},
 	"loop": {Name: "loop", Kind: KindMapping,
 		Summary: "the parts written down: `max:`, `do:` (the action), `ocr:` (the reading -> text), " +
-			"`check:` (the comparison -> boolean), `until: {fact: ...}` (tests the boolean)"},
+			"`check:` (the comparison -> boolean), `until: {fact: ...}` (tests the boolean). " +
+			"Optionally `every: <seconds>` with `clock: [...]` - an action that runs ONCE when that " +
+			"long has passed, whatever the screen says"},
+	"every": {Name: "every", Kind: KindFloat,
+		Summary: "with `loop:`: seconds after which the `clock:` actions run once, independent of the " +
+			"reading. For a pane that cannot be recognised - a black frame, or OpenCore's boot " +
+			"picker whose labels OCR reads as noise - where the honest stop is the clock"},
+	"clock": {Name: "clock", Kind: KindList,
+		Summary: "with `loop: every:`: the actions to run once when the clock runs out. It is named " +
+			"`clock` because a bare YAML key spelled o-n parses as the boolean true"},
 	"max": {Name: "max", Kind: KindInt,
 		Summary: "with `loop:`: the attempt ceiling. Required, because a loop with no ceiling " +
 			"presses a key until the stage times out"},

@@ -46,6 +46,9 @@ type Executor struct {
 
 	// BootDisk is the disk a `boot:` starts when no `disk:` step named one - the --boot-disk flag.
 	BootDisk string
+	// madeDisk is true once a `disk_gb:` step has created the target, so a later `boot:` knows the
+	// disk is this run's rather than one from somewhere else. See BootSpec.FreshDisk.
+	madeDisk bool
 	// adb is the Android Debug Bridge connection, when a step asked for one.
 	//
 	// IT IS A FIELD BESIDE THE ssh ONE AND NOT A Driver METHOD: adb is one family's transport, not
@@ -918,6 +921,16 @@ func stepNeedsAGuest(s walk.Step) bool {
 	switch {
 	// the ending of a walk, and anything that turns files into other files
 	case s.Has("shutdown"), s.Has("compress"), s.Has("publish"), s.Has("snapshot"):
+		return false
+	// A `boot:` IS THE ONE STEP THAT DOES NOT NEED A GUEST TO BE THERE, because it is what PUTS one
+	// there. THE "the guest is gone" GUARD IS RIGHT FOR EVERY OTHER STEP and wrong for this one: a
+	// walk that stops a guest and starts another - which is how one recording shows two operating
+	// systems - was refused at its second `boot:` with
+	//
+	//	boot linux: the guest is no longer running, so this step cannot be done
+	//
+	// which is a true sentence about the step before the one that starts a machine.
+	case s.Has("boot"), s.Has("boot_from"):
 		return false
 	// AND ANYTHING THAT EDITS A DISK RATHER THAN ASKS A GUEST. `esp_fallback:` opens the qcow2 with
 	// qemu-io and rewrites FAT structures at byte offsets; the machine it belongs to has usually

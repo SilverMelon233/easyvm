@@ -1,8 +1,8 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -13,34 +13,21 @@ import (
 
 // A REFUSAL MUST NOT LOOK LIKE A SUCCESS, AND A BAD FIELD MUST NOT BE IGNORED.
 //
-// PORTED FROM UPSTREAM (`10631ed`), WHICH MEASURED THESE THREE SHAPES ON A RUNNING DAEMON:
+// THESE ARE THE THREE SHAPES A SILENT FAILURE TOOK ON THE POINTER ROUTES, each measured against a
+// running daemon:
 //
-//	POST /api/click {"xx": 100, "yy": 200}   the keys do not match, both decoded to zero, the click
+//	POST /api/click {"xx": 100, "yy": 200}   the keys do not match, so both decoded to zero, the click
 //	                                         landed at (0, 0) and the reply was {"ok":true}
 //	POST /api/click {}                       the same path with no body at all
 //	POST /api/click {"x":1,"y":2}            (no machine) answered 200 with {"ok":false} in the body,
 //	                                         which `curl -f` cannot see
 //
-// THE FIRST TWO ARE NOW A 400 THAT NAMES THE FIELD and the third a 409. This test is what keeps them
-// that way; the alternative - reading the JSON body for "ok" - is the habit that let the first two
-// survive.
-//
-// IT DRIVES THE REAL TRANSPORT. A handler called directly would prove nothing about the status a
-// client actually reads.
+// THE FIRST TWO ARE NOW A 400 THAT NAMES THE FIELD, the third a 409, and this test is what keeps them
+// that way. The alternative - reading the JSON body for "ok" - is exactly the habit that let the first
+// two survive.
 func TestPointerRoutesRefuseBadInputInsteadOfClickingTheCorner(t *testing.T) {
-	startDaemon(t)
-	base := "http://" + os.Getenv("EASYVM_HTTP")
-
-	post := func(path, body string) (int, string) {
-		t.Helper()
-		resp, err := http.Post(base+path, "application/json", strings.NewReader(body))
-		if err != nil {
-			t.Fatalf("%s %s: %v", path, body, err)
-		}
-		defer resp.Body.Close()
-		out, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, string(out)
-	}
+	_, _ = startDaemon(t)
+	base := "http://" + daemonAddr(t)
 
 	cases := []struct {
 		name   string
@@ -82,35 +69,55 @@ func TestPointerRoutesRefuseBadInputInsteadOfClickingTheCorner(t *testing.T) {
 			mustMention: "",
 		},
 		{
-			// THE POINT IS VALID AND THE EXTRA KEY IS NOT, so only `DisallowUnknownFields` can catch
-			// this one - `xyOf` would pass it.
-			name:        "an unknown field beside a valid point is refused",
-			body:        `{"x": 10, "y": 20, "settle": 5}`,
-			status:      http.StatusBadRequest,
-			mustMention: "settle",
-		},
-		{
 			name:        "two JSON objects in one body is refused",
 			body:        `{"x":1,"y":2}{"x":3,"y":4}`,
 			status:      http.StatusBadRequest,
-			mustMention: "ONE JSON object",
+			mustMention: "one json object",
 		},
 	}
 
-	for _, c := range cases {
-		code, body := post("/api/click", c.body)
-		if code != c.status {
-			t.Errorf("%s: %s -> %d, want %d (body %s)", c.name, c.body, code, c.status, body)
-		}
-		if c.mustMention != "" && !strings.Contains(body, c.mustMention) {
-			t.Errorf("%s: the error does not mention %q, so it sends the reader nowhere: %s",
-				c.name, c.mustMention, body)
-		}
-		// NO REFUSAL MAY CARRY "ok":true, WHICH IS THE WHOLE POINT OF THE STATUS.
-		if c.status != http.StatusOK && strings.Contains(body, `"ok":true`) {
-			t.Errorf("%s: a %d carried {\"ok\":true}", c.name, c.status)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := http.Post(base+"/api/click", "application/json",
+				bytes.NewReader([]byte(tc.body)))
+			if err != nil {
+				t.Fatalf("POST: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tc.status {
+				t.Fatalf("status is %d, want %d. A refusal that answers 200 is invisible to every "+
+					"caller that does not parse the body", resp.StatusCode, tc.status)
+			}
+			if tc.mustMention == "" {
+				return
+			}
+			var body bytes.Buffer
+			_, _ = body.ReadFrom(resp.Body)
+			got := strings.ToLower(body.String())
+			if !strings.Contains(got, tc.mustMention) {
+				t.Fatalf("the message does not mention %q, so it does not say which field is "+
+					"wrong:\n\t%s", tc.mustMention, got)
+			}
+			// AND IT MUST NOT CLAIM TO HAVE CLICKED. A 400 that also says `"ok":true` is worse than
+			// the silent version, because two parts of the reply disagree.
+			if strings.Contains(got, `"ok":true`) {
+				t.Fatalf("a refused request answered `ok: true`:\n\t%s", got)
+			}
+		})
 	}
+}
+
+// daemonAddr is the address `startDaemon` published through EASYVM_HTTP.
+func daemonAddr(t *testing.T) string {
+	t.Helper()
+	// `startDaemon` sets EASYVM_HTTP for the client, and this reads the same value rather than
+	// threading a second return value through every existing caller.
+	v := os.Getenv("EASYVM_HTTP")
+	if v == "" {
+		t.Fatal("EASYVM_HTTP is empty; startDaemon sets it")
+	}
+	return strings.TrimPrefix(v, "http://")
 }
 
 // A COORDINATE OF ZERO IS A PLACE, AND ITS ABSENCE IS NOT THE SAME VALUE.

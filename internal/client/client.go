@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -149,9 +150,52 @@ func (c *Client) doHTTP(req Request) (Response, error) {
 		return Response{}, fmt.Errorf("POST %s%s: %w", c.base, route, err)
 	}
 	defer resp.Body.Close()
+	return decodeReply(req.Command, resp)
+}
+
+// decodeReply reads one Response AND TURNS A REFUSAL INTO AN ERROR.
+//
+// THIS CLIENT USED TO IGNORE THE STATUS CODE ENTIRELY. It decoded the body and handed it back, so
+//
+//	400  {"error": "click needs both \"x\" and \"y\"..."}      arrived as a Response with OK:false
+//	409  {"ok":false,"error":"no machine is running"}            and the same
+//	200  {"ok":true,...}                                         and the same
+//
+// were three different answers the caller had to distinguish for itself. Most callers do not: `run`
+// prints `resp.Error` when `!resp.OK`, but a caller that only checks `err != nil` - which is what a Go
+// programmer writes by habit - saw a SUCCESSFUL call that did nothing. THAT IS THE SHAPE THAT MADE A
+// REFUSED CLICK LOOK LIKE A CLICK.
+//
+// SO A NON-2xx IS AN ERROR HERE, with the daemon's own sentence as the message. The Response is still
+// returned so a caller that wants the state can look at it, and `run`/`status` keep working because a
+// successful command is a 200.
+func decodeReply(command string, resp *http.Response) (Response, error) {
 	var out Response
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return Response{}, fmt.Errorf("reading the reply to %q: %w", req.Command, err)
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return Response{}, fmt.Errorf("reading the reply to %q: %w", command, readErr)
+	}
+	// THE BODY IS PARSED EVEN WHEN THE STATUS IS BAD, because the daemon's `error` sentence is the
+	// useful half of a 400 and reading it is why this is not just "unexpected status".
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &out); err != nil {
+			if resp.StatusCode < 200 || resp.StatusCode > 299 {
+				// A NON-JSON REFUSAL comes from `http.Error` - the strict decoder's message - and it
+				// is the whole answer, so it is returned as text rather than swallowed.
+				return out, fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(body)))
+			}
+			return Response{}, fmt.Errorf("reading the reply to %q: %w", command, err)
+		}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg := out.Error
+		if msg == "" {
+			msg = strings.TrimSpace(string(body))
+		}
+		if msg == "" {
+			msg = resp.Status
+		}
+		return out, fmt.Errorf("%s", msg)
 	}
 	return out, nil
 }

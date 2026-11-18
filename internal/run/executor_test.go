@@ -2,7 +2,10 @@ package run
 
 import (
 	"fmt"
+	"image"
+	"image/png"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,13 +18,16 @@ import (
 // a machine. The Python implementation had no such seam: its drivers opened sockets in their
 // constructors, so every test of the step loop needed qemu running.
 type fakeDriver struct {
-	log      []string
+	log []string
+	// machine is the ONE machine this driver hands out; see Machine().
+	machine  *fakeMachine
 	clicks   [][2]int
 	doubles  [][2]int
 	keys     []string
 	strokes  [][2]string
 	typed    []string
 	started  int
+	halted   bool
 	boot     *BootSpec
 	released bool
 	stopped  []string
@@ -60,12 +66,42 @@ func (f *fakeDriver) Guest() *guest.Client {
 	}
 	return nil
 }
-func (f *fakeDriver) Machine() Machine { return &fakeMachine{d: f} }
-func (f *fakeDriver) Log(msg string)   { f.log = append(f.log, msg) }
+
+// Machine returns ONE fakeMachine for the driver's lifetime, which is what a real driver does.
+//
+// IT USED TO BUILD A NEW ONE PER CALL, so `halted` was forgotten between steps: a test that stopped a
+// guest and asked whether it was still running got a fresh machine that had never stopped. Two of the
+// four tests about switching guests passed on that accident.
+func (f *fakeDriver) Machine() Machine {
+	if f.machine == nil {
+		f.machine = &fakeMachine{d: f}
+	}
+	return f.machine
+}
+func (f *fakeDriver) Log(msg string) { f.log = append(f.log, msg) }
 
 type stubFrame struct{}
 
-func (stubFrame) Path() string     { return "/dev/null" }
+// Path is a REAL PNG, because a `check:` that measures the captured frame has to be able to load it.
+//
+// IT USED TO BE `/dev/null`, which was enough while a `see:` did the measuring and a `check:` only
+// compared what it bound. Now the frame IS the thing compared, so a fake that cannot be decoded makes
+// every frame-based check fail with "image: unknown format" - a test failure that says nothing about
+// the code under test.
+func (stubFrame) Path() string {
+	const onePixel = "stub-frame.png"
+	p := filepath.Join(os.TempDir(), onePixel)
+	if _, err := os.Stat(p); err != nil {
+		// SMALL, BECAUSE ONLY THE DECODE MATTERS: a `rect` larger than the frame is an error from
+		// `Crop`, and the tests that need a full-frame region say so in their own step.
+		img := image.NewRGBA(image.Rect(0, 0, 1920, 1080))
+		if f, err := os.Create(p); err == nil {
+			_ = png.Encode(f, img)
+			_ = f.Close()
+		}
+	}
+	return p
+}
 func (stubFrame) Size() (int, int) { return 1920, 1080 }
 func (stubFrame) Words() []string  { return nil }
 
@@ -77,15 +113,35 @@ func (m *fakeMachine) Boot(spec BootSpec) error {
 	// THE SPEC IS RECORDED, so a test can assert what a `boot:` step asked for without a machine.
 	m.d.boot = &spec
 	m.d.started++
+	m.d.halted = false
 	return nil
 }
 func (m *fakeMachine) Stop(method string, grace time.Duration) error {
 	m.d.stopped = append(m.d.stopped, method)
 	m.d.graces = append(m.d.graces, grace)
+	// A STOPPED MACHINE IS NOT A MACHINE, and the fake has to say so or it answers a question about
+	// `doBoot`'s "one daemon holds one machine" guard that the code never asked it.
+	//
+	// MEASURED AS A TEST FAILURE: with `IsRunning` returning `started > 0` forever, a walk that
+	// stopped one guest and started another saw the second boot as "already running" - and every test
+	// that could have noticed the real behaviour was answered by the fake instead.
+	m.d.halted = true
 	return nil
 }
-func (m *fakeMachine) Reboot() error   { return nil }
-func (m *fakeMachine) IsRunning() bool { return m.d.started > 0 }
+func (m *fakeMachine) Reboot() error { return nil }
+
+// OS is what `doBoot` compares against a step's `os:` when a machine is already running.
+//
+// WITHOUT IT THE FAKE HAD NO OS AND THE GUARD COULD NOT FIRE: a test that asked "is a second guest on
+// a running machine refused" was answered by a machine whose family was unknown, which is the one
+// answer that skips the check.
+func (m *fakeMachine) OS() string {
+	if m.d.boot == nil {
+		return ""
+	}
+	return m.d.boot.OS
+}
+func (m *fakeMachine) IsRunning() bool { return m.d.started > 0 && !m.d.halted }
 func (m *fakeMachine) PressPowerButton() error {
 	m.d.stopped = append(m.d.stopped, "acpi")
 	return nil

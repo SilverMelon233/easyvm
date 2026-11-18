@@ -169,6 +169,12 @@ type BootSpec struct {
 	// it rather than run a boot loader. A resume without the disk finds nothing, and a disk boot with
 	// an Incoming is a resume - so both must be given together, and Validate enforces it.
 	Incoming string
+	// FreshDisk says the target was CREATED BY THIS RUN, so nothing behind it needs protecting.
+	//
+	// SEPARATE FROM `Recovery` AND `ISO` ON PURPOSE - see `machine.Boot.FreshDisk` for the two defects
+	// that conflating them produced. A `disk_gb:` step sets this; a `disk:` step that names a file
+	// from somewhere does not.
+	FreshDisk bool
 	// OpenCoreROM, OpenCoreVars and BootImage are the macOS loader, built from the recovery image.
 	OpenCoreROM  string
 	OpenCoreVars string

@@ -210,6 +210,8 @@ var Roles = map[string]Role{
 	"fact":            RoleSubkey,
 	"loop":            RoleAction,
 	"max":             RoleSubkey,
+	"every":           RoleSubkey,
+	"clock":           RoleSubkey,
 	"fetch":           RoleAction,
 	"template":        RoleArgument,
 	"contains":        RoleSubkey,
