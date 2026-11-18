@@ -72,11 +72,19 @@ if [ ! -d "$WORK/root/usr" ]; then
 	# whatever the minirootfs shipped configured.
 	printf '%s/main\n%s/community\n' "$BASE" "$BASE" > "$WORK/root/etc/apk/repositories"
 	as_root cp /etc/resolv.conf "$WORK/root/etc/resolv.conf"
+	# AN APK THAT RUNS INSIDE chroot DOES NOT INHERIT THIS SHELL'S PROXY, and a runner behind one sees
+	# `fetch ...: temporary failure in name resolution`. The variables are passed explicitly so a
+	# direct-connect runner is unaffected.
+
 
 	# linux-virt BRINGS THE KERNEL AND /lib/modules, which is what `mkinitfs` reads. The X packages
 	# are what make this a DESKTOP rather than a serial console: openbox is the window manager, and
 	# xf86-video-vesa is the driver a microvm's ISA VGA adapter answers to.
-	as_root chroot "$WORK/root" /sbin/apk add --no-cache \
+	# THE PROXY IS PASSED INTO THE CHROOT, because `apk` reads it from the ENVIRONMENT and a
+	# `/etc/profile.d` file is only sourced by a login shell. MEASURED: without this a runner behind a
+	# proxy answers "temporary failure in name resolution" and installs 9 MiB of nothing.
+	as_root env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_proxy"} \
+		chroot "$WORK/root" /sbin/apk add --no-cache \
 		alpine-base linux-virt mkinitfs \
 		openbox xorg-server xf86-input-libinput xf86-video-vesa \
 		xinit xterm font-misc-misc
