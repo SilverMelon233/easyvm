@@ -11,7 +11,7 @@ walkthrough "linux-ubuntu - sshd"
     os == linux
     timeout == 900
   step "wait for the greeter's X server to settle on the mode it was given"
-    loop == {check: {from: greeter, mode: says_any, name: settled, words: [[password], ["log in"], [complete, your, setup], [welcome, to, ubuntu]]}, do: [{settle: 5}], max: 24, see: {name: greeter, of: [text], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 0}, until: {fact: settled}}
+    loop == {check: {from: greeter, mode: says_any, name: settled, words: [[password], [log], [complete, your, setup], [welcome, to, ubuntu]]}, do: [{settle: 5}], max: 24, see: {name: greeter, of: [text], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 0}, until: {fact: settled}}
   click "greeter - the password box" at 936 628, waiting 3s, named "greeter - the password box"
   step "greeter - log in"
     settle == 3

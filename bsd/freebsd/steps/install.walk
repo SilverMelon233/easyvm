@@ -42,7 +42,7 @@ walkthrough "freebsd 15.1 - bsdinstall, to an installed system"
   press Return, waiting 15s, named "commit the layout"
   press Return, waiting 15s, named "distribution select - accept the default set"
   step "wait for the install to finish"
-    loop == {check: {from: done, mode: says_any, name: finished, words: [["console type"], [installation, completed], [account, root], [system, management, account], [repeat, password], [add, user], [manual, configuration]]}, do: [{settle: 15}], max: 180, see: {name: done, of: [text], rect: [600, 340, 940, 580], rect_at: [1920, 1080], wait: 0}, until: {fact: finished}}
+    loop == {check: {from: done, mode: says_any, name: finished, words: [[console], [installation, completed], [account, root], [system, management, account], [repeat, password], [add, user], [manual, configuration]]}, do: [{settle: 15}], max: 180, see: {name: done, of: [text], rect: [600, 340, 940, 580], rect_at: [1920, 1080], wait: 0}, until: {fact: finished}}
   step "the root password - first field"
     settle == 2
     type == '{{ password }}'

@@ -34,14 +34,24 @@ steps:
   desktop: linux/gnome
   timeout: 5400
 - name: open the installer from the dock
+  # 1390 IS 310 PIXELS BELOW THE BOTTOM OF A 1080 FRAME, so these numbers were taken on a taller
+  # screen and never rescaled. Found by the ported `TestEveryCoordinateFitsTheFrameItDeclares`
+  # (upstream `aac5fc0`), whose message is the one the daemon used to print at step 6 of 29 with the
+  # machine already booted:
+  #
+  #	open the installer from the dock: pointer to (1265, 1390): outside a 1920x1080 frame
+  #
+  # The dock was located by its own pixels on the 1920 frame: crop 700..1600 x 1020..1080 scaled 2x
+  # puts the installer ring at (700+1022/2, 1020+60/2) = (1211, 1050). The x range was already right,
+  # which is what makes this a height error rather than a typo.
   at_button:
-  - 1210
-  - 1340
-  - 1330
-  - 1450
+  - 1190
+  - 1030
+  - 1235
+  - 1070
   at_fallback:
-  - 1265
-  - 1390
+  - 1211
+  - 1050
   settle: 20
 - name: the installer window is up
   loop:
