@@ -480,9 +480,10 @@ steps:
     until:
       fact: there
 
-- name: dismiss anything a stray click opened
-  key: esc
-  wait_after: 2
+# THE `esc` THAT USED TO SIT HERE IS GONE. It was there to close a file chooser that a stray press
+# on the avatar opened, and on run 44268828616 it closed nothing - the installer was the only window -
+# so it entered the desktop's window overview and the wizard finished the run at x=452 with both
+# password boxes empty. Nothing presses the avatar any more, so there is nothing to dismiss.
 # THE PASSWORD FIELDS ARE AT x=1195, AND `Next` STAYS GREY WHILE THE FIRST ONE IS EMPTY.
 #
 # MEASURED on the live page. The field spans x=970..1425, so 1350 IS inside it and the click was
@@ -495,30 +496,36 @@ steps:
 # `admin` IS SHORT AND THAT IS NOT A REFUSAL: the warning is drawn and `Next` turns GREEN anyway,
 # exactly as `Password is too short` is a warning in kubuntu's Calamares. The confirm field is the
 # same box 102 pixels lower: (1195, 547).
-# THE PASSWORD FIELDS ARE THE SAME TWO BOXES AS THE NAME FIELDS, 87 ROWS LOWER THAN THIS FILE SAID.
+# THE PASSWORD PANE IS A DIFFERENT SHAPE FROM THE NAME PANE, AND ITS BOXES ARE 200 PIXELS FURTHER RIGHT.
 #
-# MEASURED on the account page of run 44261873378: its two boxes are at y 516..543 and 588..615, with
-# `Next` at y 804..828. This file pressed 445 and 547 - the same 87-row error the name box had - so
-# both presses landed on the page above the fields.
+# MEASURED off run 44268828616's own frame of `Choose Account Password`:
 #
-# THE PASSWORD PANE REUSES THAT LAYOUT: same card, same two boxes, the second 72 rows below the
-# first. So the presses are (1190, 530) and (1190, 602), and each is read back - a box that took the
-# password shows dots, and a box that did not shows its own label.
+#	Choose Account Password box   x 1158..1614, y 450..489   centre (1386, 470)
+#	Confirm Password box          x 1158..1614, y 576..615   centre (1386, 596)
+#
+# - this pane does not carry the name form's two left-hand boxes at all: the labels sit above
+# full-width fields on the right of the card. This file pressed (1190, 530) and (1190, 602), which is
+# inside neither box, so NOTHING WAS TYPED and the run's last frame shows both fields empty with
+# `Next` drawn grey.
+#
+# AND THE WINDOW ON THAT FRAME IS DRAGGED OFF-CENTRE, because the `esc` before this step did not close
+# a dialog - it entered the desktop's window-overview and left the installer at x=452. THAT STEP IS
+# GONE: the file no longer presses the avatar at all, so there is no file chooser to dismiss.
 #
 # `admin` IS SHORT AND THAT IS NOT A REFUSAL: the warning is drawn and `Next` turns green anyway,
 # exactly as `Password is too short` is a warning in kubuntu's Calamares.
 - name: type the password
   click:
-  - 1190
-  - 530
+  - 1386
+  - 470
   clear: true
   type: '{{ password }}'
   type_gap: 0.09
   wait_after: 2
 - name: confirm the password
   click:
-  - 1190
-  - 602
+  - 1386
+  - 596
   clear: true
   type: '{{ password }}'
   type_gap: 0.09
@@ -596,15 +603,21 @@ steps:
       name: started
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
-      scale: 1
+      # ENLARGED, BECAUSE `scale: 1` DOES NOT READ THIS WIZARD'S BODY ON THE RUNNER - measured on
+      # nixos' leg, where the same setting read 12 words off a full page.
+      scale: 3
       wait: 0
     check:
       name: begun
       from: started
-      mode: says_without
+      mode: says_any
+      # THE PROGRESS PANE'S OWN WORD. `Extracting files` is what this installer prints while it writes,
+      # and the encryption page before it - which is the one a missed press would leave on screen -
+      # carries `Encrypt` instead.
       words:
       - - Extracting
-      without: [Encrypt]
+      - - Installing
+      - - Copying
     until:
       fact: begun
   wait_after: 35
