@@ -925,16 +925,19 @@ steps:
 #
 # `begin` IS THE WORD THE PROGRESS PAGE USES (`Installing Fedora Linux`, `Beginning installation`),
 # and `Review` is what this page carries - so the verdict distinguishes the two.
+# THE PRESS IS THE BUTTON'S OWN CENTRE, (730, 999), MEASURED - NOT THE COLOUR BLOB'S CENTROID.
+#
+# MEASURED: `at_color` found the blue blob at (708, 990) - the blob includes the button's antialiased
+# left edge and its label's dark pixels drag the centroid left - and a press there did nothing while
+# the pointer visibly sat on the button. The button's own box is x=689..772, y=981..1017, centre
+# (730, 999), and a press there starts the install on the first attempt: the next frame reads
+# `Installing / Software installation: ... / Installing software 8%`.
+#
+# SO THIS IS A PLAIN COORDINATE AGAIN, WITH THE VERDICT BELOW PROVING IT TOOK.
 - name: begin the installation
-  at_color:
-  - 60
-  - 110
-  - 180
-  color_region:
-  - 600
-  - 960
-  - 900
-  - 1040
+  click:
+  - 730
+  - 999
   wait_after: 20
 
 - name: the wizard left the review page
