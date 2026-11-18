@@ -169,9 +169,22 @@ var Keys = map[string]Key{
 	// --- the machine's own lifecycle ----------------------------------------------------
 	// `boot: true` IS A FLAG AND `boot: {os: linux}` IS THE SAME KEY WITH OPTIONS - both are in the
 	// tree, so the Kind here is `any` and `doBoot` is what reads the two shapes.
+	// THE VALUE IS `true`, AND IT IS THE ONE KEY WHOSE VALUE CARRIES NOTHING.
+	//
+	// IT USED TO SAY "its options include os, cpu, mem_mb, cpus, share, iso, disk, tpm" - and `doBoot`
+	// reads `os`, `cpu`, `mem_mb`/`memory_mb`, `cpus`, `iso`, `kernel`, `initrd`, `recovery`,
+	// `answer_cd`, `driver_cd` and `boot_from`. IT DOES NOT READ `share` (the share is always on), and
+	// it has no `disk:` or `tpm:` option at all: the disk is chosen by an earlier `disk:` STEP that
+	// sets the machine's file. A reader who trusted the old sentence would have written two keys that
+	// were accepted by `Validate` and ignored by the executor.
+	//
+	// `boot: false` IS NOT MEANINGFUL and no file writes it - measured 57 `true` and 0 `false`. The
+	// bool exists because the dispatcher asks `s.Has("boot")` and a step needs a value; `boot: true`
+	// is what says "this step is the boot".
 	"boot": {Name: "boot", Kind: KindBool,
-		Summary: "start a machine this file owns; its options include os, cpu, mem_mb, cpus, " +
-			"share, iso, disk, tpm"},
+		Summary: "start the machine this file owns. Its arguments are SIBLING keys - os, iso, " +
+			"kernel, initrd, memory_mb, cpus, cpu, recovery, answer_cd, driver_cd - and the disk is " +
+			"the one an earlier `disk:` step named"},
 	"os": {Name: "os", Kind: KindString,
 		Summary: "which family the machine is: windows, macos, linux, android"},
 	"iso": {Name: "iso", Kind: KindString,
@@ -251,8 +264,17 @@ var Keys = map[string]Key{
 	// THEY WERE ALL DECLARED WITH ONE SHAPE, which is what happens when the Kind is documentation
 	// rather than enforcement: nothing read it, so it drifted from what the executors accept. NOW IT IS
 	// READ, so each was reconciled against the files rather than the other way round.
+	// IT NAMES A FILE. THERE IS NO `{from, copy, overlay}` FORM, and the executor refuses one by name:
+	//
+	//	`disk:` names a FILE, not a mapping: write `disk: disk.qcow2`.
+	//	The {from, copy} form was never used by any file in this repository
+	//
+	// The old Summary described that form for as long as the code rejected it. What actually happens:
+	// `disk:` alone names the file `boot:` will start; `disk:` beside `disk_gb:` CREATES the file -
+	// two actions behind one key, decided by whether `disk_gb:` is present.
 	"disk": {Name: "disk", Kind: KindString,
-		Summary: "prepare the file `boot:` starts from a source: {from, copy, overlay}"},
+		Summary: "the disk file: alone, it names the one `boot:` starts; beside `disk_gb:` it " +
+			"creates it at that size"},
 	"disk_from": {Name: "disk_from", Kind: KindString,
 		Summary: "the source image a disk: step takes"},
 	"disk_copy": {Name: "disk_copy", Kind: KindString,
