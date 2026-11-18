@@ -243,9 +243,19 @@ steps:
       name: there
       from: pw_pane
       mode: says_any
+      # `Choose` IS ON THE DESKTOP - MEASURED, the run's own reading after the press was
+      #
+      #	pw_pane: 144 word(s): Workspaces Applications M1118 415 AM, uo om OO > lan ee, A ...
+      #	check: there = true (read "Choose")
+      #
+      # - the DESKTOP, with `Choose` somewhere in it. The press had closed the installer (or gone to
+      # the dock), and this check then said the password pane was up. Everything after it typed a
+      # password into the wallpaper and pressed `Don't Encrypt` into the dock at (907, 1047).
+      #
+      # `Confirm Password` IS THE PANE'S OWN SECOND LABEL and the desktop does not carry it.
       words:
-      - - Choose
       - - Confirm
+      - - Password
     until:
       fact: there
 
