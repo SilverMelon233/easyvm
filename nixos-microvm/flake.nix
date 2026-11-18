@@ -1,150 +1,158 @@
 {
-  # THE NIXOS MICROVM, AS A FLAKE RATHER THAN A SCRIPT.
+  # A NIXOS MICROVM, BUILT BY CI AND VERIFIED LOCALLY.
   #
-  # Alpine and Debian are built here by hand (`alpine-rootfs.sh` downloads a rootfs, drops in an
-  # initramfs, writes a qcow2). NixOS cannot be built that way because it is not distributed as a
-  # disk image at all: it is a *description* of a system, and the only thing that can turn that
-  # description into a kernel, an initramfs and a store disk is Nix. So this directory holds the
-  # description and CI holds the builder.
+  # THE SAME SHAPE AS THE ALPINE AND DEBIAN MICROVMS: a kernel, an initramfs, and ONE FLAT ext4
+  # qcow2 with no partition table. That is deliberate and it is the point of this file, because the
+  # other two are built that way by `.github/alpine-rootfs.sh` and `.github/debian-rootfs.sh`, and a
+  # third guest that needed its own disk layout would be a third thing to learn.
   #
-  # WHAT COMES OUT, AND WHY EXACTLY THREE FILES:
+  # WHY NOT `microvm.nix`'s STORE DISK, WHICH WAS TRIED FIRST.
   #
-  #   kernel     - the NixOS kernel; a microvm takes it with -kernel, no bootloader
-  #   initrd     - systemd initrd, which mounts the store before handing over
-  #   store.img  - the whole NixOS system as one read-only erofs image, mounted at /nix/store
+  # `microvm.nix` builds NixOS the container way: `/` is a tmpfs, the whole system is ONE READ-ONLY
+  # erofs image mounted at /nix/store, and nothing is ever written. That works, and it was measured
+  # booting here - but it has two costs that the other two guests do not pay:
   #
-  # That is the same three-file contract `microvm.nix` itself boots with, and the same reason the
-  # guest needs no root disk: `/` is a tmpfs and everything the system *is* lives in the store.
+  #	1. THE GUEST CANNOT CHANGE. A read-only /nix/store means `nixos-rebuild` cannot build anything
+  #	   inside the machine; new store paths have nowhere to go. Nix's own model survives this (a
+  #	   rebuild ADDS immutable paths and repoints /run/current-system, it never edits an existing
+  #	   one - which is why a read-only store is coherent at all), but the guest is a run-only
+  #	   appliance rather than a system an operator can reconfigure.
   #
-  # ------------------------------ THE VIRTIO-MMIO QUESTION ------------------------------
+  #	2. THE ARTIFACT IS A THIRD DISK FORMAT. `microvm.storeDiskType` accepts only erofs and
+  #	   squashfs, so the NixOS leg would ship an erofs `store.img` while its Alpine and Debian twins
+  #	   ship ext4 `.qcow2` - two disk conventions in one family of three files.
   #
-  # qemu's `microvm` machine has no PCI bus. Its block devices are `virtio-blk-device`, which is
-  # virtio over MMIO, and a machine with no firmware cannot describe those devices in an ACPI table -
-  # so qemu instead prints the addresses ON THE KERNEL COMMAND LINE:
+  # A FLAT ext4 ROOT PAYS NEITHER. `/nix/store` is an ordinary directory on the root filesystem, so
+  # it is writable, `nixos-rebuild` works, and the disk qemu is handed is the same kind of object as
+  # the other two.
   #
-  #   virtio_mmio.device=512@0xfeb00e00:12
+  # THE THREE THINGS THAT MAKE A `-kernel` BOOT WORK, NONE OF THEM NIXOS-SPECIFIC:
   #
-  # A kernel only honours that line if it was built with CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES. This is
-  # the whole reason Void was dropped: MEASURED, `virtio_mmio.ko` in the Void kernel contains the
-  # string `virtio_mmio.device=` zero times, so a Void microvm boots and never sees a disk.
+  #	root=/dev/vda            the disk qemu attaches, named explicitly because there is no
+  #	                         bootloader to pass it and no initrd to guess it from fstab alone
+  #	VIRTIO_MMIO_CMDLINE_DEVICES
+  #	                         the kernel option that lets a microvm FIND a virtio-over-MMIO disk
+  #	                         from qemu's own command line. Nixpkgs sets it unconditionally
+  #	                         (`common-config.nix`, and the workflow reads the built kernel's
+  #	                         `.config` to prove it), so this file does not patch the kernel -
+  #	                         patching would only stop the build from hitting cache.nixos.org.
+  #	                         MEASURED, from each distribution's own config, because the four
+  #	                         disagree and that is what the whole comparison rests on:
   #
-  # NIXPKGS ALREADY SETS IT, which is why this file does not patch the kernel. Verified, not assumed:
-  # `pkgs/os-specific/linux/kernel/common-config.nix` line 1045, in the `virtualisation` block,
+  #	                           Alpine 3.21  VIRTIO_MMIO=y  CMDLINE_DEVICES=y
+  #	                           NixOS 6.18   VIRTIO_MMIO=m  CMDLINE_DEVICES=y
+  #	                           Debian 6.12  VIRTIO_MMIO=m  # CMDLINE_DEVICES is not set
+  #	                           Void 6.12    VIRTIO_MMIO=m  (option absent)
   #
-  #   # Enable device detection on virtio-mmio hypervisors
-  #   VIRTIO_MMIO_CMDLINE_DEVICES = yes;
+  #	                         Debian needs `acpi=on` to see the same disk; the engine states that
+  #	                         on the machine type for every microvm, and adds `pci=off` so a kernel
+  #	                         that assumes a PCI host bridge behind ACPI does not stop. NixOS needs
+  #	                         neither, and is unaffected by both.
   #
-  # `yes` there is unconditional, not `option yes`, so it cannot be turned off downstream and it
-  # cannot be missing from a stock NixOS kernel. Patching it in anyway would be worse than useless:
-  # `boot.kernelPatches` changes the kernel derivation, so the build would stop hitting
-  # cache.nixos.org and start compiling a kernel from source for no gain. Instead CI reads the
-  # built kernel's `.config` and fails if the symbol is absent - see `verify` in the workflow. The
-  # claim is checked, not repeated.
-  #
-  # ------------------------------ WHY NO PCIE, AND WHAT IT COSTS ------------------------------
-  #
-  # `microvm.nix` derives `requirePci` from `graphics.enable || shares != [] || pciInDevices ||
-  # machine !~ ^microvm`. Nothing below sets any of those, so it picks `devType = "device"` and
-  # emits `virtio-blk-device` - the MMIO transport, no PCIe bus, which is the requirement here.
-  #
-  # The cost is graphics: a framebuffer needs a GPU, a GPU needs PCIe, and with `pcie=off` there is
-  # no `/dev/fb0`. That is not a gap to be worked around - it is why this guest is built to be read
-  # on `ttyS0`. The Alpine and Debian images do carry a desktop (`microvm_display: desktop`); this
-  # one deliberately does not, and the walkthrough that boots it asserts on the serial console.
-  description = "NixOS guest for qemu's microvm machine type: kernel, initrd and erofs store";
+  # IT IS A SEPARATE FLAKE because this repository has no other Nix, and a `flake.nix` at the root
+  # would claim the whole tree.
+  description = "NixOS guest for qemu's microvm machine type: kernel, initrd and a flat ext4 root";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    microvm = {
-      url = "github:microvm-nix/microvm.nix";
-      # ONE nixpkgs FOR BOTH, or the kernel and the store image are built from two different
-      # revisions and the store's glibc does not match the kernel's modules.
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
-  outputs = { self, nixpkgs, microvm }:
+  outputs = { self, nixpkgs }:
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
 
+
+
       guest = nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
-          microvm.nixosModules.microvm
-          ({ pkgs, ... }: {
+          ({ config, lib, pkgs, ... }: {
             # ---------------------------- THE MACHINE ----------------------------
             networking.hostName = "nixos-microvm";
 
-            # `machineOpts` REPLACES microvm.nix's computed defaults rather than merging with
-            # them, so every option that matters is stated here. They are the same five the
-            # easyvm driver passes (`internal/daemon/driver.go`), which is the point: the image is
-            # built for the machine that will actually run it, not for microvm.nix's own runner.
-            #
-            #   accel = "kvm:tcg"  - kvm where there is one, tcg where there is not. A bare "kvm"
-            #                        would make the artifact unusable on any runner without
-            #                        /dev/kvm, and CI runners have no /dev/kvm.
-            #   acpi = "off"       - there is no PCI bus for ACPI to enumerate, and the MMIO
-            #                        devices arrive on the command line instead.
-            #   pic  = "on"        - kept on for parity with the Alpine and Debian images; the
-            #                        timer has to come from somewhere with no ACPI.
-            #   pcie = "off"       - stated, not inferred. This is the constraint.
-            microvm.qemu.machine = "microvm";
-            microvm.qemu.machineOpts = {
-              accel = "kvm:tcg";
-              rtc = "on";
-              pic = "on";
-              acpi = "off";
-              pcie = "off";
-              usb = "off";
+            # NO BOOTLOADER. A microvm has no firmware to read a boot sector, so qemu is handed the
+            # kernel and the initramfs directly with `-kernel`/`-initrd`. GRUB would be a disk
+            # partition nothing ever reads.
+            boot.loader.grub.enable = false;
+
+            # ONE FILESYSTEM, NAMED BY THE DEVICE QEMU ATTACHES. There is no partition table on this
+            # image, so there is no PARTUUID to name and no `/boot/efi` to satisfy - the second of
+            # which is exactly what put the Debian guest into `You are in emergency mode` for 710
+            # lines of console before it was found.
+            fileSystems."/" = {
+              device = "/dev/vda";
+              fsType = "ext4";
+              options = [ "rw" ];
             };
 
-            # 1024 AND NOT 2048: microvm.nix warns that qemu hangs when the microvm machine gets
-            # exactly 2 GiB (microvm.nix#171). 1024 is also what the other three images use.
-            microvm.mem = 1024;
-            microvm.vcpu = 2;
-
-            # ---------------------------- THE STORE DISK ----------------------------
-            # erofs, not ext4: the store is read-only and never written, so a compressed read-only
-            # filesystem is both smaller and faster to mount. Measured on the other images, a
-            # NixOS closure as ext4 is several hundred MB larger for the same content.
+            # `root=/dev/vda` IS THE ONLY `root=`, AND THE REASON IS WORTH STATING.
             #
-            # `mounts.nix` picks the device by LABEL when the type is erofs
-            # (`/dev/disk/by-label/nix-store`), which is why the label `nix-store` set by
-            # `store-disk.nix` matters: it is the only name stable across machine types.
-            microvm.storeDiskType = "erofs";
+            # NixOS ADDS `root=fstab` OF ITS OWN ACCORD, and two `root=` arguments do not merge: the
+            # last one on the command line wins. MEASURED on the built artifact, whose `kernel-args`
+            # read
+            #
+            #	console=ttyS0 root=/dev/vda rootfstype=ext4 rw root=fstab loglevel=4 ...
+            #
+            # so the guest was told to infer its root from /etc/fstab rather than use the device it
+            # was handed. On this image both reach /dev/vda and it booted anyway - which is exactly
+            # why it would have gone unnoticed - but on a machine whose fstab is wrong the failure
+            # would be a 30-second `Waiting for root` on a disk that plainly exists.
+            # `init=` IS NOT OPTIONAL AND IS NOT DECORATION. It is the ONLY thing that tells NixOS'
+            # initrd which closure to activate.
+            #
+            # MEASURED without it, on a guest whose ext4 root mounted perfectly:
+            #
+            #	EXT4-fs (vda): mounted filesystem ... r/w with ordered data mode
+            #	[FAILED] Failed to start Find NixOS closure.
+            #	[DEPEND] Dependency failed for Initrd Default Target.
+            #	You are in emergency mode...
+            #
+            # `initrd-find-nixos-closure` reads `/proc/cmdline`, looks for `init=`, resolves it under
+            # /sysroot and `chroot`s to its directory. With no `init=` it prints `No init= parameter
+            # on the kernel command line` and refuses to hand over - so a disk that mounted and a
+            # store that was present still never reach userspace. A bootloader would normally supply
+            # this; a microvm has none, so it is supplied here.
+            #
+            # THE PATH CANNOT BE WRITTEN IN THE WALKTHROUGH because it is the store hash of this
+            # build, and it changes on every rebuild. It is generated below into `kernel-args`, which
+            # the walkthrough reads.
+            #
+            # `mkForce` REPLACES THE WHOLE LIST, and that is intended: NixOS' contribution here is
+            # `root=fstab` plus `loglevel` and `lsm`, and dropping two cosmetic arguments is a much
+            # smaller thing to get wrong than silently booting the wrong root.
+            boot.kernelParams = lib.mkForce [
+              "console=ttyS0"
+              "root=/dev/vda"
+              "rootfstype=ext4"
+              "rw"
+            ];
 
-            # NO `writableStoreOverlay`: a writable /nix/store would need a second disk, and the
-            # point of this artifact is three files. The consequence is that the guest cannot
-            # `nix-build` - it can boot, log in and run everything in the closure, which is what
-            # the walkthrough checks.
+            # THE INITRAMFS HAS TO BE ABLE TO MOUNT THE ROOT BEFORE THERE IS A ROOT. `microvm.nix`
+            # used to add these; without that module they are stated, because a stock NixOS initrd
+            # carries the modules for the machine it was GENERATED on, not for a virtio-MMIO disk.
+            boot.initrd.availableKernelModules = [
+              "virtio" "virtio_ring" "virtio_mmio" "virtio_pci" "virtio_blk" "ext4"
+            ];
+            boot.initrd.kernelModules = [ "virtio_blk" "virtio_mmio" ];
 
             # ---------------------------- A CONSOLE ----------------------------
-            boot.kernelParams = [ "console=ttyS0" ];
-
-            # THE ROOT ACCOUNT IS THE ONLY ONE, and the password is empty because a read-only
-            # store means there is no state worth protecting and no way to run `passwd` that
-            # survives a reboot anyway.
+            # THE ROOT ACCOUNT IS THE ONLY ONE, with an empty password. The console is this
+            # machine's entire surface, so a login nobody can answer is a dead guest.
             users.users.root = {
               password = "";
               shell = pkgs.bashInteractive;
             };
             services.getty.autologinUser = "root";
 
-            # NIX ITSELF STAYS ENABLED, and its daemon does not start: `system.nix` in microvm.nix
-            # sets `services.nix-daemon.enable` with `mkDefault` to
-            # `writableStoreOverlay != null`, which is false here. Saying `nix.enable = false`
-            # instead would remove the package the store image's own registration needs and buy
-            # nothing, since the daemon was already off.
-
             # ---------------------------- WHAT PROVES IT IS ALIVE ----------------------------
-            # A LINE ON THE SERIAL CONSOLE, PRINTED ONCE USERS HAVE STARTED. `echo` is a
-            # coreutils binary inside the store, so this unit can only run if the store disk was
-            # found, mounted, and the closure inside it is intact - which is exactly the claim
-            # the artifact needs to support. Asserting on `login:` alone would not: agetty comes
-            # from the initrd's own closure.
+            # A SERVICE WHOSE BINARY LIVES ON THE ROOT FILESYSTEM. `echo` is a coreutils path in
+            # /nix/store on /dev/vda, so this line cannot be printed unless the disk was found,
+            # mounted, and the store inside it executed - which is what the artifact has to support.
+            # Asserting on `login:` alone would prove less: agetty comes from the INITRAMFS, which
+            # is a different file and mounts nothing.
             systemd.services.microvm-proof = {
-              description = "announce that the store mounted and userspace is up";
+              description = "announce that the root filesystem mounted and userspace is up";
               wantedBy = [ "multi-user.target" ];
               after = [ "local-fs.target" ];
               before = [ "getty.target" ];
@@ -160,90 +168,165 @@
           })
         ];
       };
+      # THE ROOT FILESYSTEM TREE, AS A TARBALL OF A COMPLETE SYSTEM.
+      #
+      # `make-system-tarball.nix` IS WHAT NIXOS' OWN NETBOOT IMAGES USE, and it is the one builder
+      # here that needs NO VIRTUAL MACHINE. That matters: `make-disk-image.nix` looks like the
+      # obvious choice - it even takes `fsType = "ext4"` and `partitionTableType = "none"` - but it
+      # writes the filesystem inside `pkgs.vmTools.runInLinuxVM`, which declares the `kvm` system
+      # feature. MEASURED on a host without KVM: `Required features: {kvm}`, and the build refuses
+      # before producing anything. A GitHub runner has no /dev/kvm and neither does a container.
+      #
+      # `callPackage` RATHER THAN `import`: the builder takes nine arguments and a hand-written list
+      # of them was wrong twice - `closureInfo` and `pixz` are both required and both invisible from
+      # the file's own header. `callPackage` resolves them from nixpkgs and cannot miss one.
+      #
+      # What comes out is a tar of exactly what a NixOS root filesystem IS:
+      #
+      #	nix/store/<everything the system references>   the closure, copied whole
+      #	init, kernel, kernel-modules, system, sw, etc   the top-level links `stage-2-init` needs
+      #	nix-path-registration                          the database `nix-store --load-db` reads
+      #
+      # which is why the next step can unpack it and hand the result to `mke2fs -d`, the same two
+      # lines `.github/alpine-rootfs.sh` and `.github/debian-rootfs.sh` use. NixOS stops being a
+      # special case at exactly this point.
+      rootfsTarballPath = (guest.pkgs.callPackage "${nixpkgs}/nixos/lib/make-system-tarball.nix" {
+        # THE SYSTEM ITSELF IS THE ONLY "OBJECT". `symlink = "none"` means no extra top-level link:
+        # the tarball's own `init`, `system` and `sw` are the ones a NixOS root filesystem has, and
+        # `nix/store/nix-path-registration` is what lets the guest populate its Nix database on
+        # first boot. This is the same shape NixOS' own netboot `kexecTarball` uses.
+        storeContents = [
+          {
+            object = guest.config.system.build.toplevel;
+            symlink = "none";
+          }
+        ];
+        contents = [ ];
+        fileName = "nixos-microvm";
+        compressCommand = "gzip -9";
+        compressionExtension = ".gz";
+      }) + "/tarball/nixos-microvm.tar.gz";
+
     in {
       nixosConfigurations.nixos-microvm = guest;
 
-      # THE THREE FILES, IN ONE DIRECTORY, WITH A STABLE NAME EACH.
-      #
-      # `runCommandLocal` rather than `symlinkJoin` so the artifact directory cannot grow an
-      # accidental `/nix/store` dependency of its own: each entry is a symlink into the store, and
-      # CI resolves them with `cp -L` before uploading.
-      #
-      # `microvm.kernel` IS A PACKAGE, NOT A FILE - its `out` is a directory holding `bzImage`
-      # beside `System.map` and friends. `microvm.nix`'s own runner turns it into a path with
-      # `kernelPath = "${kernel.out}/${linuxTarget}"`, and `linuxTarget` is `pkgs.linux.target`
-      # ("bzImage" on x86_64). Linking the package directory instead would produce an artifact
-      # named `kernel` that is a folder, which qemu rejects with "not a valid bzImage".
-      #
-      # ONE `packages.${system}` ATTRIBUTE WITH THREE KEYS, not three assignments to it: Nix reads
-      # `packages.${system}.default = ...` followed by `packages.${system}.kernelConfig = ...` as
-      # defining the dynamic attribute `packages.${system}` twice and refuses the whole file. Which
-      # is what an evaluation said, not what the manual implies.
       packages.${system} = {
-        default = pkgs.runCommandLocal "nixos-microvm-artifacts" { } ''
-          mkdir -p $out
-          ln -s ${guest.config.microvm.kernel.out}/${pkgs.linux.target} $out/kernel
-          ln -s ${guest.config.microvm.initrdPath} $out/initrd
-          ln -s ${guest.config.microvm.storeDisk} $out/store.img
+        # THE DISK, IN THE SAME FORMAT THE OTHER TWO GUESTS USE, MADE THE SAME WAY.
+        #
+        # `tar -x` into a directory, then `mke2fs -d` writes that directory into an image with no
+        # loop device and no VM - which is the only way inside a container, and is why this is a
+        # `runCommandLocal` beside `rootfsTarball` rather than a call to `make-disk-image.nix`.
+        #
+        # `-O ^has_journal` IS NOT SET AND THE JOURNAL IS KEPT: the ext4 is genuinely writable, so
+        # /nix/store is writable inside the guest and `nixos-rebuild` works there.
+        rootfs = guest.pkgs.runCommandLocal "nixos-microvm-rootfs" {
+          nativeBuildInputs = [ guest.pkgs.e2fsprogs guest.pkgs.qemu-utils ];
+        } ''
+          mkdir -p tree nix
+          tar -xzf ${rootfsTarballPath} -C tree
+          # `mke2fs -d` NEEDS THE DIRECTORY TO HOLD EVERYTHING, not a tarball. The size is read from
+          # the tree and rounded up: a NixOS closure is hundreds of MiB and a fixed size either
+          # wastes space or fails at the 400th megabyte with `No space left on device`.
+          size=$(( $(du -sm tree | cut -f1) + 300 ))
+          truncate -s "''${size}M" rootfs.raw
+          # `-N` IS NOT OPTIONAL AND `-i` WOULD NOT HAVE SAVED THIS.
+          #
+          # MEASURED, without it:
+          #
+          #	ext2fs_symlink: Could not allocate inode in ext2 filesystem while creating symlink
+          #	                "pidof.1.gz"
+          #	mke2fs: Could not allocate inode in ext2 filesystem while populating file system
+          #
+          # `mke2fs` picks an inode COUNT from the filesystem SIZE, and a NixOS store is the shape
+          # that assumption gets wrong: a few hundred MiB holding tens of thousands of tiny files,
+          # because every package is a directory of symlinks into other store paths. The default
+          # runs out at the man pages. One inode per 4 KiB of TREE would be far more than needed;
+          # the count below is derived from the tree itself, which is the only number that describes
+          # this filesystem.
+          # A STABLE NAME FOR THE SYSTEM, SO THE BOOT LINE CAN BE WRITTEN IN A FILE THAT DOES NOT
+          # CHANGE. `/nixos-system` is a symlink to this build's toplevel, and the walkthrough's
+          # `init=` names `/nixos-system/init` - which is the same instruction for every build,
+          # forever, while the store hash behind it changes as it should.
+          #
+          # WITHOUT THIS the `init=` argument would have to be a literal store hash in a walkthrough,
+          # which is stale the moment anything is rebuilt - and the failure is
+          #
+          #	[FAILED] Failed to start Find NixOS closure.
+          #	You are in emergency mode...
+          #
+          # on a disk that mounted perfectly. MEASURED, that is exactly what happened.
+          ln -s ${guest.config.system.build.toplevel} tree/nixos-system
+          inodes=$(( $(find tree | wc -l) + 20000 ))
+          mke2fs -q -F -t ext4 -N "$inodes" -d tree rootfs.raw
+          qemu-img convert -f raw -O qcow2 -c rootfs.raw $out.raw
+          mv $out.raw $out
         '';
 
-        # THE KERNEL'S `.config`, AS ITS OWN OUTPUT, so CI can read it instead of trusting a
-        # comment. `passthru.configfile` is the derivation nixpkgs builds from the merged Kconfig;
-        # it is cheap and cacheable on its own, and it is the only honest way to answer "is
+        # THE THREE FILES, IN ONE DIRECTORY, WITH A STABLE NAME EACH.
+        #
+        # `microvm.kernel` no longer exists - `microvm.nix` is not in this configuration - so the
+        # kernel comes from `config.system.build.kernel`, whose `out` is a directory holding
+        # `bzImage` beside `System.map`. `nixpkgs.linux.target` is "bzImage" on x86_64, and it is
+        # read rather than written so a future architecture does not silently copy the wrong file.
+        default = pkgs.runCommandLocal "nixos-microvm-artifacts" { } ''
+          mkdir -p $out
+          ln -s ${guest.config.system.build.kernel.out}/${pkgs.linux.target} $out/kernel
+          ln -s ${guest.config.system.build.initialRamdisk}/${guest.config.system.boot.loader.initrdFile} $out/initrd
+          ln -s ${self.packages.${system}.rootfs} $out/rootfs.qcow2
+          # THE KERNEL ARGUMENTS, AS A FILE, AND `init=` IS APPENDED HERE RATHER THAN IN THE MODULE.
+          #
+          # Two reasons it is not part of `boot.kernelParams`. It names a path inside the system it
+          # belongs to, and the module cannot refer to the system it is defining - that is a
+          # recursion. And it is the one
+          # argument a person is most likely to "helpfully" retype into a walkthrough, where it would
+          # be a stale store hash that fails on the next build in a way that reads as a missing init.
+          #
+          # It is the SAME list `microvm.nix` joins onto its own runner's command line, and the
+          # initrd's `Find NixOS closure` unit reads it back out of /proc/cmdline.
+          # `init=/nixos-system/init` IS THE STABLE NAME THE DISK CARRIES, not a store hash. The
+          # image's own root holds `/nixos-system` as a symlink to this build's toplevel, so this
+          # line is identical for every build and still points at the right system.
+          printf '%s init=/nixos-system/init' \
+            '${nixpkgs.lib.concatStringsSep " " guest.config.boot.kernelParams}' > $out/kernel-args
+        '';
+
+        # THE KERNEL'S `.config`, AS ITS OWN OUTPUT, so CI can read it instead of trusting a comment.
+        # `passthru.configfile` is the derivation nixpkgs builds from the merged Kconfig; it is cheap
+        # and cacheable on its own, and it is the only honest way to answer "is
         # VIRTIO_MMIO_CMDLINE_DEVICES really y in the kernel we are about to ship".
         kernelConfig = guest.config.boot.kernelPackages.kernel.passthru.configfile;
 
         # THE EXACT COMMAND THAT BOOTS THIS ARTIFACT, generated from the configuration rather than
         # typed out beside it, so the two cannot drift.
-        #
-        # THE `-append` LINE IS THE PART THAT IS EASY TO GET WRONG, AND IT ALREADY WAS: the first
-        # attempt booted the kernel without one and stopped at `Probing EDD (edd=off to disable)...
-        # ok`, because a microvm has no bootloader to supply one and the kernel therefore had no
-        # `init=` to run. It is not merely a console setting. `init=` names a path INSIDE the store
-        # image, which the initrd finds by label and mounts before it execs anything:
-        #
-        #   init=/nix/store/...-nixos-system-nixos-microvm-26.11.../init
-        #
-        # So the arguments are read from `microvm.kernelParams` - the very list microvm.nix's own
-        # runner joins onto its command line - and prefixed with the console options that runner
-        # puts in front of them.
-        #
-        # `accel=kvm:tcg` means this also boots, slowly, on a machine without /dev/kvm; `-cpu host`
-        # is dropped to `-cpu max` there by qemu itself, so the same line is honest on both.
         bootCommand = pkgs.writeText "boot-command.txt" ''
-          # Boot the NixOS microvm from three files. Nothing else is needed: `/` is a tmpfs, and the
-          # store image is the entire operating system.
+          # Boot the NixOS microvm from three files. Nothing else is needed: there is no firmware and
+          # no bootloader, and the disk is one flat ext4 filesystem.
           qemu-system-x86_64 \
-            -M microvm,accel=kvm:tcg,rtc=on,pic=on,acpi=off,pcie=off,usb=off \
-            -cpu host -m 1024 -smp 2 \
+            -M microvm,accel=kvm:tcg,rtc=on,pic=on,acpi=on,pcie=off,graphics=off \
+            -cpu host -m 1536 -smp 2 \
             -kernel kernel -initrd initrd \
-            -drive file=store.img,if=none,id=store,format=raw,read-only=on \
+            -drive file=rootfs.qcow2,if=none,id=store,format=qcow2 \
             -device virtio-blk-device,drive=store \
             -device virtio-rng-device \
             -nodefaults -no-reboot -nographic \
-            -append "earlyprintk=ttyS0 console=ttyS0 reboot=t panic=-1 ${nixpkgs.lib.concatStringsSep " " guest.config.microvm.kernelParams}"
+            -append "pci=off $(cat kernel-args)"
 
           # `-nographic` ALREADY PUTS THE SERIAL CONSOLE ON YOUR TERMINAL. Do not add `-serial
           # file:...` beside it: -nographic redirects the port and wins, so the file stays empty and
           # the output appears on the console instead. MEASURED. If a log file is wanted, replace
           # `-nographic` with `-display none -serial file:LOG`.
           #
+          # `pci=off` IS NOT OPTIONAL. The machine gets `acpi=on` because Debian needs an ACPI
+          # namespace to find its MMIO disk, and a kernel that sees an ACPI root with no PCI bus
+          # stops at `PCI: Fatal: No config space access function found`. `pci=off` states the truth
+          # about this machine and the boot continues - MEASURED, this guest printed that warning
+          # and then reached `NIXOS-MICROVM-READY` and `login:`.
+          #
           # WHAT A CORRECT BOOT LOOKS LIKE: these three lines, in this order.
           #
-          #   Found device /dev/disk/by-label/nix-store
-          #   [    5.416244] echo[475]: NIXOS-MICROVM-READY
+          #   EXT4-fs (vda): mounted filesystem
+          #   echo[476]: NIXOS-MICROVM-READY
           #   nixos-microvm login: root (automatic login)
-          #
-          # The middle one is printed by a binary INSIDE the store image, so it cannot appear unless
-          # the disk was found and mounted. `login: root` alone would not prove that: agetty lives in
-          # the initrd, which is a separate file.
-          # THE VIRTIO-MMIO ADDRESSES ARE NOT IN THAT LINE ON PURPOSE. qemu's microvm machine appends
-          # them itself, derived from the devices it actually created:
-          #
-          #   virtio_mmio.device=512@0xfeb00e00:12
-          #
-          # Writing them by hand is how the Void attempt failed twice - the address depends on
-          # device order, so a stale constant points at nothing and the kernel silently finds no disk.
         '';
       };
     };

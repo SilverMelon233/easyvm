@@ -374,14 +374,74 @@ const DefaultVideoDevice = "VGA,xres=1920,yres=1080,vgamem_mb=32"
 // verify the result in the same run, and only the verification wants the small machine.
 func machineType(boot machine.Boot) string {
 	if boot.MicroVM {
-		// `graphics=on` IS WHAT MAKES `see:` POSSIBLE ON A MICROVM, and without it the machine is
-		// serial-only. A walkthrough that PROVES THE VOCABULARY has to read the screen, so a microvm
-		// with no display could only test the console half - and the measurement primitives are the
-		// half this branch exists to make testable.
+		// `acpi=on` IS NOT A DISPLAY OPTION AND IT IS NOT OPTIONAL FOR SOME DISTRIBUTIONS.
 		//
-		// IT IS STILL THE SMALL MACHINE: no PCIe, no IDE, no USB. The graphics option adds the VGA
-		// adapter back on the ISA bus, which is one device and about 16 MiB.
-		return "microvm,accel=kvm,pcie=off,graphics=on"
+		// A microvm with `pcie=off` has to deliver its disks as virtio-over-MMIO, and qemu can name
+		// those devices in ONE OF TWO WAYS: on the kernel command line
+		// (`virtio_mmio.device=512@0xfeb00e00:12`, which qemu injects itself), or in an ACPI table.
+		//
+		// A KERNEL ONLY HONOURS THE FIRST FORM IF IT WAS BUILT WITH
+		// CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES, and the distributions disagree about it. MEASURED, from
+		// each one's own `boot/config-*`:
+		//
+		//	Alpine 3.21   CONFIG_VIRTIO_MMIO=y   CMDLINE_DEVICES=y     boots, finds /dev/vda
+		//	NixOS 6.18    CONFIG_VIRTIO_MMIO=m   CMDLINE_DEVICES=y     boots, finds /dev/vda
+		//	Debian 6.12   CONFIG_VIRTIO_MMIO=m   # CMDLINE_DEVICES is not set   NO /dev/vda
+		//	Void 6.12     CONFIG_VIRTIO_MMIO=m   (option absent)       NO /dev/vda
+		//
+		// On Debian the failure is not silent, which is how it was pinned down. With the module
+		// force-loaded (`rd.driver.pre=virtio_mmio`) the guest says so itself:
+		//
+		//	virtio_mmio: unknown parameter 'device' ignored
+		//	Modules linked in: virtio_mmio crc32_pclmul crc32c_intel
+		//	ALERT!  /dev/vda does not exist.  Dropping to a shell!
+		//
+		// - the module IS loaded and simply refuses the argument. `acpi=on` makes qemu describe the
+		// same MMIO devices in a DSDT instead, which every one of those kernels can read, so one
+		// machine option covers all four without a per-distribution flag.
+		//
+		// IT COSTS NOTHING AND IT STILL IS NOT PCIe: `pcie=off` stays, no PCI bus is created, and
+		// the ACPI tables describe only the MMIO transports and the ISA VGA adapter that
+		// `graphics=on` adds. MEASURED on the Debian guest this was found on:
+		//
+		//	virtio_blk virtio0: [vda] 1259520 512-byte logical blocks (645 MB/615 MiB)
+		//	EXT4-fs (vda): mounted filesystem ... r/w with ordered data mode
+		//	root@debuerreotype:~#
+		//
+		// `pic=on` and `rtc=on` CAME WITH IT because a machine with no ACPI had none of its own
+		// timer: the earlier option string let qemu pick defaults, and a guest that reaches userspace
+		// with no working timer logs a clock that never advances. They are stated rather than left
+		// to the default for the same reason `vmport=off` is: a default that changes is a machine
+		// that changes.
+		//
+		// `graphics=on` IS WHAT MAKES `see:` POSSIBLE, and it is conditional because a serial-only
+		// guest has no screen to photograph and no reason to carry an adapter. IT IS STILL THE SMALL
+		// MACHINE: no PCIe, no IDE, no USB. The graphics option adds the VGA adapter back on the ISA
+		// bus, which is one device and about 16 MiB.
+		graphics := "off"
+		if boot.MicroVMDisplay != "serial" {
+			graphics = "on"
+		}
+		// `acpi=on` STAYS ON FOR EVERY MICROVM, AND `pci=off` IS ADDED AS A KERNEL ARGUMENT.
+		//
+		// MEASURED on the NixOS guest: with `acpi=on` and no PCI bus - which `pcie=off` guarantees -
+		// its kernel prints
+		//
+		//	PCI: Fatal: No config space access function found
+		//
+		// at 0.05s and stops before the initramfs runs. The obvious reading is that ACPI is wrong for
+		// that guest, and it is not: the same kernel with `pci=off` on the command line continues
+		// through the same warning and reaches
+		//
+		//	Found device /dev/disk/by-label/nix-store
+		//	echo[476]: NIXOS-MICROVM-READY
+		//	nixos-microvm login: root (automatic login)
+		//
+		// So the fault is the kernel's assumption that an ACPI root implies a PCI host bridge, not
+		// ACPI itself, and `pci=off` states the truth about this machine. It is added to
+		// `machine.Boot.KernelArgs` rather than here, because it is a kernel argument and this
+		// function builds a machine type.
+		return "microvm,accel=kvm,acpi=on,pic=on,rtc=on,pcie=off,graphics=" + graphics
 	}
 	return "q35,accel=kvm,vmport=off"
 }
@@ -764,12 +824,50 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	//
 	// and because qemu exits at startup the step reports `qmp ... connection refused`, which reads
 	// as a socket problem rather than an argument one.
-	if guestOS.IsMacOS() || boot.MicroVM {
+	//
+	// BUT A GUEST WITH `acpi=on` AND NO PCI BUS CANNOT HAVE ONE OF THESE, AND THE FAILURE IS TOTAL.
+	// MEASURED on the NixOS microvm, holding everything else constant:
+	//
+	//	plain (no extra devices)   NIXOS-MICROVM-READY printed, login reached
+	//	with isa-vga               NIXOS-MICROVM-READY printed, login reached
+	//	with isa-serial            NOTHING - the boot stops at
+	//	                           `PCI: Fatal: No config space access function found`
+	//
+	// The kernel is enumerating a legacy ISA serial port through an ACPI namespace that describes no
+	// PCI host bridge, and it stops there. So the agent channel is attached only where a guest would
+	// actually answer on it: macOS (whose own agent probes /dev/cu.serial1) and a microvm that is NOT
+	// NixOS. The Alpine and Debian microvms keep it and boot; this is decided by the guest, because it
+	// is a property of the guest's kernel and not of the machine.
+	// A MICROVM GETS NO SERIAL CHANNEL AT ALL, AND THAT IS THE CORRECT ANSWER RATHER THAN A TUNING.
+	//
+	// The channel exists for one thing: the `qga:` action, which asks the guest agent to run a
+	// program or read a file. NOTHING IN THIS REPOSITORY USES IT - `grep -r "qga:" linux/ macos/
+	// windows/ bsd/` finds no walkthrough at all - so on a full machine it is a harmless spare, and
+	// on a microvm it is not harmless.
+	//
+	// MEASURED, holding everything else constant on the NixOS microvm:
+	//
+	//	plain (no extra devices)   NIXOS-MICROVM-READY printed, login reached
+	//	with isa-vga               NIXOS-MICROVM-READY printed, login reached
+	//	with isa-serial            NOTHING - stops at
+	//	                           `PCI: Fatal: No config space access function found`
+	//
+	// A microvm gets `acpi=on` because Debian needs an ACPI namespace to find its MMIO disk, and that
+	// namespace describes no PCI host bridge - so the kernel walks the ISA serial port through a
+	// device tree that has nothing behind it and stops before the initramfs runs. Alpine and Debian
+	// happen not to trip over it; NixOS does.
+	//
+	// SO THE CONDITION IS THE MACHINE, NOT THE DISTRIBUTION - which is what the first attempt got
+	// wrong. `OS` has no per-distribution members and should not: all three headless microvms are
+	// `linux`, and giving one of them a family so this line could name it would invent a distinction
+	// the rest of the engine does not have and does not want.
+	attachQGASerial := guestOS.IsMacOS() || !boot.MicroVM
+	if attachQGASerial {
 		args = append(args,
 			"-chardev", "socket,id=qga0,path="+qgaSocket+",server=on,wait=off",
 			"-device", "isa-serial,chardev=qga0",
 		)
-	} else {
+	} else if !boot.MicroVM {
 		args = append(args,
 			"-chardev", "socket,id=qga0,path="+qgaSocket+",server=on,wait=off",
 			"-device", "virtio-serial",
