@@ -32,7 +32,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/easydev-org/easyvm/internal/guest"
 	"github.com/easydev-org/easyvm/internal/keys"
 	"github.com/easydev-org/easyvm/internal/protocol"
 	"github.com/easydev-org/easyvm/internal/qmp"
@@ -72,6 +71,9 @@ type Daemon struct {
 	shutdown chan struct{}
 	// work is this daemon's directory: its socket, its frames and its disks.
 	work string
+	// lastProbe is the newest ssh and guest-agent answer. See probe.go: measuring them inside
+	// `/api/state` made every poll slower than the poller's own timeout on a real run.
+	lastProbe probeState
 
 	// --- THE ONE MACHINE ---------------------------------------------------------------
 	//
@@ -406,6 +408,12 @@ func (d *Daemon) Serve(opts ServeOptions) error {
 	}
 	defer lock.Release()
 
+	// THE PROBES RUN BESIDE THE DAEMON, NOT INSIDE A REQUEST. See probe.go for the measurement: a
+	// snapshot that asked them made every `/api/state` slower than the poller's own timeout.
+	probesStop := make(chan struct{})
+	defer close(probesStop)
+	go d.runProbes(probesStop)
+
 	// SIGTERM STOPS THE MACHINE AND THE DAEMON, in that order, so a container stop does not leave
 	// qemu behind holding /dev/kvm.
 	sigs := make(chan os.Signal, 1)
@@ -670,6 +678,12 @@ func (d *Daemon) snapshot() State {
 // EACH ONE IS CHEAP AND BOUNDED. Nothing here waits: `wait_until:` polls this snapshot, so a
 // measurement that blocked would make the wait unable to see its own condition.
 func (d *Daemon) withMeasuredFacts(st State) State {
+	// THE PROBED FACTS ARE REPORTED WHATEVER THE MACHINE'S STATE IS. They are the last observation,
+	// and `probeOnce` CLEARS them the moment there is no machine - so a stopped guest shows nil
+	// rather than the previous one's success, which is what keeps `wait_until: ssh` honest.
+	st.SSHReady = d.lastProbe.sshAnswer()
+	st.QGAReady = d.lastProbe.qgaAnswer()
+
 	slot := d.machine
 	if slot == nil || slot.driver == nil {
 		// NO MACHINE IS NOT "EVERYTHING IS FALSE". A nil pointer says "not applicable", which is
@@ -716,30 +730,19 @@ func (d *Daemon) withMeasuredFacts(st State) State {
 		}
 	}
 
-	// --- ssh, as a CONNECTION rather than a forwarded port --------------------------------
+	// --- ssh and qga, FROM A BACKGROUND PROBE AND NEVER FROM THIS CALL --------------------
 	//
-	// THE PORT IS FORWARDED FROM THE MOMENT THE MACHINE STARTS, so `dial tcp` on it succeeds whether
-	// or not sshd is up - measured on every stage whose `wait for sshd` reported a timeout while the
-	// port answered instantly. The probe therefore has to SPEAK SSH, which is what `guest.Probe`
-	// does, and it gets a short budget because this runs on every `/api/state`.
-	sshUp := false
-	if tp, ok := drv.(interface{ SSHTarget() guest.Target }); ok {
-		target := tp.SSHTarget()
-		if target.Port != 0 && guest.Probe(target, 1, 2*time.Second) == nil {
-			sshUp = true
-		}
-	}
-	st.SSHReady = &sshUp
-
-	// --- qga -----------------------------------------------------------------------------
-	qgaUp := false
-	if sock := filepath.Join(d.work, "qga.sock"); fileExistsDaemon(sock) {
-		if qgaPing(sock) == nil {
-			qgaUp = true
-		}
-	}
-	st.QGAReady = &qgaUp
-
+	// MEASURED: PROBING HERE BROKE `/api/state` ON A REAL RUN. `log-stream` polls it every ten
+	// seconds, and a probe that waited - a TCP dial that could take two seconds, a guest-agent
+	// handshake that could take sixty - made every request slower than the poller's own timeout:
+	//
+	//	FAILED: GET http://127.0.0.1:8080/api/state: context deadline exceeded
+	//
+	// repeated for the whole install, so the run could not be watched at all.
+	//
+	// A SNAPSHOT MUST BE INSTANT. What it reports is a FACT SOMEBODY ELSE LAST OBSERVED, with the age
+	// of that observation beside it - `probeTicker` refreshes it, and a caller that needs the current
+	// answer is a `wait_until:` step, which polls this same state.
 	// --- recording -----------------------------------------------------------------------
 	recording := false
 	if rec, ok := drv.(interface{ Recording() bool }); ok {

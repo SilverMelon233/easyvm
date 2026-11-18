@@ -527,3 +527,19 @@ jobs:
             echo "::error::$size bytes is a qcow2 header with nothing written to it"
             exit 1
           fi
+
+      # THE RECORDING COMES BACK, BECAUSE A VIDEO IS THE ONLY ARTEFACT THAT SHOWS WHAT A GUEST DID.
+      #
+      # MEASURED: this workflow uploaded NOTHING - 110 artifacts across the fork's runs, all of them
+      # `dockerbuild` and `binary`. So a leg could fail with no way to see the screen it failed on,
+      # and a reference image for `see: {reference: ...}` could not be produced from a run at all.
+      #
+      # `if: always()` because a FAILING leg is the one whose video matters, and
+      # `if-no-files-found: warn` because a walkthrough that draws nothing has nothing to show.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ inputs.walk }}-video
+          path: work/*.mp4
+          if-no-files-found: warn
+          retention-days: 7
