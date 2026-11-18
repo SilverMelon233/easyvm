@@ -262,14 +262,13 @@ var Consumes = map[string][]string{
 	"run":      {"terminal_wait", "type_gap", "line_gap"},
 	"shutdown": {"graceful"},
 	"compress": {"disk_min_mb"},
-	"see":      {"rect", "rect_at", "of", "scale"},
-	"check": {"mode", "words", "without", "range", "text", "pattern", "as", "from",
-		"reference", "tolerance", "pixel_tolerance"},
-	"desktop": {"os", "timeout"},
-	"adb":     {"adb_serial"},
-	"until":   {"from", "blind_after", "poll", "as"},
-	"qga":     {"argv", "path", "body", "mode", "timeout"},
-	"scp":     {"template", "to"},
+	"see":      {"rect", "rect_at", "of", "scale", "reference"},
+	"check":    {"mode", "words", "without", "range", "text", "pattern", "as", "from"},
+	"desktop":  {"os", "timeout"},
+	"adb":      {"adb_serial"},
+	"until":    {"from", "blind_after", "poll", "as"},
+	"qga":      {"argv", "path", "body", "mode", "timeout"},
+	"scp":      {"template", "to"},
 }
 
 // ActionsIn says which step-level keys would start work in this step, IN DISPATCH ORDER.

@@ -2,6 +2,8 @@ package run
 
 import (
 	"fmt"
+	"image"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -10,7 +12,7 @@ import (
 	"github.com/easydev-org/easyvm/internal/walk"
 )
 
-// `see:` MEASURES, `want:` DECIDES, AND NEITHER KNOWS ABOUT THE OTHER.
+// `see:` MEASURES, `check:` DECIDES, AND NEITHER KNOWS ABOUT THE OTHER.
 //
 // THIS FILE REPLACES THE PATTERN THAT MADE EVERY NEW SCREEN SHAPE A REBUILD. Today a question about a
 // picture is a Go function reached through a dispatch table - `desktop: linux/cinnamon` and eight
@@ -94,6 +96,32 @@ func (e *Executor) doSee(s walk.Step) error {
 	set("rows", float64(r.Rows))
 	set("min", r.Min)
 	set("max", r.Max)
+
+	// `similarity` IS A MEASUREMENT, NOT A VERDICT, AND THAT IS WHERE IT BELONGS.
+	//
+	// A REFERENCE IMAGE IS A QUESTION ABOUT PIXELS, so it cannot go through `check:` - which compares
+	// a reading that an earlier step already made and never touches the screen. Putting it there
+	// would break the one rule that makes `check:` free to re-ask.
+	//
+	// INSTEAD THE COMPARISON PRODUCES A NUMBER, exactly like `mean` and `spread`: how much of the
+	// screen is unchanged, 0..1. A `check: {mode: number_between, range: [0.97, 1.0]}` then decides
+	// it, which is the same shape every other measurement in the vocabulary has.
+	//
+	// MEASURED over four real CI recordings from this repository - ubuntu, windows, macos, freebsd:
+	//
+	//	the same image against itself                  1.0000
+	//	one second later, same screen              0.9910 - 0.9947
+	//	five seconds later, same screen            0.9912 - 0.9931
+	//	TWO DIFFERENT SCREENS                      0.0002 - 0.0166
+	//
+	// So 0.97 is a floor with room on both sides; the gap is three orders of magnitude wide.
+	if ref, _ := raw["reference"].(string); ref != "" {
+		sim, err := e.similarityTo(s, ref, img)
+		if err != nil {
+			return err
+		}
+		set("similarity", sim)
+	}
 
 	e.Driver.Log(fmt.Sprintf("  measured %s: %s", name, r.Explain()))
 	return nil
@@ -280,4 +308,35 @@ func parseSeeStep(s walk.Step) (raw map[string]any, name string, rectRaw any, of
 			"`of: [mean, spread]` binds %s.mean and %s.spread", name, name)
 	}
 	return raw, name, rectRaw, ofRaw, nil
+}
+
+// similarityTo compares a frame to a reference image and returns the share of pixels that MATCH.
+//
+// THE REFERENCE IS FOUND THE WAY A SCRIPT IS: beside the walkthrough. `disk:` and `scp:` both look in
+// the work directory first and the file's own directory second, and a reference is the same kind of
+// thing - a file that belongs to the walkthrough rather than to a run.
+//
+// A SIZE MISMATCH IS AN ERROR RATHER THAN A CROP: two screens of different sizes are not two views of
+// one screen, and comparing the shared corner would report a wrong reference as a perfect match.
+func (e *Executor) similarityTo(s walk.Step, ref string, frame image.Image) (float64, error) {
+	path := ref
+	if !filepath.IsAbs(path) {
+		beside := filepath.Join(filepath.Dir(e.File.Path), ref)
+		if fileExists(beside) {
+			path = beside
+		}
+	}
+	reference, err := screen.Load(path)
+	if err != nil {
+		return 0, fail(s.Name, "reading the reference %q: %v. A `reference:` is a path relative "+
+			"to the walkthrough, as in `reference: reference/desktop.png`", ref, err)
+	}
+	diff, err := screen.Compare(frame, reference, 8)
+	if err != nil {
+		return 0, fail(s.Name, "%v", err)
+	}
+	// THE SHARE THAT MATCHED, SO A BIGGER NUMBER IS BETTER - the same direction as every other
+	// measurement here, where `mean` and `spread` are what they are and a check says which way is
+	// good.
+	return 1 - diff.Changed, nil
 }

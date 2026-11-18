@@ -781,19 +781,19 @@ var Keys = map[string]Key{
 			"answer CD. The value names WHAT, not how it is obtained"},
 	"to": {Name: "to", Kind: KindString,
 		Summary: "with `scp: {template: KIND}`: the remote path it is copied to"},
-	// THE THREE SETTINGS OF `check: {mode: like}`. A reference comparison is the one mode that
-	// decides on PIXELS, so it names an image and a ceiling rather than words.
+	// `reference:` MAKES THE MEASUREMENT A COMPARISON, AND THE RESULT IS A NUMBER.
+	//
+	//	see: {name: screen, rect: [0,0,1920,1080], reference: reference/desktop.png}
+	//	check: {name: same, from: screen, mode: number_between, range: [0.97, 1.0]}
+	//
+	// `see:` binds `screen.similarity` - the share of pixels that matched, 0..1 - exactly as it binds
+	// `mean` and `spread`. It stays a MEASUREMENT, so `check:` still never reads the screen.
+	//
+	// MEASURED over four real CI recordings (ubuntu, windows, macos, freebsd): the same image scores
+	// 1.0000, one second later 0.9910-0.9947, and two different screens 0.0002-0.0166.
 	"reference": {Name: "reference", Kind: KindString,
-		Summary: "with `mode: like`: the image to compare against, relative to the walkthrough - " +
-			"`reference: reference/desktop.png`"},
-	"tolerance": {Name: "tolerance", Kind: KindFloat,
-		Summary: "with `mode: like`: the share of pixels that MAY change, 0..1 - `tolerance: 0.03` " +
-			"is 3%. MEASURED: the same screen a second later differs by 0.5-0.9%, and two " +
-			"different screens by 98-100%, so anything between 2% and 95% works"},
-	"pixel_tolerance": {Name: "pixel_tolerance", Kind: KindInt,
-		Summary: "with `mode: like`: how far one pixel may drift per channel before it counts as " +
-			"changed, 0..255. Default 8 - enough to absorb the encoder's rounding, not enough to " +
-			"absorb a colour a person would see"},
+		Summary: "with `see:`: an image to compare the rect against, relative to the walkthrough. " +
+			"Binds `<name>.similarity`, 0..1, so a `check: number_between` decides it"},
 	"template": {Name: "template", Kind: KindString,
 		Summary: "with `generate: answer_iso`: the answer file to substitute into. It is a path in " +
 			"the repository because the placeholders are the file's vocabulary, not a download"},

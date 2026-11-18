@@ -187,7 +187,7 @@ the measuring machine and wrong on the runner.
 | `contains`, `equals`, `matches`, `like` | `check` | the modes that compare TEXT or a PICTURE | 119 |
 | `flat_rows`, `min`, `max`, `contrast`, `vs` | `see` | the numbers a measurement binds | 291 |
 | `contains_any`, `not_contains`, `ratio`, `fuzzy`, `at_least`, `at_most`, `between`, `greater_than` | — | **DEAD**: declared and read by nothing since `want:` went | 0 |
-| `reference`, `tolerance`, `pixel_tolerance` | `check` | with `mode: like`: the image, the ceiling, and how far one pixel may drift | 0 |
+| `reference` | `see` | an image to compare the rect against; binds `<name>.similarity` 0..1 | 0 |
 | `do`, `until`, `max`, `fact` | `loop` | the action, the stop test, the ceiling | 79 |
 | `then`, `else` | `if` | the branches | 21 |
 | `template`, `release`, `recovery` | `fetch` | inputs to one asset build | 5 |

@@ -45,7 +45,9 @@ walkthrough "windows 11 - install to a desktop"
   # 3% IS THE CEILING AND THE MEASUREMENT IS WHY: the same screen a second later differs by 0.5-0.9%,
   # and two different screens by 98-100%, so the gap is three orders of magnitude wide.
   step "the desktop is the one this file was written against"
-    check == {name: matched, mode: like, reference: reference/desktop.png, tolerance: 0.03}
+    see == {name: shot, rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], reference: reference/desktop.png, wait: 0}
+  step "the screen is the one this file was written against"
+    check == {name: matched, from: shot, mode: number_between, range: [0.97, 1.0]}
   step "reboot into the installed system"
     boot == true
     os == windows

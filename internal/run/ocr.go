@@ -240,15 +240,6 @@ func (e *Executor) doCheck(s walk.Step) error {
 		return fail(s.Name, "`check:` must name the boolean it produces: "+
 			"`check: {name: done, from: page, mode: says_any, words: [[welcome]]}`")
 	}
-	// `mode: like` COMPARES A PICTURE, SO IT NEEDS NO READING AND NO `from:`.
-	//
-	// Every other mode decides on WORDS - what an `ocr:` step bound - and a reference comparison
-	// decides on PIXELS. Requiring `from:` would mean inventing a reading nobody looks at, so the
-	// branch is here, before the reading is looked up.
-	if mode, _ := raw["mode"].(string); mode == "like" {
-		return e.checkLike(s, raw, name)
-	}
-
 	from, _ := raw["from"].(string)
 	if strings.TrimSpace(from) == "" {
 		return fail(s.Name, "`check:` must say `from:` - the reading an `ocr:` step produced")
@@ -434,7 +425,7 @@ func runCheckMode(step, mode string, words []string, raw map[string]any) (bool, 
 // checkModeNames is the single list, so a new mode is added HERE and named in the error above.
 func checkModeNames() []string {
 	return []string{"says", "says_any", "says_without", "size_between", "number_between", "equals",
-		"contains", "matches", "like"}
+		"contains", "matches"}
 }
 
 // modeWords reads a plain word list, `words:`.
@@ -684,90 +675,3 @@ func numbersIn(words []string) []float64 {
 // none: `42 percent`, `41 of 100`, `step 3`. Requiring a unit made `number_between` answer false for
 // every reading that was not a disk capacity.
 var bareNumberPattern = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(?:(tb|gb|mb)\b)?`)
-
-// checkLike decides a frame against a REFERENCE IMAGE, which is a question no other mode can ask.
-//
-// THE OTHER MODES DECIDE ON NUMBERS OR WORDS: `says` matches words an `ocr:` step bound, `number_between`
-// compares a measurement. Neither can say "this is the partition list", because two panes with the
-// same average brightness are the same number.
-//
-// MEASURED over four real CI recordings from this repository - ubuntu, windows, macos, freebsd -
-// comparing at stride 4 with a per-channel tolerance of 8:
-//
-//	same image against itself                    0.00%
-//	one second apart, same screen            0.53 - 0.90%
-//	five seconds apart, same screen          0.63 - 0.88%
-//	TWO DIFFERENT SCREENS                   98.33 - 99.98%
-//
-// SO THE NUMBER THE FILE WRITES IS A CEILING ON CHANGE, and anything between about 2% and 95% works.
-// There is no default: the right number depends on what a guest's screen does while it is idle, and a
-// default would be a figure nobody chose producing a failure nobody can explain.
-func (e *Executor) checkLike(s walk.Step, raw map[string]any, name string) error {
-	ref, _ := raw["reference"].(string)
-	if strings.TrimSpace(ref) == "" {
-		return fail(s.Name, "`mode: like` needs `reference:` - the image to compare against, "+
-			"relative to the walkthrough: `reference: reference/desktop.png`")
-	}
-	limit, hasLimit := toFloat(raw["tolerance"])
-	if !hasLimit {
-		return fail(s.Name, "`mode: like` needs `tolerance:` - the share of pixels that MAY change, "+
-			"as in `tolerance: 0.03` for 3%%. It has no default: the right number depends on what "+
-			"the guest's own screen does while it sits there")
-	}
-	if limit < 0 || limit > 1 {
-		return fail(s.Name, "`mode: like` takes `tolerance:` between 0 and 1; %v is not a share "+
-			"of pixels", limit)
-	}
-	perPixel := 8
-	if v, ok := toFloat(raw["pixel_tolerance"]); ok && v > 0 {
-		perPixel = int(v)
-	}
-
-	// THE REFERENCE IS FOUND THE SAME WAY A SCRIPT IS: beside the walkthrough. `disk:` and `scp:`
-	// both look in the work directory first and the file's own directory second, and a reference is
-	// the same kind of thing - a file that belongs to the walkthrough.
-	path := ref
-	if !filepath.IsAbs(path) {
-		beside := filepath.Join(filepath.Dir(e.File.Path), ref)
-		if fileExists(beside) {
-			path = beside
-		}
-	}
-	reference, err := screen.Load(path)
-	if err != nil {
-		return fail(s.Name, "reading the reference %q: %v. A `reference:` is a path relative to "+
-			"the walkthrough, as in `reference: reference/desktop.png`", ref, err)
-	}
-
-	f, err := e.Driver.Frame()
-	if err != nil {
-		return fail(s.Name, "reading the frame: %v", err)
-	}
-	frame, err := screen.Load(f.Path())
-	if err != nil {
-		return fail(s.Name, "loading the frame: %v", err)
-	}
-
-	diff, err := screen.Compare(frame, reference, perPixel)
-	if err != nil {
-		return fail(s.Name, "%v", err)
-	}
-
-	okNow := diff.Changed <= limit
-	if e.facts == nil {
-		e.facts = make(map[string]bool)
-	}
-	e.facts[name] = okNow
-
-	if okNow {
-		e.Driver.Log(fmt.Sprintf("  %s: %s = true (%.2f%% of pixels changed, ceiling %.2f%%)",
-			s.Name, name, diff.Changed*100, limit*100))
-		return nil
-	}
-	// A REFUSAL NAMES BOTH NUMBERS AND THE LARGEST SINGLE CHANGE, because "it does not match" sends a
-	// reader to diff two images by eye. The max delta says whether a small region changed completely
-	// or the whole screen shifted a little, which are different diagnoses.
-	return failWithScreen(s.Name, e.Driver,
-		"the screen is %.2f%% different from %s, above the %.2f%% ceiling (%s)",
-		diff.Changed*100, filepath.Base(path), limit*100, diff.Explain())
-}
