@@ -52,14 +52,27 @@ const (
 	// KindScript is a multi-line body handed to a shell ON THE GUEST. Not our code: the disk
 	// under test is what runs it, which is why it stays text.
 	KindScript
-	// KindAny is a key with MORE THAN ONE ACCEPTED SHAPE, and it exists because several of them
-	// genuinely do: `boot: true` is a flag and `boot: {os: linux}` is the same key with options;
-	// `disk: disk.qcow2` is a name and the mapping form was removed but old files still parse it.
+	// KindColor is [r, g, b] - a colour, not a rectangle. `at_color: [40, 200, 64]` was declared
+	// `KindRect` and nothing read the declaration, so the two disagreed since the key was written.
+	KindColor
+	// KindRecord is a FILE NAME to start a recording, or `false` to stop it.
 	//
-	// IT IS NOT A HOLE. A key lands here only after its own executor is read and found to take more
-	// than one shape, and the shapes it takes are still checked by that executor when it runs. The
-	// alternative - declaring one Kind and refusing the other form - would refuse files this
-	// repository has been running for months.
+	// IT IS ONE KEY AND TWO STATEMENTS ON PURPOSE, and `record: false` is the reason `Has` is not
+	// used for it: stopping a recording is an ACTION, not the absence of one. So the shape is
+	// "string or bool" and nothing else - a `record: 12345` is refused.
+	KindRecord
+	// KindTemplated is a number OR a `{{ name }}` placeholder, and the placeholder wins because the
+	// loader substitutes variables after this map is read. `timeout: '{{ boot_timeout }}'` is what
+	// ubuntu and windows ssh legs write.
+	KindTemplated
+	// KindAny is a key with MORE THAN ONE ACCEPTED SHAPE where the shapes are STRUCTURAL, not merely
+	// typed: `boot: true` is a flag and `boot: {os: linux}` is the same key with options;
+	// `script: "..."` is a body and `script: {body, shell, name}` is the same body with settings;
+	// `rect:` is a name, a pixel list or a fraction list.
+	//
+	// IT IS NOT A HOLE - each of these has its own executor reading the shapes - but it is the
+	// weakest of the kinds, and a key belongs here only when its two forms differ in STRUCTURE. A
+	// key whose two forms differ only in TYPE gets its own Kind above (`record`, `timeout`).
 	KindAny
 )
 
@@ -87,6 +100,12 @@ func (k Kind) String() string {
 		return "[mapping, ...]"
 	case KindScript:
 		return "script"
+	case KindColor:
+		return "[r, g, b]"
+	case KindRecord:
+		return "a file name or false"
+	case KindTemplated:
+		return "a number or a {{ template }}"
 	case KindAny:
 		return "any"
 	}
@@ -188,7 +207,7 @@ var Keys = map[string]Key{
 			"between them"},
 	"graceful": {Name: "graceful", Kind: KindBool,
 		Summary: "ask the guest to shut down rather than killing it"},
-	"record": {Name: "record", Kind: KindAny,
+	"record": {Name: "record", Kind: KindRecord,
 		Summary: "start recording to this path (a string) or stop with `false`; the step starts " +
 			"its own sampler, because an encoder with no frames writes nothing"},
 	"compress": {Name: "compress", Kind: KindString,
@@ -218,7 +237,7 @@ var Keys = map[string]Key{
 	// THEY WERE ALL DECLARED WITH ONE SHAPE, which is what happens when the Kind is documentation
 	// rather than enforcement: nothing read it, so it drifted from what the executors accept. NOW IT IS
 	// READ, so each was reconciled against the files rather than the other way round.
-	"disk": {Name: "disk", Kind: KindAny,
+	"disk": {Name: "disk", Kind: KindString,
 		Summary: "prepare the file `boot:` starts from a source: {from, copy, overlay}"},
 	"disk_from": {Name: "disk_from", Kind: KindString,
 		Summary: "the source image a disk: step takes"},
@@ -226,7 +245,7 @@ var Keys = map[string]Key{
 		Summary: "move or copy the source: move, copy, reflink"},
 	"disk_overlay": {Name: "disk_overlay", Kind: KindBool,
 		Summary: "run on a throwaway diff over the read-only source"},
-	"disk_gb": {Name: "disk_gb", Kind: KindAny,
+	"disk_gb": {Name: "disk_gb", Kind: KindTemplated,
 		Summary: "size of a disk this step creates"},
 	// THE PARTITION TABLE, FOR AN INSTALLER THAT EXPECTS ONE TO EXIST.
 	//
@@ -235,7 +254,7 @@ var Keys = map[string]Key{
 	// misaligned key silently retypes the ESP as "Linux filesystem".
 	"disk_gpt": {Name: "disk_gpt", Kind: KindBool,
 		Summary: "partition the created disk: a 260 MiB ESP typed EF00 at LBA 2048, Linux on the rest"},
-	"disk_esp_mib": {Name: "disk_esp_mib", Kind: KindAny,
+	"disk_esp_mib": {Name: "disk_esp_mib", Kind: KindTemplated,
 		Summary: "size of that ESP; 260 is what the installer draws as 0.25GB"},
 	"disk_settle": {Name: "disk_settle", Kind: KindFloat,
 		Summary: "wait until the target qcow2 stops growing for this many quiet seconds"},
@@ -286,7 +305,7 @@ var Keys = map[string]Key{
 	// instruction, and `color_tolerance:` says how far a pixel may sit from it for antialiasing.
 	// `at_color: [40, 200, 64]` IS AN RGB TRIPLE, NOT A RECTANGLE - the Kind said `KindRect` and nothing
 	// read it, so the documentation and the executor had disagreed since the key was written.
-	"at_color": {Name: "at_color", Kind: KindAny,
+	"at_color": {Name: "at_color", Kind: KindColor,
 		Summary: "[r, g, b] - click the centre of the largest blob of this colour. For a control " +
 			"the window draws in a fixed colour, which is how a macOS window button is found without " +
 			"knowing where the window is"},
@@ -346,7 +365,7 @@ var Keys = map[string]Key{
 		Summary: "wait until the screen changes rather than for particular words"},
 	"poll": {Name: "poll", Kind: KindFloat,
 		Summary: "seconds between looks in an until: loop"},
-	"timeout": {Name: "timeout", Kind: KindAny,
+	"timeout": {Name: "timeout", Kind: KindTemplated,
 		Summary: "seconds the step may run before it is a failure"},
 	// `keep_alive:` IS GONE. It was written `true` in all 25 places it appeared and never once
 	// `false`, so it was not a switch - it was the behaviour, spelled as an option. A screen that
@@ -356,7 +375,7 @@ var Keys = map[string]Key{
 		Summary: "enlargement for a cropped read; small text needs it"},
 	"screenshot": {Name: "screenshot", Kind: KindString,
 		Summary: "save the screen to this path, for a post-mortem nobody had to ask for"},
-	"desktop": {Name: "desktop", Kind: KindAny,
+	"desktop": {Name: "desktop", Kind: KindString,
 		Summary: "wait until a desktop is on screen; options include family and timeout"},
 	"ssh": {Name: "ssh", Kind: KindScript,
 		Summary: "a command run over ssh IN the guest; the exit status is the verdict"},
@@ -663,7 +682,7 @@ var Keys = map[string]Key{
 	// All three dispatched to `doFetch` and differed only in which WORD the file chose: take a
 	// published file, assemble one, render one. MEASURED: `asset:` 1 use, `build:` 2, `generate:` 1
 	// - the distinction was never load-bearing, because the KIND is the value.
-	"fetch": {Name: "fetch", Kind: KindAny,
+	"fetch": {Name: "fetch", Kind: KindString,
 		Summary: "produce one host-side input: an installer image, a guest agent, a firmware, an " +
 			"answer CD. The value names WHAT, not how it is obtained"},
 	"template": {Name: "template", Kind: KindString,

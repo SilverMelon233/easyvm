@@ -3,6 +3,7 @@ package step
 import (
 	"fmt"
 	"math"
+	"strings"
 )
 
 // checkKind reports whether a value has the shape its key declares.
@@ -77,6 +78,24 @@ func checkKind(key Key, value any) error {
 			default:
 				return expect(key, "a list of word lists", value)
 			}
+		}
+	case KindColor:
+		return checkNumbers(key, value, 3, "[r, g, b]")
+	case KindRecord:
+		// A FILE NAME STARTS A RECORDING AND `false` STOPS IT. A number is neither.
+		switch value.(type) {
+		case string, bool:
+			return nil
+		}
+		return expect(key, "a file name or false", value)
+	case KindTemplated:
+		// A `{{ }}` PLACEHOLDER IS RESOLVED AFTER THIS MAP IS READ, so the value here may still be
+		// the template text. Anything else must be a number.
+		if str, ok := value.(string); ok && strings.Contains(str, "{{") {
+			return nil
+		}
+		if _, ok := asFloat(value); !ok {
+			return expect(key, "a number or a {{ template }}", value)
 		}
 	case KindMapping:
 		if _, ok := value.(map[string]any); !ok {
