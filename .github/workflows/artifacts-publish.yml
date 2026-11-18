@@ -166,7 +166,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A ROW THAT WAS NOT ASKED FOR EXITS BEFORE IT DOWNLOADS ANYTHING.
+      #
+      # THE COMMENT ABOVE THIS JOB USED TO SAY A RE-RUN OF ONE ARTIFACT WAS `-f which=iso-windows11`
+      # "because the matrix then holds one row". IT DID NOT: the matrix is a literal list written
+      # into this file, nothing reads `which` or `group`, and `-f which=iso-freebsd` started
+      # SEVENTEEN DOWNLOADS AND FIFTY-ONE GIBABYTES - measured on run 44298764450, cancelled after
+      # the jobs came up. A selection input that is declared and never read is worse than none: it
+      # reads like a filter and behaves like "everything".
+      #
+      # THE GUARD IS A STEP RATHER THAN A JOB `if:` FOR THE REASON THE COMMENT BELOW ALREADY GIVES:
+      # GitHub evaluates a job's `if:` BEFORE the matrix is expanded, so `matrix.artifact.tag` is
+      # empty there and every row would read as false.
+      - name: is this row wanted
+        id: wanted
+        env:
+          WHICH: ${{ inputs.which }}
+          GROUP_INPUT: ${{ inputs.group }}
+          ROW_TAG: ${{ matrix.artifact.tag }}
+          ROW_GROUP: ${{ matrix.artifact.group }}
+        run: |
+          set -eu
+          if [ -n "${WHICH:-}" ]; then
+            if [ "$ROW_TAG" = "$WHICH" ]; then
+              echo "wanted=yes" >> "$GITHUB_OUTPUT"
+            else
+              echo "wanted=no" >> "$GITHUB_OUTPUT"
+              echo "skipped: asked for $WHICH, this row is $ROW_TAG"
+            fi
+            exit 0
+          fi
+          if [ "${GROUP_INPUT:-all}" = "all" ] || [ "$ROW_GROUP" = "$GROUP_INPUT" ]; then
+            echo "wanted=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "wanted=no" >> "$GITHUB_OUTPUT"
+            echo "skipped: asked for group $GROUP_INPUT, this row is $ROW_GROUP"
+          fi
+
       - name: prepare the runner
+        if: steps.wanted.outputs.wanted == 'yes'
         # THE DISK IS THE POINT: the largest single input is 7.7 GiB and its hash pass reads it again,
         # so a runner with a 14 GiB volume fails halfway through the Windows image.
         uses: easydev-org/easyactions/runner-check@main
@@ -176,13 +214,17 @@ jobs:
           token: ${{ github.token }}
 
       - name: download and verify
+        if: steps.wanted.outputs.wanted == 'yes'
         # THE PER-ARTIFACT RULE LIVES IN ONE SCRIPT, because it is fifteen comments long and a matrix
         # row should be readable. It downloads, checks the pin by ITS OWN LENGTH, and fails with the
         # numbers when they differ.
         id: fetch
         env:
           GROUP: ${{ matrix.artifact.group }}
-          DISKS_REPOSITORY: ${{ inputs.disks_repository }}
+          # EMPTY HERE IS NOT "NO OPINION": `internal/asset` falls back to `easydev-org/easyvm` when
+          # this is unset, which is the product's package and not writable with this token. So the
+          # default is spelled out as this repository rather than left to the fallback.
+          DISKS_REPOSITORY: ${{ inputs.disks_repository || github.repository }}
         run: |
           set -eu
           path=$(sh scripts/mirror-one.sh \
@@ -193,6 +235,7 @@ jobs:
           echo "path=$path" >> "$GITHUB_OUTPUT"
 
       - name: push
+        if: steps.wanted.outputs.wanted == 'yes'
         # THE TRANSFER IS THE ACTION THAT KNOWS THE REGISTRY: it installs oras idempotently, logs in
         # explicitly, and refuses a push whose bytes are identical to an earlier artifact.
         uses: easydev-org/easyactions/oci-push@main
