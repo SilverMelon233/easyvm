@@ -68,9 +68,17 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "upload the kernel/initrd/args and push the rootfs disk"
+        description: "upload the kernel/initrd/args (small files, an artifact)"
         type: boolean
         default: true
+      push_disk:
+        description: >-
+          push rootfs.qcow2 to the registry. OFF BY DEFAULT AND NOT A POLITENESS: MEASURED, the
+          job's token was refused with `denied: installation not allowed to Write organization
+          package`, so a dispatch that flipped this on would fail AFTER a twenty-minute build. The
+          publication workflow is the thing that owns disks - this one builds and verifies them.
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -320,7 +328,15 @@ jobs:
       # passing install leg and was downloaded by nobody. `internal/oci/artifacts_test.go` enforces it
       # for every workflow here.
       - name: push the root filesystem
-        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        # OFF UNLESS ASKED, SEE `push_disk`. THE DEFAULT IS `false` AND THAT IS THE MEASURED ANSWER:
+        # the first run of this workflow had it on and stopped at the last step with
+        #
+        #	denied: installation not allowed to Write organization package
+        #
+        # after the build and every check had passed. The token a `workflow_dispatch` job gets cannot
+        # write packages for this repository, and a leg that fails at its final step is worse than
+        # one that never tried - it reads like the artifact is broken.
+        if: github.event_name == 'workflow_dispatch' && inputs.push_disk
         uses: easydev-org/easyactions/oci-push@main
         with:
           # THE NAME IS A TAG, and it carries the commit because a tag two runs can write says
