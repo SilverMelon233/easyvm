@@ -79,7 +79,7 @@ steps:
       region_at:
       - 1920
       - 1080
-      scale: 1
+      scale: 3
       wait: 0
     check:
       name: done
@@ -112,51 +112,67 @@ steps:
   key: ret
   wait_after: 3
 
-- name: welcome
-  click:
-  - 1335
-  - 821
-  wait_after: 15
-- name: location
-  click:
-  - 1335
-  - 821
-  wait_after: 15
-- name: keyboard
-  click:
-  - 1335
-  - 821
-  wait_after: 15
-# THE USERS PAGE HAS TO BE UP BEFORE ANYTHING IS TYPED INTO IT, AND ON CI IT WAS NOT.
+# THE FOOTER'S `Next` IS AT A DIFFERENT HEIGHT ON THE RUNNER AND ON THIS WORKSTATION, AND THE TWO
+# BANDS ONLY OVERLAP IN SIX ROWS. MEASURED OFF BOTH FRAMES - the button's own interior, scanned as
+# "pixels brighter than 240 at the button's centre column":
 #
-# MEASURED on the CI leg: every field in this page reported `typed N character(s)` and the install
-# still never started, because the FIRST field - `What is your name?` - took no text. `click` followed
-# immediately by `type:` is a press and then keystrokes; if the page is still laying itself out, the
-# press lands on the old page and the typing goes nowhere. On this workstation the page is drawn by
-# the time the click arrives; on the runner it is not.
+#	CI (runs 44245145223 and 44250596341)   y 826..845   centre 835
+#	this workstation (the hand walk)        y 810..831   centre 820
 #
-# SO THE PAGE IS WAITED FOR BY ITS OWN FIRST LABEL, which is a word the previous page (Desktop) does
-# not carry.
-- name: the users page is drawn
+# A SINGLE NUMBER CANNOT BE RIGHT FOR BOTH, and the two failures say exactly that:
+#
+#	(1329, 836)  welcome -> location WORKED on CI (836 is inside 826..845), then stopped.
+#	(1335, 821)  FELL THROUGH ON CI - 821 is five rows ABOVE the button's top edge, the press landed
+#	             on the page background, and the run's last frame is still `Welcome to the NixOS
+#	             installer` with `Next` drawn and unpressed.
+#
+# 828 IS INSIDE BOTH BANDS (826..831), so it presses the same button on either window size. x=1330 is
+# inside the button on both too - the button spans 1290..1365 on CI and 1300..1370 here.
+#
+# AND THE PRESS IS A LOOP, NOT THREE STEPS, BECAUSE A PRESS CAN BE DROPPED. The old three presses were
+# fire-and-forget: each one logged `clicked (…)` and nothing checked that the page had moved, so a run
+# that lost one press sat on `Location` for six minutes while the step after it waited for the Users
+# page. The reading is `What is your name?` - the Users page's own first label - and the loop stops
+# there. Pressing `Next` on that page is harmless anyway: the form is empty, so it is disabled.
+- name: next through the pages, until the users page is up
   loop:
-    max: 30
+    max: 8
     do:
-    - wait: 6
+    - click:
+      - 1330
+      - 828
+      wait_after: 8
     ocr:
       name: at_users
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
-      scale: 1
+      # THE READING IS ENLARGED, AND THAT IS WHAT MADE IT READABLE ON THE RUNNER.
+      #
+      # MEASURED on the failed run's own final frame: at `scale: 1` the whole 1920x1080 frame reads
+      # 12 words - the desktop's own title bar and the sidebar - and the page's text is not among
+      # them, so every gate that waited for a word on this page could only ever fail. The same frame
+      # at `scale: 3` reads 42 words including `Region: America` and `Zone: New York`.
+      scale: 3
       wait: 2
     check:
       name: here
       from: at_users
       mode: says_any
+      # `name` IS THE USERS PAGE'S FIRST LABEL (`What is your name?`). The three pages before it carry
+      # `Location`, `Keyboard` and the desktop - none of them the word.
       words:
       - - name
       - - Password
     until:
       fact: here
+# THE USERS PAGE IS ALREADY UP: the loop above pressed `Next` until this page's own `What is your
+# name?` was read back, so the fields are drawn before anything is typed into them.
+#
+# THAT WAIT USED TO BE A SEPARATE STEP - `the users page is drawn` - kept because on an earlier CI leg
+# every field reported `typed N character(s)` while the first one stayed empty: `click:` followed
+# immediately by `type:` is a press and then keystrokes, and a press that lands while the page is still
+# laying itself out types into nowhere. Folding the wait into the press loop is what removes that gap -
+# the loop cannot succeed without the page's label having been read.
 
 # THE FIRST FIELD TAKES NO TEXT ON THE RUNNER, AND `clear:` IS WHAT MAKES THAT VISIBLE.
 #
@@ -299,40 +315,53 @@ steps:
 #
 # MEASURED on the CI leg: (1329, 836) was pressed on the summary page and the install never started -
 # the press landed on the page's own progress text, which is what sits above that footer.
-# THE PRESS IS FOLLOWED BY A VERDICT, BECAUSE A PRESS ON A BUTTON'S EDGE DOES NOTHING AND SAYS SO.
+# THE SUMMARY PAGE'S `Install` IS 29 ROWS BELOW THE OTHER PAGES' `Next`, AND THE RUNNER DRAWS THE
+# WHOLE WIZARD 15 ROWS LOWER THAN THIS WORKSTATION DOES.
 #
-# MEASURED on the CI leg: (1329, 867) was pressed and the run then waited an hour for a disk that
-# never moved - the wizard was still on the summary page. This is the same failure fedora's review
-# page had: the coordinate names the button's edge rather than its centre.
+# MEASURED, both bands scanned as the button's own interior - pixels brighter than 240 at its centre
+# column, between the two grey border rows whose value is 150..205:
 #
-# The verdict is the summary page being GONE: Calamares replaces it with a progress page that says
-# `Installing`.
-# THE PRESS IS BY COLOUR, BECAUSE THE COORDINATE THAT WORKS HERE DOES NOT WORK ON THE RUNNER.
+#	                          runner            this workstation
+#	ordinary pages' `Next`    y 826..845        y 810..831
+#	summary's `Install`       y 855..874        y 839..860
 #
-# MEASURED: (1329, 867) is the button's centre on this workstation and the install starts. On the
-# runner the same press left the summary page unchanged for an hour - and fedora's review page failed
-# the same way on the same CI, with its storage steps above it all passing. The wizard is DRAWN
-# somewhere else there, so a coordinate names nothing.
+# - the summary is 29 rows lower on each, because its content is taller and Calamares lays the footer
+# out under the content instead of pinning it. The 15-row gap between the two machines is the
+# window's own position, and NO SINGLE NUMBER IS INSIDE ALL FOUR BANDS.
 #
-# `rgb(60,110,180)` IS CALAMARES' OWN ACCENT and fills its primary button; `at_color` takes the centre
-# of the largest blob of it on the whole frame, and the loop presses again if the page did not change.
-# THE PRESS IS THE COORDINATE AGAIN, BECAUSE THE COLOUR I PUT HERE WAS MEASURED OFF THE WALLPAPER.
+# 857 IS INSIDE BOTH SUMMARY BANDS (855..874 and 839..860), so one press names the button on either.
+# THE FILE HAS ALTERNATED BETWEEN (1329,867) AND (1331,851) - the runner's centre and this
+# workstation's centre - and each one misses on the other machine.
 #
-# I measured `rgb(58,75,160)` by counting a "footer band" of a frame I believed was the summary page.
-# IT WAS THE WELCOME PAGE, and y 950..1080 there is the DESKTOP WALLPAPER - 249600 pixels of it - not a
-# button. On that same frame the actual `Next` is `rgb(239,239,239)`: the DISABLED grey.
-#
-# So the colour was wrong twice over: the wrong region of the wrong page.
-#
-# THE COORDINATE IS WHAT THIS FILE HAD, AND IT IS THE ONE THING MEASURED ON THE RIGHT PAGE: `Install`
-# on the summary page is 31 pixels below the other pages' `Next`, at (1329, 867), because that page's
-# content is taller and Calamares lays the footer out under it. The verdict below is what makes a missed
-# press visible - if the page does not go away, this step's next one says so.
+# AND THE PRESS IS CHECKED, because a press that misses logs `clicked` and does nothing: the loop
+# presses, reads, and stops only when the summary page is gone.
 - name: summary - install
-  click:
-  - 1331
-  - 851
-  wait_after: 15
+  loop:
+    max: 6
+    do:
+    - click:
+      - 1328
+      - 857
+      wait_after: 12
+    ocr:
+      name: summary_after
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      # THE READING IS ENLARGED FOR THE SAME REASON AS THE GATE ABOVE: at `scale: 1` the runner's
+      # frame reads only the title bar and the sidebar, so the page's own words are never in it.
+      scale: 3
+      wait: 2
+    check:
+      name: gone
+      from: summary_after
+      mode: says_without
+      # `Summary` IS THIS PAGE'S OWN NAME IN THE SIDEBAR; it is absent only once the wizard has left
+      # the page, which it does only by starting the install.
+      words:
+      - - Installing
+      without: [Summary]
+    until:
+      fact: gone
 
 - name: the install has started
   loop:
@@ -343,7 +372,7 @@ steps:
       name: started
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
-      scale: 1
+      scale: 3
       wait: 0
     check:
       name: begun
