@@ -270,11 +270,22 @@ steps:
 #
 # The verdict is the summary page being GONE: Calamares replaces it with a progress page that says
 # `Installing`.
+# THE PRESS IS BY COLOUR, BECAUSE THE COORDINATE THAT WORKS HERE DOES NOT WORK ON THE RUNNER.
+#
+# MEASURED: (1329, 867) is the button's centre on this workstation and the install starts. On the
+# runner the same press left the summary page unchanged for an hour - and fedora's review page failed
+# the same way on the same CI, with its storage steps above it all passing. The wizard is DRAWN
+# somewhere else there, so a coordinate names nothing.
+#
+# `rgb(60,110,180)` IS CALAMARES' OWN ACCENT and fills its primary button; `at_color` takes the centre
+# of the largest blob of it on the whole frame, and the loop presses again if the page did not change.
 - name: summary - install
-  click:
-  - 1329
-  - 867
-  wait_after: 10
+  at_color:
+  - 60
+  - 110
+  - 180
+  color_tolerance: 25
+  wait_after: 15
 
 - name: the install has started
   loop:

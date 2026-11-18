@@ -275,11 +275,20 @@ steps:
 # MEASURED on the CI leg: (1081, 808) was pressed and the run then waited an hour for a disk that never
 # moved. The pop installer's own progress page says `Extracting files` - measured by hand - so that is
 # what proves the press took, and the encryption page's `Encrypt` button is what must be gone.
+# THE PRESS IS BY COLOUR, FOR THE SAME REASON AS NIXOS AND FEDORA.
+#
+# MEASURED: (1081, 808) is where the pop installer draws `Don't Encrypt` on this workstation and the
+# install starts. On the runner the press left the page unchanged for an hour.
+#
+# THE POP INSTALLER'S PRIMARY BUTTON IS ITS OWN TEAL, not Calamares' blue: measured over that button's
+# box it is `rgb(26, 188, 156)` - the accent the installer uses for `Select`, `Next` and `Install`.
 - name: drive encryption - don't encrypt
-  click:
-  - 1081
-  - 808
-  wait_after: 10
+  at_color:
+  - 26
+  - 188
+  - 156
+  color_tolerance: 30
+  wait_after: 15
 
 - name: the install has started
   loop:
