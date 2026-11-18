@@ -233,7 +233,9 @@ jobs:
         run: |
           set -eu
           cd nixos-microvm
-          CFG=$(nix build .#kernelConfig --print-out-paths)
+          # `--out-link` FOR THE SAME REASON AS THE bootCommand STEP BELOW: without it this
+          # command replaces ./result, which at this point is still the artifact directory.
+          CFG=$(nix build .#kernelConfig --print-out-paths --out-link result-kernel-config)
           echo "kernel config: $CFG"
           echo
 
@@ -297,7 +299,15 @@ jobs:
         run: |
           set -eu
           cd nixos-microvm
-          cp "$(nix build .#bootCommand --print-out-paths)" qemu-command.txt
+          # `--out-link` IS NOT OPTIONAL HERE, AND ITS NAME IS NOT COSMETIC.
+          #
+          # A bare `nix build .#bootCommand` REWRITES `./result`, and the last one to run wins:
+          # bootCommand's output is a FILE, so after this step `result/kernel` stopped being a
+          # directory and the next step died with `cp: cannot stat 'result/kernel': Not a
+          # directory`. MEASURED - that is exactly how the first green-ish run failed, with every
+          # build and every kernel check already passing.
+          nix build .#bootCommand --out-link result-boot-command
+          cp result-boot-command qemu-command.txt
           cat qemu-command.txt
 
       - name: resolve the symlinks
@@ -307,6 +317,14 @@ jobs:
         run: |
           set -eu
           cd nixos-microvm
+          # FAIL WITH THE REASON, NOT WITH `Not a directory`. `result` is written by every
+          # `nix build` that does not pass `--out-link`, so a later step can silently turn the
+          # artifact directory into a single file. This says so.
+          if [ ! -d result ]; then
+            echo "::error::./result is not a directory - a later 'nix build' overwrote it; that build needs --out-link" >&2
+            ls -l result* || true
+            exit 1
+          fi
           mkdir -p out
           for f in kernel initrd store.img; do
             cp -L "result/$f" "out/$f"
