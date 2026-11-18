@@ -10,7 +10,7 @@ done because a file exists; each claim below names its evidence.
 | stage | distributions |
 |---|---|
 | ext4 read back off the disk AND a green CI install leg | kubuntu, ubuntu, cachyos, endeavouros, manjaro, mint, zorin, mx, opensuse-leap-16.1 |
-| ext4 read back off the disk; its walk reaches the storage editor and creates `vda1 ext4 /`, and is being brought to a full pass | fedora-workstation |
+| ext4 read back off the disk AFTER the 76-step walk ran to `Successfully installed` | fedora-workstation |
 | ext4 read back off the disk; its walk is being brought to a full pass | popOS |
 |  | nixos |
 
