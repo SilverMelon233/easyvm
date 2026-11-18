@@ -38,7 +38,6 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 | key | value | what it does | uses |
 |---|---|---|---|
 | `boot` | mapping | start the machine this file owns | 56 |
-| `reboot` | bool | reset the running machine | 2 |
 | `shutdown` | `ssh` `kill` `acpi` `guest_agent` | stop it by a NAMED method | 54 |
 | `disk` | mapping | the file `boot:` starts from | 29 |
 | `record` | path / `false` | start or stop the screen recording | 100 |
@@ -69,8 +68,6 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 | `script` | kind | write a body on the host, copy it in, run it by path | 16 |
 | `adb` | shell text | one command over the Android Debug Bridge | 16 |
 | `require_ssh` | bool | wait for sshd before the steps that use it | 40 |
-| `share_serve` | bool | start smbd on the host | 16 |
-| `share_mount` | bool | the guest mounts the host share | 16 |
 
 # 2. `see:` — measure the screen (4 keys)
 
@@ -152,7 +149,6 @@ right only for a whole region that is one sentence.
 | `name` | text | what does the log call this? | 1526 |
 | `when` | fact / words | does this step apply at all? | 16 |
 | `optional` | bool | may it fail without failing the walk? | 30 |
-| `requires` | `[ssh, qga, share, …]` | are its capabilities there? | 21 |
 | `timeout` | seconds | how long may the whole step take? | 533 |
 | `settle` | seconds | how long to wait with **no fact** to wait on | 818 |
 | `poll` | seconds | how often does a wait look? **only when not the default** | 1 |
@@ -184,7 +180,6 @@ the measuring machine and wrong on the runner.
 | `disk_settle`, `disk_min_mb` | `disk_settle` | wait for the disk to stop growing | 12 |
 | `esp_from` | `esp_fallback` | the loader directory inside the ESP | 1 |
 | `ssh_probe`, `ssh_after_reboot` | `require_ssh` | how to probe, and whether to wait out the old daemon | 11 |
-| `share_family` | `share_mount` | `linux` `windows` `macos` `bsd` | 16 |
 | `adb_connect`, `adb_privileged` | `adb` | connection and privilege | 2 |
 | `rect`, `rect_at`, `of` | `see`, `ocr` | where to read, the size a pixel rect was measured at, what to bind | 291 |
 | `text`, `colour`, `any_of` | `check` | the criteria | 119 |
@@ -234,7 +229,7 @@ name, and they keep working because the executor reads both.
 | `ocr` | 0 | `see: {of: [text]}` — **MIGRATED**, 118 uses; the two produced identical readings |
 
 | `scale` | 42 | `check: {scale: N}` |
-| `require` | 0 | `needs:` — **DELETED from the vocabulary**, because one letter from `requires:` was a trap |
+| `require`, `requires` | 0 | `needs:` — **DELETED from the vocabulary**: `requires:` was never read by any code, so all 21 uses were silently ignored |
 | `expect`, `expect_any` | 0 | `check: {must: true, text: …}` — **MIGRATED** |
 | `until`, `until_any` | 79 | `loop: {until:}` |
 | `family` | 0 | `os:` — **MIGRATED** |
@@ -248,18 +243,22 @@ name, and they keep working because the executor reads both.
 | `once` | 1 | `loop: {max: 1}` |
 | `else` as a sibling | 2 | `if: {else: [...]}` |
 | `unless`, `unless_any` | 0 | `when_not:`, `when_not_any:` — **MIGRATED** |
-| `repeat_until` | 0 | `loop:` — **DEAD** |
+| `repeat_until` | 0 | `loop:` — **DELETED**: zero uses and no branch remains |
 | `once`, `end`, `stuck_after`, `until_any` | 0 | the pane state machine — **DELETED** |
-| `wait_for` | 0 | `check: {colour: …}` — **DEAD** |
+| `wait_for` | 0 | `check: {colour: …}` — **DELETED**: zero uses and no branch remains |
 | `wait_for_change` | 0 | `check:` + `loop:` — **DEAD** |
 | `until_dark` | 0 | `check: {colour: {mean: {less_than: N}}}` — **DEAD** |
 | `change_settle`, `change_timeout` | 0 | `settle:`, `timeout:` — **DEAD** |
 | `desktop_family` | 0 | `desktop:` — **DEAD** |
-| `boot_from`, `disk_from`, `disk_copy`, `disk_overlay`, `snapshot` | 0 | the mapping forms of `boot:`/`disk:` — **DEAD** |
+| `boot_from`, `disk_from`, `disk_copy`, `disk_overlay` | 0 | the mapping forms of `boot:`/`disk:` — **DEAD** |
+| `snapshot` | 0 | — **DELETED**: zero uses and its branch called `notImplemented` |
+| `reboot` | 0 | — **DELETED**: zero uses; a `boot:` of a running machine is a no-op already |
 | `graceful` | 0 | `shutdown: {method:}` — **DEAD** |
 | `press`, `sweep` | 0 | `at_button:`, `loop: {do: [{click: …}]}` — **DEAD** |
-| `demo_script` | 0 | `write:` — **DEAD** |
+| `demo_script` | 0 | `write:` — **DELETED**: zero uses and it only ever answered `notImplemented` |
 | `host_log`, `line_gap`, `adb_serial`, `share_dir`, `end`, `stuck_after`, `as`, `cpus` | 0 | — **DEAD** |
+| `host_log` (step) | 0 | — **DELETED**: zero uses and no branch remains |
+| `share_serve`, `share_mount`, `share_family` | 0 | the share is always on - **DELETED**: `share_mount:` had not mounted since the transport became HTTP, `share_serve:` set one variable, and `share_family:`'s `macos` and `linux` took the same branch |
 | `keep_alive` | 0 | the wake is unconditional — **MIGRATED** |
 | `desktop_family` | 0 | `desktop:` — **DELETED** |
 

@@ -88,14 +88,8 @@ steps:
 
     '
   timeout: 120
-- name: serve the host share
-  share_serve: true
-  timeout: 60
 - name: prove the guest can fetch from the host share
-  share_mount: true
-  share_family: linux
-  requires:
-  - share
+  ssh: sh -c 'curl -fsS --max-time 20 http://172.30.0.1:8080/shared/ || wget -qO- --timeout=20 http://172.30.0.1:8080/shared/'
   timeout: 180
 - name: show what the guest sees at the share
   # THE SHARE IS HTTP, SO THE GUEST'S OWN CLIENT IS THE PROOF. `share_mount:` fetches a sentinel the

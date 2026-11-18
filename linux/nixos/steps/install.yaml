@@ -34,15 +34,6 @@ steps:
   desktop: linux/gnome
   timeout: 5400
 - name: open the installer
-  check:
-    name: asserted
-    must: true
-    text:
-      - contains_any:
-          - [welcome]
-          - [language]
-          - [install]
-  settle: 8
   do:
   - click:
     - 960
@@ -52,6 +43,23 @@ steps:
     - 960
     - 640
     settle: 3
+  settle: 8
+- name: open the installer - what is on screen
+  see:
+    of: [text]
+    name: open_the_installer
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
+    wait: 0
+- name: open the installer - the screen says so
+  check:
+    name: asserted
+    from: open_the_installer
+    mode: says_any
+    words:
+    - [welcome]
+    - [language]
+    - [install]
 - name: open the installer (desktop icon, if the window was not there)
   when_not:
   - welcome
@@ -131,10 +139,12 @@ steps:
   - 377
   type: '{{ user }}'
   settle: 2
-- name: users - login name, select all
+- name: users - login name, focus the field
   click:
   - 700
   - 429
+  settle: 1
+- name: users - login name, select all
   key: ctrl+a
   settle: 1
 - name: users - login name, clear it

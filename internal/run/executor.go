@@ -255,8 +255,6 @@ func (e *Executor) runOne(s walk.Step) error {
 		return nil
 	case s.Has("shutdown"):
 		return e.doShutdown(s)
-	case s.Has("reboot"):
-		return e.doReboot(s)
 	case s.Has("disk"):
 		return e.doDisk(s)
 	case hasKey(s, "record"):
@@ -270,8 +268,6 @@ func (e *Executor) runOne(s walk.Step) error {
 		return e.doRecord(s)
 	case s.Has("compress"):
 		return e.doCompress(s)
-	case s.Has("snapshot"):
-		return e.doSnapshot(s)
 	// THE THREE-STEP MODEL, IN DISPATCH ORDER. `ocr:` reads ONE region and names it; `check:` answers
 	// from that name without touching the screen. Both are separate steps on purpose - see ocr.go.
 	case s.Has("see"):
@@ -301,8 +297,6 @@ func (e *Executor) runOne(s walk.Step) error {
 		return e.doRequireSSH(s)
 	case s.Has("ssh"):
 		return e.doSSH(s)
-	case s.Has("repeat_until"):
-		return e.doRepeatUntil(s)
 	case s.Has("when"):
 		// A GATE, like `unless:` and its mirror: it reads the screen, then re-enters the dispatcher
 		// with the gate removed so the step's own action runs.
@@ -374,20 +368,12 @@ func (e *Executor) runOne(s walk.Step) error {
 		return e.doAtBottom(s)
 	case hasKey(s, "at_button"):
 		return e.doAtButton(s)
-	case s.Has("expect_any") || s.Has("expect"):
-		return e.doExpectAny(s)
 	case s.Has("disk_settle"):
 		return e.doDiskSettle(s)
-	case hasKey(s, "host_log"):
-		return e.doHostLog(s)
 	case hasKey(s, "do"):
 		return e.doActions(s)
-	case s.Has("wait_for"):
-		return e.doWaitFor(s)
 	case s.Has("screenshot"):
 		return e.doScreenshot(s)
-	case s.Has("demo_script"):
-		return e.doDemoScript(s)
 	case s.Has("write"):
 		return e.doWrite(s)
 	// THE THREE PREPARATION KINDS ARE ONE DISPATCHER, because they are one operation with three
@@ -401,10 +387,10 @@ func (e *Executor) runOne(s walk.Step) error {
 		return e.doScript(s)
 	case s.Has("desktop"):
 		return e.doDesktop(s)
-	case s.Has("share_serve"):
-		return e.doShareServe(s)
-	case s.Has("share_mount"):
-		return e.doShareMount(s)
+	// THE TWO `share_*` BRANCHES WERE HERE. The share is always on now
+	// (internal/daemon/share.go), and proving a guest can read from it is an `ssh:` step with a
+	// URL in it - which is what windows/vm-configure already wrote by hand three lines below its
+	// `share_mount:`.
 	case s.Has("type"):
 		return e.doType(s)
 	case s.Has("key"):

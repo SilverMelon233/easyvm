@@ -766,15 +766,20 @@ func TestActionsAreDispatchedBeforeTheirChecks(t *testing.T) {
 	atWindow := pos(`case s.Has("at_color"):`)
 	atButton := pos(`case hasKey(s, "at_button"):`)
 	expect := pos(`case s.Has("expect_any") || s.Has("expect"):`)
-	if atWindow < 0 || atButton < 0 || expect < 0 {
+	if atWindow < 0 || atButton < 0 {
 		t.Fatal("a branch this test looks for is missing, so it would pass vacuously")
 	}
-	if atWindow > expect {
-		t.Error("`at_color` is dispatched AFTER `expect`, so a step with both clicks NOTHING and " +
-			"reports that the thing it was meant to open did not open")
-	}
-	if atButton > expect {
-		t.Error("`at_button` is dispatched AFTER `expect`, for the same reason")
+	// `expect:` HAS NO BRANCH ANY MORE, so the misordering it caused cannot recur: it is an argument
+	// of `run:` and `doRun` calls the check after the typing. If a top-level branch returns, the two
+	// assertions below apply again.
+	if expect >= 0 {
+		if atWindow > expect {
+			t.Error("`at_color` is dispatched AFTER `expect`, so a step with both clicks NOTHING and " +
+				"reports that the thing it was meant to open did not open")
+		}
+		if atButton > expect {
+			t.Error("`at_button` is dispatched AFTER `expect`, for the same reason")
+		}
 	}
 }
 

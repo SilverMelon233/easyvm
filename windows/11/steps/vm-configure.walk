@@ -28,19 +28,15 @@ walkthrough "windows 11 - configure the vm (share, logon hook)"
     fetch == guest_agent
     os == windows
   step "copy the driver in"
-    requires == - ssh
     scp == [vioserial/vioser.inf, "C:/Users/{{ user }}/vioser.inf"]
     timeout == 300
   step "copy the driver's payload in"
-    requires == - ssh
     scp == [vioserial/vioser.sys, "C:/Users/{{ user }}/vioser.sys"]
     timeout == 300
   step "copy the driver's catalogue in"
-    requires == - ssh
     scp == [vioserial/vioser.cat, "C:/Users/{{ user }}/vioser.cat"]
     timeout == 300
   step "copy the agent installer in"
-    requires == - ssh
     scp == [qemu-ga-x86_64.msi, "C:/Users/{{ user }}/qemu-ga-x86_64.msi"]
     timeout == 600
   step "install the driver the agent talks on"
@@ -70,13 +66,8 @@ walkthrough "windows 11 - configure the vm (share, logon hook)"
   step "prove the locale"
     ssh == powershell -NoProfile -Command "Write-Output ('culture = ' + (Get-Culture).Name); Write-Output ('ui      = ' + (Get-WinUILanguageOverride).Name); if ((Get-Culture).Name -eq 'en-US') { Write-Output 'LOCALE_OK' } else { Write-Output 'LOCALE_WRONG'; exit 1 }"
     timeout == 120
-  step "serve the host share"
-    share_serve == true
-    timeout == 60
   step "prove the guest can fetch from the host share"
-    requires == - share
-    share_family == windows
-    share_mount == true
+    ssh == powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 'http://172.30.0.1:8080/shared/'"
     timeout == 180
   step "show what the guest sees at the share"
     ssh == powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 'http://172.30.0.1:8080/shared/').Content; Write-Output ('fetch exit = ' + $LASTEXITCODE)"

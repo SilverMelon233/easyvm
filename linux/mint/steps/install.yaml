@@ -113,14 +113,22 @@ steps:
   double:
   - 114
   - 47
+  settle: 25
+- name: install linux mint - what is on screen
+  see:
+    of: [text]
+    name: install_linux_mint
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
+    wait: 0
+- name: install linux mint - the screen says so
   check:
     name: asserted
-    must: true
-    text:
-      - contains_any:
-          - [welcome]
-          - [install]
-  settle: 25
+    from: install_linux_mint
+    mode: says_any
+    words:
+    - [welcome]
+    - [install]
 - name: welcome
   click:
   - 1306

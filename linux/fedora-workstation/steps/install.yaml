@@ -140,37 +140,61 @@ steps:
   click:
   - 729
   - 1002
+  settle: 15
+- name: welcome - what is on screen
+  see:
+    of: [text]
+    name: welcome
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
+    wait: 0
+- name: welcome - the screen says so
   check:
     name: asserted
-    must: true
-    text:
-      - contains_any:
-          - [installation, method]
-  settle: 15
+    from: welcome
+    mode: says_any
+    words:
+    - [installation, method]
 - name: installation method
   click:
   - 729
   - 1002
+  settle: 12
+- name: installation method - what is on screen
+  see:
+    of: [text]
+    name: installation_method
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
+    wait: 0
+- name: installation method - the screen says so
   check:
     name: asserted
-    must: true
-    text:
-      - contains_any:
-          - [storage, configuration]
-          - [configuracion, de, almacenamiento]
-  settle: 12
+    from: installation_method
+    mode: says_any
+    words:
+    - [storage, configuration]
+    - [configuracion, de, almacenamiento]
 - name: storage configuration
   click:
   - 729
   - 1002
+  settle: 12
+- name: storage configuration - what is on screen
+  see:
+    of: [text]
+    name: storage_configuration
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
+    wait: 0
+- name: storage configuration - the screen says so
   check:
     name: asserted
-    must: true
-    text:
-      - contains_any:
-          - [review, and, install]
-          - [revisar, e, instalar]
-  settle: 12
+    from: storage_configuration
+    mode: says_any
+    words:
+    - [review, and, install]
+    - [revisar, e, instalar]
 - name: erase data and install
   click:
   - 780
@@ -269,12 +293,21 @@ steps:
   - 1000
   - 528
   type: '{{ user }}'
+  settle: 2
+- name: about you - full name - what is on screen
+  see:
+    of: [text]
+    name: about_you_full_name
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
+    wait: 0
+- name: about you - full name - the screen says so
   check:
     name: asserted
-    must: true
-    text:
-      - contains: ['{{ user }}']
-  settle: 2
+    from: about_you_full_name
+    mode: says
+    words:
+    - '{{ user }}'
 - name: about you
   click:
   - 1432

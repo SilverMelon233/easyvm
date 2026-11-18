@@ -24,12 +24,21 @@ steps:
   double:
   - 114
   - 47
+  settle: 25
+- name: open the installer - what is on screen
+  see:
+    of: [text]
+    name: open_the_installer
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
+    wait: 0
+- name: open the installer - the screen says so
   check:
     name: asserted
-    must: true
-    text:
-      - contains: [welcome]
-  settle: 25
+    from: open_the_installer
+    mode: says
+    words:
+    - welcome
 - name: welcome
   click:
   - 1306

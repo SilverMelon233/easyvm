@@ -140,9 +140,19 @@ var Keys = map[string]Key{
 		Summary: "files that must be on disk before this stage runs; the first step of every stage " +
 			"names its medium here so a missing input fails in the first second rather than forty " +
 			"minutes in"},
-	"requires": {Name: "requires", Kind: KindList,
-		Summary: "capabilities that must answer before the step runs (ssh, qga, share, " +
-			"network, overlay); missing is a StepError, never a quiet fallback"},
+	// `requires:` WAS HERE AND WAS NEVER READ.
+	//
+	// It was documented as "capabilities that must answer before the step runs (ssh, qga, share,
+	// network, overlay)" and the dispatcher's own comment promised it was the other half of a pair -
+	// "the rename is about one letter... `requires:` names the CAPABILITIES". THE CODE ONLY EVER
+	// READ `needs:` AND `require:`, so all 21 uses were silently ignored, including 11 that asked for
+	// the share. `notImplementedCount` listed it as a PASSIVE key, which is what kept it looking
+	// harmless.
+	//
+	// IT WAS NOT REPLACABLE WITH A CHECK, EITHER: nothing in this tree implements a capability probe,
+	// so a real `requires: qga` would have had no answer to compare against. The one thing it was
+	// used for - "the share must be up" - is now a fact rather than a gate, because the share is
+	// always on. A key that asserts something no code can test is worse than no key.
 	// `when_not:` IS THE NEGATIVE GATE AND IT REPLACES `unless:`.
 	//
 	// `when:` AND `unless:` WERE ONE GATE WITH A NEGATION between them - "run if the screen says X"
@@ -210,8 +220,6 @@ var Keys = map[string]Key{
 			"firmware, no devices the guest does not need, a direct kernel hand-off. For a " +
 			"walkthrough whose job is to prove the vocabulary drives a guest, not to install a " +
 			"distribution through its GUI"},
-	"reboot": {Name: "reboot", Kind: KindMapping,
-		Summary: "reset the guest and wait for it to come back"},
 	"shutdown": {Name: "shutdown", Kind: KindString,
 		Summary: "a NAMED method: guest_agent, ssh, acpi, or kill; there is no silent fallback " +
 			"between them"},
@@ -223,10 +231,6 @@ var Keys = map[string]Key{
 	"compress": {Name: "compress", Kind: KindString,
 		Summary: "flatten the overlay into this artifact; the path is relative to the repository " +
 			"root, not to the work directory"},
-	"snapshot": {Name: "snapshot", Kind: KindString,
-		Summary: "write the running machine's whole state - memory, devices and UEFI variables - to " +
-			"this file. It is a migration stream, NOT `savevm`: a UEFI guest's variable store is a " +
-			"pflash device and `savevm` refuses every writable device that cannot hold a snapshot"},
 	"boot_from": {Name: "boot_from", Kind: KindString,
 		Summary: "start the machine from a `snapshot:` file instead of running a boot loader. The " +
 			"cpu, machine type and device set must match the ones the snapshot was taken with"},
@@ -296,9 +300,6 @@ var Keys = map[string]Key{
 		Summary: "[x0, y0, x1, y1] - click the centre of the coloured fill inside this region. " +
 			"The ONE lookup this repository allows, for a control whose position moves per pane " +
 			"and whose fill is the only one of its kind in that strip"},
-	"host_log": {Name: "host_log", Kind: KindString,
-		Summary: "print the tail of a HOST-side log - a witness step, not a judge. `smbd` is the " +
-			"one this build knows, and it says when there is no such log rather than pretending"},
 	"at_fallback": {Name: "at_fallback", Kind: KindPair,
 		Summary: "[x, y] - with `at_button`: the measured position to click when the fill is not " +
 			"found. For a control that CAN be missing (an icon behind a wallpaper change) rather " +
@@ -414,14 +415,17 @@ var Keys = map[string]Key{
 		Summary: "the serial to use"},
 
 	// --- the host's share ---------------------------------------------------------------
-	"share_serve": {Name: "share_serve", Kind: KindBool,
-		Summary: "start the host's smbd for a directory - one act, not two"},
-	"share_mount": {Name: "share_mount", Kind: KindBool,
-		Summary: "the guest mounts what share_serve: is serving"},
-	"share_dir": {Name: "share_dir", Kind: KindString,
-		Summary: "the host directory to share; default ~/shared"},
-	"share_family": {Name: "share_family", Kind: KindString,
-		Summary: "which client the guest uses: macos, windows, linux, bsd"},
+	// THE FOUR `share_*` KEYS ARE GONE, AND THIS IS WHERE THEY WERE.
+	//
+	// `share_mount:` had not mounted anything since the transport became HTTP - the implementation's
+	// own comment said "IT USED TO MOUNT AN SMB SHARE". It ran `curl` in the guest over the ssh
+	// session the file already had, which is a command a file can write itself; windows/vm-configure
+	// wrote it by hand in the very next step. `share_serve:` set one variable on a listener that was
+	// already running, `share_family:` chose between `curl` and `Invoke-WebRequest` (with `macos` and
+	// `linux` taking the SAME branch), and `share_dir:` was used zero times in the whole tree.
+	//
+	// The share is now always on at `~/shared`; see internal/daemon/share.go. A file that wants to
+	// read from it writes the URL.
 
 	// --- panes: the macOS shape ---------------------------------------------------------
 	"when": {Name: "when", Kind: KindWords,
@@ -664,17 +668,6 @@ var Keys = map[string]Key{
 	"max": {Name: "max", Kind: KindInt,
 		Summary: "with `loop:`: the attempt ceiling. Required, because a loop with no ceiling " +
 			"presses a key until the stage times out"},
-	"repeat_until": {Name: "repeat_until", Kind: KindMapping,
-		Summary: "run `actions:` and then read the screen, up to `attempts:` times, stopping " +
-			"when `until_any:` matches. This is the loop the vocabulary was missing: the two " +
-			"primitives it replaces (choose a disk by capacity, leave the Apple Account pane) " +
-			"were loops and decisions hidden in Go, where a reader of the file cannot see them"},
-	"wait_for": {Name: "wait_for", Kind: KindString,
-		Summary: "wait for a control with no readable title; login_window is the password field, " +
-			"twelve pixels tall, read from a crop at 6x"},
-	"demo_script": {Name: "demo_script", Kind: KindString,
-		Summary: "write a throwaway script, for the primitives walkthrough that exists to exercise " +
-			"the vocabulary itself"},
 	// THREE KINDS OF HOST-SIDE PREPARATION, AND `fetch:` WAS ALL THREE OF THEM.
 	//
 	// MEASURED FROM THE 23 USES IN THIS REPOSITORY, its eight values did three different jobs:
@@ -731,12 +724,9 @@ var Keys = map[string]Key{
 // kept the rule would be forcing files to split a pause in two to satisfy a limit whose reason no
 // longer exists - which is how a validator becomes a tax.
 //
-// actionKeys are the keys that make a step DO something, so a `settle:` beside one is a pause and not
-// a wait.
-var actionKeys = []string{"click", "double", "at_button", "at_color", "key", "type", "run", "ssh",
-	"scp", "script", "adb", "write", "share_serve", "share_mount", "boot", "reboot", "shutdown",
-	"disk", "record", "compress", "esp_fallback", "screenshot", "ocr", "see", "check", "want", "loop",
-	"if", "desktop", "require_ssh"}
+// `actionKeys` USED TO LIVE HERE AND WAS READ BY NOTHING - a second, stale list of "the keys that do
+// something" beside the dispatcher's own switch order. It is `Roles` in roles.go now, which `Validate`
+// actually enforces and which a test keeps honest against `runOne`.
 
 // Validate refuses a key the vocabulary does not have, and a blind pause long enough that stopping
 // the machine would not work.

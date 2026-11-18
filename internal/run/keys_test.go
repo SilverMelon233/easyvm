@@ -170,12 +170,16 @@ func TestRunIsDispatchedBeforeExpect(t *testing.T) {
 	}
 	src := stripCommentsForTest(string(body))
 	runAt := strings.Index(src, `case s.Has("run"):`)
-	expectAt := strings.Index(src, `case s.Has("expect_any") || s.Has("expect"):`)
 	if runAt < 0 {
 		t.Fatal("no `case s.Has(\"run\")` in the dispatcher")
 	}
+	expectAt := strings.Index(src, `case s.Has("expect_any") || s.Has("expect"):`)
 	if expectAt < 0 {
-		t.Fatal("no `case s.Has(\"expect_any\")` in the dispatcher")
+		// THE BUG THIS TEST WAS WRITTEN FOR CANNOT RECUR: `expect:`/`expect_any:` no longer have a
+		// dispatch branch at all. They are an ARGUMENT of `run:`, checked by `doRun` after the
+		// typing, so there is no order to get wrong. If a branch comes back, the check below still
+		// applies - a step that both types and checks must reach `doRun` first.
+		return
 	}
 	if expectAt < runAt {
 		t.Fatal("`expect_any` is dispatched BEFORE `run`, so a step that both types and checks never " +

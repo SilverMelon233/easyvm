@@ -98,7 +98,6 @@ var Roles = map[string]Role{
 	"name":                 RoleModifier, // the log line, not a decision
 	"optional":             RoleModifier,
 	"needs":                RoleGate,
-	"requires":             RoleGate,
 	"when_not":             RoleGate,
 	"when_not_any":         RoleGate,
 	"skip_when_unfinished": RoleModifier,
@@ -118,12 +117,10 @@ var Roles = map[string]Role{
 	"kernel":    RoleArgument,
 	"initrd":    RoleArgument,
 	"microvm":   RoleArgument,
-	"reboot":    RoleAction,
 	"shutdown":  RoleAction,
 	"graceful":  RoleModifier, // how the shutdown asks
 	"record":    RoleAction,   // start with a name, or `false` to stop
 	"compress":  RoleAction,
-	"snapshot":  RoleAction,
 	"boot_from": RoleAction,
 
 	// --- the disk ------------------------------------------------------------------------
@@ -181,17 +178,10 @@ var Roles = map[string]Role{
 	"adb_connect":      RoleAction,
 	"adb_serial":       RoleArgument,
 
-	// --- the host's share ---------------------------------------------------------------
-	"share_serve":  RoleAction,
-	"share_mount":  RoleAction,
-	"share_dir":    RoleArgument,
-	"share_family": RoleArgument,
-
 	// --- panes: the macOS shape ---------------------------------------------------------
 	"when":         RoleGate,
 	"do":           RoleAction, // a list of steps run in order under one name
 	"release":      RoleArgument,
-	"host_log":     RoleAction,
 	"write":        RoleAction,
 	"esp_fallback": RoleAction,
 	"esp_from":     RoleArgument,
@@ -215,9 +205,6 @@ var Roles = map[string]Role{
 	"fact":         RoleSubkey,
 	"loop":         RoleAction,
 	"max":          RoleSubkey,
-	"repeat_until": RoleAction,
-	"wait_for":     RoleAction,
-	"demo_script":  RoleAction,
 	"fetch":        RoleAction,
 	"template":     RoleArgument,
 	"contains":     RoleSubkey,
@@ -348,13 +335,13 @@ func plural(n int) string {
 // and fails if this list and the source disagree. Without that check this table would be a second
 // place to be wrong.
 var dispatchOrder = []string{
-	"boot", "boot_from", "shutdown", "reboot", "disk", "record", "compress", "snapshot",
+	"boot", "boot_from", "shutdown", "disk", "record", "compress",
 	"see", "want", "check", "loop", "if", "needs", "require", "require_ssh", "ssh",
-	"repeat_until", "when", "do", "when_not", "when_not_any", "until_console",
+	"when", "do", "when_not", "when_not_any", "until_console",
 	"until", "until_any", "run", "esp_fallback", "adb_connect", "adb_privileged", "adb",
-	"at_color", "at_bottom", "at_button", "expect_any", "expect", "disk_settle", "host_log",
-	"wait_for", "screenshot", "demo_script", "write", "fetch", "asset", "build", "generate",
-	"scp", "script", "desktop", "share_serve", "share_mount", "type", "key", "double", "click",
+	"at_color", "at_bottom", "at_button", "disk_settle", "screenshot", "write",
+	"fetch", "asset", "build", "generate",
+	"scp", "script", "desktop", "type", "key", "double", "click",
 	"wait", "settle",
 }
 

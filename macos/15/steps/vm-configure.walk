@@ -22,7 +22,6 @@ walkthrough "macos 15 - configure the vm (share, login hook, guest agent)"
     require_ssh == true
     timeout == 900
   step "copy the agent into the guest"
-    requires == - ssh
     scp == [mac-guest-agent, /tmp/mac-guest-agent]
     timeout == 300
   step "install the guest agent"
@@ -70,13 +69,8 @@ walkthrough "macos 15 - configure the vm (share, login hook, guest agent)"
   step "prove the locale is the American one"
     ssh == sh -c 'echo "AppleLocale = $(defaults read NSGlobalDomain AppleLocale)"; echo "AppleLanguages = $(defaults read NSGlobalDomain AppleLanguages | tr -d "\n")"; defaults read NSGlobalDomain AppleLocale | grep -q "en_US" && echo LOCALE_OK'
     timeout == 60
-  step "serve the host share"
-    share_serve == true
-    timeout == 60
   step "prove the guest can fetch from the host share"
-    requires == - share
-    share_family == macos
-    share_mount == true
+    ssh == sh -c 'curl -fsS --max-time 20 http://172.30.0.1:8080/shared/ || wget -qO- --timeout=20 http://172.30.0.1:8080/shared/'
     timeout == 180
   step "show what the guest sees at the share"
     ssh == sh -c 'curl -fsS --max-time 20 http://172.30.0.1:8080/shared/ 2>&1 | head -20; echo "fetch exit = $?"'

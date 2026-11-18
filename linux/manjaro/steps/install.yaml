@@ -39,14 +39,22 @@ steps:
   double:
   - 960
   - 760
+  settle: 35
+- name: open the installer - what is on screen
+  see:
+    of: [text]
+    name: open_the_installer
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
+    wait: 0
+- name: open the installer - the screen says so
   check:
     name: asserted
-    must: true
-    text:
-      - contains_any:
-          - [welcome]
-          - [location]
-  settle: 35
+    from: open_the_installer
+    mode: says_any
+    words:
+    - [welcome]
+    - [location]
 - name: open the installer (once more, if it did not)
   when_not:
   - welcome

@@ -59,12 +59,8 @@ walkthrough "freebsd 15.1 - the desktop is up"
   step "prove the locale in a new login shell, and in the login database"
     ssh == sh -c 'sh -lc "printf \"LANG=%s\nLC_ALL=%s\n\" \"\$LANG\" \"\$LC_ALL\"" 2>/dev/null | grep -E "^(LANG|LC_ALL)=" ; echo "source file ---" ; grep -c "LANG={{ locale }}" /etc/login.conf || true ; echo "compiled database ---" ; strings /etc/login.conf.db | grep -c "LANG={{ locale }}" || true'
     timeout == 120
-  step "serve the host share"
-    share_serve == true
-    timeout == 60
   step "prove the guest can fetch from the host share"
-    share_family == bsd
-    share_mount == true
+    ssh == sh -c 'curl -fsS --max-time 20 http://172.30.0.1:8080/shared/ 2>/dev/null || fetch -qo - http://172.30.0.1:8080/shared/'
     timeout == 180
   step "flush the writes before anything else"
     ssh == sudo sync

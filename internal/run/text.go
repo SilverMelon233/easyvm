@@ -941,63 +941,6 @@ func shorten(s string, n int) string {
 }
 
 // --- a host-side log, for a step that witnesses rather than judges ---------------------
-
-// doHostLog prints the tail of a host-side log, when this build has one to print.
-//
-// IT IS FOR A STEP WHOSE ONLY JOB IS TO SAY WHAT THE SERVER SAW, and whose ABSENCE of output is
-// information: GhostBSD's smbd log sits AFTER the mount touched the share and BEFORE the proof, so it
-// runs even when the proof is about to fail - which is the only time its output is worth anything.
-//
-// WHEN THERE IS NO SUCH LOG THIS SAYS SO RATHER THAN PRETENDING. `smbd` is not started by this build
-// yet: `internal/net` does tap, bridge, dnsmasq and iptables, and the SMB server a `share_serve:`
-// step would start is not implemented. A step that reported success with nothing to show would be
-// worse than one that names the gap, because the file's own comment says the log exists to explain a
-// failure - and an empty log explanation reads as "the server logged nothing".
-func (e *Executor) doHostLog(s walk.Step) error {
-	name := s.Get("host_log")
-	if name == "" {
-		return fail(s.Name, "`host_log:` must name what to print: smbd")
-	}
-	switch name {
-	case "smbd":
-		path := "/tmp/easydiskbake-smbd.log"
-		body, err := os.ReadFile(path)
-		if err != nil {
-			// NOT A FAILURE: this step is `optional` in the file that uses it, and the honest
-			// statement is that there is no server log because nothing started a server.
-			e.Driver.Log(fmt.Sprintf("  no smbd log at %s (%v)", path, err))
-			e.Driver.Log("  this build does not start an SMB server yet - `share_serve:` is not " +
-				"implemented - so there is no server side to read")
-			return nil
-		}
-		lines := strings.Split(strings.TrimRight(string(body), "\n"), "\n")
-		if len(lines) > 60 {
-			lines = lines[len(lines)-60:]
-		}
-		for _, l := range lines {
-			e.Driver.Log("  " + shorten(strings.TrimRight(l, "\r"), 200))
-		}
-		return nil
-	}
-	return fail(s.Name, "`host_log: %s` is not a log this build prints; the one it knows is smbd", name)
-}
-
-// --- a shell line typed into the guest's own terminal ----------------------------------
-
-// doRun types a shell command into the guest's terminal, one line at a time.
-//
-// IT IS A GUI ACTION, NOT AN SSH COMMAND. The whole point of `run:` is a guest whose sshd does not
-// exist yet - the Linux and BSD `ssh.yaml` stages install sshd this way. `ssh:` would need the thing
-// being installed.
-//
-// THE TERMINAL IS NORMALLY OPENED BY ITS OWN STEP (`open the terminal` / `key: ctrl+alt+t`), because
-// "did the terminal open" is the first question when an install produces nothing - and a recording
-// answers it. `terminal_wait` therefore DEFAULTS TO ZERO HERE, meaning "the terminal is already up".
-//
-// The Python implementation pressed ctrl+alt+t unconditionally, and that is wrong for a desktop whose
-// shortcut does not work: Pop!_OS' COSMIC ignores it, and pressing it again after a dock click opened
-// the terminal types a control chord into the focused window. A file that wants the shortcut says
-// `terminal_wait: 8` and gets it.
 func (e *Executor) doRun(s walk.Step) error {
 	body := s.Get("run")
 	if strings.TrimSpace(body) == "" {
