@@ -400,6 +400,12 @@ func (e *Executor) runOne(s walk.Step) error {
 	// and `wait_after:` both meant. MEASURED: `wait_after` 627 uses and `wait` 118 - the same idea
 	// under two names. A file can now say `settle:` either way, and the old names keep working so
 	// the migration is per-file.
+	case s.Has("acpi"):
+		return e.doACPI(s)
+	case s.Has("qga"):
+		return e.doQGA(s)
+	case s.Has("wait_until"):
+		return e.doWaitUntil(s)
 	case s.Has("wait"), s.Has("settle"):
 		return e.doWait(s)
 	}
@@ -902,4 +908,32 @@ func stepNeedsAGuest(s walk.Step) bool {
 		return true
 	}
 	return true
+}
+
+// frameFrom returns a capture taken at or after `since`, or the newest one with a warning.
+//
+// A DRIVER THAT CANNOT CAPTURE ON DEMAND IS NOT AN ERROR: the interface is optional, so a fake in a
+// unit test and a platform without QMP both fall back to `Frame()`, which every driver has.
+func (e *Executor) frameFrom(since time.Time, budget time.Duration) (Frame, error) {
+	if at, ok := e.Driver.(interface {
+		FrameAt(time.Time, time.Duration) (Frame, bool, error)
+	}); ok {
+		f, fresh, err := at.FrameAt(since, budget)
+		if err != nil {
+			return nil, fmt.Errorf("reading the frame: %w", err)
+		}
+		if !fresh {
+			// NOT A FAILURE, AND NOT SILENT EITHER. The screen did not change within the budget, so
+			// the reading is of an older frame - which is the truth a person needs when a step's
+			// verdict disagrees with the video.
+			e.Driver.Log("  the frame did not change within the budget; reading the newest one, " +
+				"which is older than this step asked for")
+		}
+		return f, nil
+	}
+	f, err := e.Driver.Frame()
+	if err != nil {
+		return nil, fmt.Errorf("reading the frame: %w", err)
+	}
+	return f, nil
 }

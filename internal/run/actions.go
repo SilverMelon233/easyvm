@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -738,6 +740,9 @@ func (e *Executor) doCompress(s walk.Step) error {
 	if source == nil {
 		return fail(s.Name, "no machine is known; a `boot:` step must come first")
 	}
+	// THE DISK IS READ WITH qemu-img, SO QEMU MUST NOT STILL HAVE IT OPEN - and the step that waits
+	// for that is `wait_until: stopped`, which a file writes where it wants it. Doing the wait here
+	// as well would make "did anyone stop the machine?" a question with two answers.
 	disk := ""
 	if d, ok := source.(interface{ Disk() string }); ok {
 		disk = d.Disk()
@@ -1098,4 +1103,214 @@ func resolutionOf(f *walk.File) [2]int {
 func wakeTheScreen(e *Executor) {
 	x := 400 + int(time.Now().UnixNano()/int64(time.Second))%40
 	_ = e.Driver.Click(x, 300)
+}
+
+// doWaitUntil waits for a CONDITION ABOUT THE MACHINE, naming what it waited for.
+//
+// IT IS THE SECOND HALF OF A SHUTDOWN, MADE VISIBLE. `shutdown: ssh` used to send the request AND
+// wait for qemu in one key - and its request was refused (no `sudo`), so the wait then spent its
+// whole grace on a machine nobody had asked to stop. Once the request is an `ssh:` step the file
+// shows, the waiting has to be a step too, or it hides inside whichever step reads the disk next.
+//
+// THE CONDITION IS A NAME, NOT A BOOLEAN EXPRESSION: `stopped` is the one that exists, and adding a
+// second is a decision in this switch rather than a string a file can invent.
+func (e *Executor) doWaitUntil(s walk.Step) error {
+	what := s.Get("wait_until")
+
+	// A CEILING IS REQUIRED, NOT DEFAULTED. "How long is too long" is a fact about the guest and the
+	// step, so the file says it - a default would be a number nobody chose, and the failure it
+	// produces ("still running after 5m0s") would name a budget the author never set.
+	if !s.Has("timeout") {
+		return fail(s.Name, "`wait_until: %s` needs a `timeout:`. A wait with no ceiling that is "+
+			"never satisfied hangs the stage until the runner's own limit, and the error then names "+
+			"the runner rather than this step", what)
+	}
+	limit := seconds(s, "timeout", 0)
+	poll := 2 * time.Second
+	if v, err := s.Float("poll", 0); err == nil && v > 0 {
+		poll = time.Duration(v * float64(time.Second))
+	}
+
+	facts, ok := e.Driver.(interface {
+		Facts() (map[string]string, error)
+	})
+	if !ok {
+		return fail(s.Name, "this driver cannot report the facts a `wait_until:` waits on")
+	}
+
+	// THE CONDITIONS ARE NAMES, AND EACH ONE IS A QUESTION ABOUT A FACT. It is a switch rather than
+	// an expression language on purpose: a file that could write `qemu.running == false` could also
+	// write `qemu.running == false and ssh.ready`, which is two waits wearing one line, and the
+	// failure would not say which half never happened.
+	check := func(f map[string]string) (bool, string) {
+		switch what {
+		case "stopped":
+			return f["qemu_running"] == "false", "the machine is still running"
+		case "started":
+			return f["qemu_running"] == "true", "the machine is not running"
+		case "ssh":
+			return f["ssh_ready"] == "true", "sshd does not accept a connection"
+		case "qga":
+			return f["qga_ready"] == "true", "the guest agent does not answer"
+		case "booted":
+			return f["guest_phase"] == "up", "the guest has not finished starting"
+		case "console_idle":
+			// THE THRESHOLD IS THE STEP'S OWN, because "quiet" is not one number: a boot prompt goes
+			// quiet for a second and an install pauses for a minute between phases.
+			return f["console_idle"] != "" && atLeast(f["console_idle"], s), "the console is still being written"
+		case "disk_idle":
+			return atLeast(f["disk_grow_rate"], s), "the disk is still growing"
+		case "recording":
+			return f["recording"] == "true", "nothing is recording"
+		case "share":
+			return f["share_ready"] == "true", "the share has no directory"
+		case "frame_still":
+			return atLeast(f["frame_age"], s), "the frame is still being captured"
+		}
+		return false, ""
+	}
+
+	switch what {
+	case "stopped", "started", "ssh", "qga", "booted", "console_idle", "disk_idle",
+		"recording", "share", "frame_still":
+	default:
+		return fail(s.Name, "`wait_until: %s` is not a condition this build knows. The ones it "+
+			"knows are stopped, started, ssh, qga, booted, console_idle, disk_idle, recording, "+
+			"share and frame_still", what)
+	}
+
+	// THE FIRST MEASUREMENT IS OUTSIDE THE LOOP, so a condition that is already true costs one
+	// snapshot rather than one poll interval.
+	start := time.Now()
+	var why string
+	for {
+		f, err := facts.Facts()
+		if err != nil {
+			return fail(s.Name, "%v", err)
+		}
+		done, reason := check(f)
+		if done {
+			e.Driver.Log(fmt.Sprintf("  %s (%s)", what, time.Since(start).Round(time.Second)))
+			return nil
+		}
+		why = reason
+		if time.Since(start) >= limit {
+			return fail(s.Name, "`wait_until: %s` was never satisfied within %s: %s. The facts at "+
+				"the last look were %s", what, limit, why, describeFacts(f))
+		}
+		time.Sleep(poll)
+	}
+}
+
+// atLeast reads a fact as a number and compares it to the step's own threshold.
+//
+// THE NUMBER COMES FROM A STRING because the facts are a string map: they travel through the same
+// `/api/state` a person reads, and a number that had to be typed there would have to be formatted
+// twice. `minimum:` is the step's own key; without it the comparison cannot be made and the wait is
+// refused rather than guessed.
+func atLeast(fact string, s walk.Step) bool {
+	if fact == "" {
+		return false
+	}
+	have, err := strconv.ParseFloat(fact, 64)
+	if err != nil {
+		return false
+	}
+	want, err := s.Float("minimum", 0)
+	if err != nil {
+		return false
+	}
+	return have >= want
+}
+
+func describeFacts(f map[string]string) string {
+	keys := make([]string, 0, len(f))
+	for k := range f {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		parts = append(parts, k+"="+f[k])
+	}
+	return strings.Join(parts, " ")
+}
+
+// doACPI sends one message through QEMU's ACPI path.
+//
+// IT IS A CHANNEL WITH OPERATIONS, not a method of `shutdown:`. The two are different questions:
+// "press the power button" and "how do I stop this machine" produced the same key before, so a file
+// could not ask for a RESET without also stopping.
+//
+// THE WAIT IS NOT HERE. `acpi: power` presses the button and returns; whether the guest ever goes is
+// `wait_until: stopped`, which is a separate step a reader can see. Bundling them was what made the
+// old `shutdown: ssh` spend five minutes waiting for a machine nobody had asked to stop.
+func (e *Executor) doACPI(s walk.Step) error {
+	what := s.Get("acpi")
+	m := e.Driver.Machine()
+	if m == nil {
+		return fail(s.Name, "no machine is known; a `boot:` step must come first")
+	}
+	switch what {
+	case "power":
+		btn, ok := m.(interface{ PressPowerButton() error })
+		if !ok {
+			return fail(s.Name, "this driver cannot press the guest's power button")
+		}
+		if err := btn.PressPowerButton(); err != nil {
+			return fail(s.Name, "%v", err)
+		}
+		e.Driver.Log("  pressed the power button; the guest decides whether to honour it")
+		return nil
+	case "reset":
+		reset, ok := m.(interface{ ResetMachine() error })
+		if !ok {
+			return fail(s.Name, "this driver cannot reset its machine")
+		}
+		if err := reset.ResetMachine(); err != nil {
+			return fail(s.Name, "%v", err)
+		}
+		e.Driver.Log("  reset the machine")
+		return nil
+	}
+	return fail(s.Name, "`acpi: %s` is not an ACPI message this build sends; the ones it sends are "+
+		"`power` (the power button) and `reset`", what)
+}
+
+// doQGA runs one qemu-guest-agent command.
+//
+// THE AGENT IS THE ONLY CHANNEL THAT NEEDS NEITHER SSHD NOR AN ACPI HANDLER, which is why it is the
+// one that works on a guest with no network and no login: a macOS install with Remote Login off
+// answers the power button with a dialog and has nothing else to ask.
+func (e *Executor) doQGA(s walk.Step) error {
+	command := s.Get("qga")
+	m := e.Driver.Machine()
+	if m == nil {
+		return fail(s.Name, "no machine is known; a `boot:` step must come first")
+	}
+	agent, ok := m.(interface {
+		GuestAgent(string, map[string]any) (string, error)
+	})
+	if !ok {
+		return fail(s.Name, "this driver has no guest agent channel")
+	}
+
+	args := map[string]any{}
+	for _, key := range []string{"argv", "path", "body", "mode", "timeout"} {
+		if v, ok := s.Spec[key]; ok {
+			args[key] = v
+		}
+	}
+	out, err := agent.GuestAgent(command, args)
+	if err != nil {
+		return fail(s.Name, "`qga: %s`: %v", command, err)
+	}
+	if out != "" {
+		for _, line := range headAndTail(out, 12, 6) {
+			e.Driver.Log("  " + line)
+		}
+	} else {
+		e.Driver.Log(fmt.Sprintf("  qga: %s ok", command))
+	}
+	return nil
 }

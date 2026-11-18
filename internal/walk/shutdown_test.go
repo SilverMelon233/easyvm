@@ -111,20 +111,26 @@ func TestEveryPoweroffIsFollowedByAWait(t *testing.T) {
 		}
 		rel, _ := filepath.Rel(root, path)
 		for i, s := range f.Steps {
-			if !mentionsPoweroff(s.Get("ssh")) {
+			// A REQUEST THAT STOPS THE GUEST NEEDS A WAIT AFTER IT, WHATEVER SENT IT: the power
+			// button, the agent, or a command over ssh. `wait_until: stopped` is that wait, and it is
+			// a step of its own because `shutdown:` names how to STOP the machine - a method that
+			// sent nothing was a verb that did not happen.
+			asked := s.Get("acpi") == "power" || s.Get("qga") == "shutdown" ||
+				mentionsPoweroff(s.Get("ssh"))
+			if !asked {
 				continue
 			}
 			found := false
 			for _, later := range f.Steps[i+1:] {
-				if later.Get("shutdown") == "wait" {
+				if later.Get("wait_until") == "stopped" {
 					found = true
 					break
 				}
 			}
 			if !found {
-				t.Errorf("%s: step %q asks the guest to power off and no later step says "+
-					"`shutdown: wait`. The next step to read the disk would find qemu still holding "+
-					"it open", rel, s.Name)
+				t.Errorf("%s: step %q asks the guest to stop and no later step says "+
+					"`wait_until: stopped`. The next step to read the disk would find qemu still "+
+					"holding it open", rel, s.Name)
 			}
 		}
 	}

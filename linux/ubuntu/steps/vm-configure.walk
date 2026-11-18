@@ -92,7 +92,7 @@ walkthrough "linux-ubuntu - configure the vm (name, share, guest agent)"
     ssh == printf '%s\n' '{{ password }}' | sudo -S -p '' poweroff
     timeout == 300
   step "wait for the machine to stop"
-    shutdown == wait
+    wait_until == stopped
     timeout == 300
   step "publish the disk"
     compress == '{{ out }}'
