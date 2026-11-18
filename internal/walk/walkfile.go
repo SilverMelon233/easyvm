@@ -675,6 +675,22 @@ func parseBoot(l line, rest string, step map[string]any) (map[string]any, error)
 		case strings.Contains(rest, "with a console"):
 			step["microvm_display"] = "terminal"
 		}
+		// `with memory 1536` IS THE GUEST'S SIZE, AND A MICROVM NEEDS TO SAY IT.
+		//
+		// MEASURED on the NixOS guest on a loaded host: at the engine's default it reached
+		// `running step 4/8 "the console will say \"nix-store\""` and sat there until the step
+		// expired, while the same image booted to `login:` in five seconds on an idle one. systemd,
+		// udev and a full NixOS closure all start before the proof unit runs, and 512 MiB is not
+		// enough of a budget for that - so the clause exists on a boot step rather than only in the
+		// YAML key table, where `memory_mb` had been sitting unreachable by any sentence.
+		if i := strings.Index(rest, "with memory "); i >= 0 {
+			tail := strings.Fields(rest[i+len("with memory "):])
+			if len(tail) > 0 {
+				if n, err := strconv.Atoi(strings.Trim(tail[0], ",.")); err == nil && n >= 512 {
+					step["memory_mb"] = n
+				}
+			}
+		}
 		if i := strings.Index(rest, "medium "); i >= 0 {
 			if name, _, err := firstQuote(rest[i:]); err == nil {
 				step["iso"] = name

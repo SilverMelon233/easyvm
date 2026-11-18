@@ -981,6 +981,27 @@ func (b Boot) KernelArgs() []string {
 	if cmdline == "" {
 		cmdline = "console=ttyS0 modules=loop,squashfs,sd-mod modloop=/dev/vda"
 	}
+	// `pci=off` IS ADDED TO EVERY MICROVM'S LINE, INCLUDING ONE THAT WROTE ITS OWN.
+	//
+	// A microvm with `pcie=off` has no PCI bus, and a kernel that finds an ACPI root - which every
+	// microvm now gets, because Debian needs it to see its MMIO disk - assumes a PCI host bridge
+	// exists and stops:
+	//
+	//	PCI: Fatal: No config space access function found
+	//
+	// MEASURED on the NixOS guest, which died at 0.05s with that line and nothing else. With
+	// `pci=off` the same kernel prints the warning and continues to
+	//
+	//	EXT4-fs (vda): mounted filesystem ... r/w with ordered data mode
+	//	echo[464]: NIXOS-MICROVM-READY
+	//	nixos-microvm login: root (automatic login)
+	//
+	// The statement is TRUE of this machine in every case, so it is prepended rather than left to
+	// each walkthrough: a file that adds its own `console=` should not also have to know that the
+	// absence of a PCI bus has to be declared.
+	if !strings.Contains(cmdline, "pci=off") {
+		cmdline = "pci=off " + cmdline
+	}
 	args = append(args, "-append", cmdline)
 	return args
 }
