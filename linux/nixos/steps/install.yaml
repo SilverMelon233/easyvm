@@ -285,6 +285,14 @@ steps:
   - 110
   - 180
   color_tolerance: 25
+  # THE FOOTER, NOT THE FRAME: Calamares paints its WINDOW TITLE BAR in this same blue, so a
+  # whole-frame search finds the chrome first - measured on fedora's Anaconda, which put the press at
+  # (1084, 79), y=79 being the title bar. The buttons are in the bottom tenth.
+  color_region:
+  - 0
+  - 950
+  - 1920
+  - 1080
   wait_after: 15
 
 - name: the install has started

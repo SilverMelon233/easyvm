@@ -948,12 +948,27 @@ steps:
 # SO THE BUTTON IS FOUND BY THE WIZARD'S OWN ACCENT COLOUR. `rgb(60,110,180)` fills `Install` and
 # nothing else on that page, `at_color` clicks the centre of its largest blob, and the search is the
 # whole frame so a dialog that is drawn elsewhere is still found.
+# THE SEARCH IS THE FOOTER, BECAUSE THE WIZARD'S TITLE BAR IS THE SAME BLUE.
+#
+# MEASURED on the runner: the press with a whole-frame search found the blob at (1084, 79) and again at
+# (1580, 79) - y=79 IS THE TITLE BAR. Fedora's Anaconda paints `{Fedora Linux 45 ... installation` in
+# `rgb(60,110,180)` across the top of the window, so the largest blob of that colour was the chrome and
+# every press went into the window's own header.
+#
+# THE BUTTONS ARE IN THE FOOTER: `Back / Install / Quit` sit at y=999 on this frame and the wizard's
+# content area is above them, so the search box is the bottom tenth of the frame - which excludes the
+# title bar by construction.
 - name: begin the installation
   at_color:
   - 60
   - 110
   - 180
   color_tolerance: 25
+  color_region:
+  - 0
+  - 950
+  - 1920
+  - 1080
   wait_after: 20
 
 - name: press it again, up to four times, until the page changes
@@ -965,6 +980,11 @@ steps:
       - 110
       - 180
       color_tolerance: 25
+      color_region:
+      - 0
+      - 950
+      - 1920
+      - 1080
       wait_after: 12
     ocr:
       name: after_install

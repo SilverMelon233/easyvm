@@ -288,6 +288,13 @@ steps:
   - 188
   - 156
   color_tolerance: 30
+  # THE FOOTER ONLY: this installer's teal is also its dock's accent and appears in the wallpaper's
+  # nebula, so a whole-frame search finds decoration. The buttons are in the bottom tenth.
+  color_region:
+  - 0
+  - 700
+  - 1920
+  - 1080
   wait_after: 15
 
 - name: the install has started
