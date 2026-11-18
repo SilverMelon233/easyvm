@@ -85,17 +85,35 @@ func (e *Executor) doSee(s walk.Step) error {
 	if e.numbers == nil {
 		e.numbers = map[string]float64{}
 	}
+	// ONLY WHAT `of:` ASKED FOR IS BOUND, AND THAT IS A CORRECTION.
+	//
+	// It used to bind all seven unconditionally, with the reasoning "a `want:` that names `spread`
+	// should not depend on whether `of:` listed it". MEASURED what that cost: a `see: {reference:}`
+	// binds one number and asks one question, and its reading carried EIGHT - so
+	// `check: {from: shot}` was ambiguous and refused:
+	//
+	//	`check: from: shot` names a reading with 8 numbers (shot.min, shot.max, shot.similarity,
+	//	shot.mean, shot.spread, shot.sat, shot.flat_rows, shot.rows)
+	//
+	// A file says `of: [mean, spread]` because those are the two it means. Binding the other five
+	// answered questions nobody asked and made the name of the reading mean nothing in particular.
 	set := func(k string, v float64) { e.numbers[name+"."+k] = v }
-	// EVERY NUMBER IS ALWAYS BOUND, so a `want:` that names `spread` does not depend on whether the
-	// `of:` list happened to include it. `of:` says which numbers the READER cares about; binding all
-	// of them costs nothing and removes a way for two steps to disagree about what is measurable.
-	set("mean", r.Mean)
-	set("spread", r.Spread)
-	set("sat", r.Sat)
-	set("flat_rows", float64(r.FlatRows))
-	set("rows", float64(r.Rows))
-	set("min", r.Min)
-	set("max", r.Max)
+	wanted := map[string]bool{}
+	for _, w := range ofRaw {
+		wanted[fmt.Sprint(w)] = true
+	}
+	bind := func(k string, v float64) {
+		if wanted[k] {
+			set(k, v)
+		}
+	}
+	bind("mean", r.Mean)
+	bind("spread", r.Spread)
+	bind("sat", r.Sat)
+	bind("flat_rows", float64(r.FlatRows))
+	bind("rows", float64(r.Rows))
+	bind("min", r.Min)
+	bind("max", r.Max)
 
 	// `similarity` IS A MEASUREMENT, NOT A VERDICT, AND THAT IS WHERE IT BELONGS.
 	//
