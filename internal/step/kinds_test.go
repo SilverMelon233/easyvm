@@ -60,6 +60,9 @@ func TestEveryKindAcceptsItsShapesAndRefusesTheOthers(t *testing.T) {
 // SO A KEY LANDING HERE IS A DECISION, and it does not get to make it silently: this test fails
 // until somebody writes the reason below.
 var kindAnyReasons = map[string]string{
+	"esp_fallback": "a STRING naming the disk (`disk`), or a MAPPING {disk, from}. The flat form " +
+		"is what the only file uses and the mapping form is what a reader should write, so both are " +
+		"accepted; the two differ in structure rather than in value type.",
 	"scp": "a LIST [local-file, remote-path], or a MAPPING {template, to}. The two are not the same " +
 		"shape in the way a number and a template string are - one names two ends, the other names " +
 		"a file to RENDER and one end. Measured: 24 of the list form, 12 of the mapping form.",

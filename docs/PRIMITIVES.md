@@ -44,7 +44,7 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 | `wait_until` | `stopped` | wait for the machine's process to go | 0 |
 | `disk` | mapping | the file `boot:` starts from | 29 |
 | `compress` | path | flatten the overlay into an artifact | 49 |
-| `esp_fallback` | disk | copy a disk's EFI loader to `\EFI\BOOT` and repair its search | 1 |
+| `esp_fallback` | disk / `{disk, from}` | copy a disk's EFI loader to `\EFI\BOOT` and repair its search | 1 |
 
 ## 1.2 Input — the pointer and the keyboard
 

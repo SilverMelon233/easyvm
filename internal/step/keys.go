@@ -530,11 +530,31 @@ var Keys = map[string]Key{
 	// This step copies the loader tree to that path and rewrites the config's `search.fs_uuid`, a
 	// UUID recorded BEFORE the installer formatted the partition - so it names a filesystem that no
 	// longer exists.
-	"esp_fallback": {Name: "esp_fallback", Kind: KindString,
-		Summary: "copy a disk's EFI loader tree to \\EFI\\BOOT and repair its config search; the " +
-			"value is the disk, or `disk` for the one this stage built"},
+	// `esp_fallback` IS ONE ACTION WITH TWO ARGUMENTS, AND THEY WERE TWO KEYS AT THE SAME LEVEL.
+	//
+	//	esp_fallback: disk             which disk to repair
+	//	esp_from: /EFI/BLISSOS         where the loader is inside its ESP
+	//
+	// SIBLING KEYS LOOK LIKE TWO ACTIONS. `esp_from:` read as something a step could do on its own,
+	// and `boot`'s `os:`/`iso:` have the same shape for the same reason - the vocabulary has no
+	// nesting, so an argument is a key beside its action. That is what `Consumes` in roles.go exists
+	// to declare, and what makes `esp_from:` an ARGUMENT rather than a second action.
+	//
+	// THE MAPPING FORM IS BETTER AND IS NOW ACCEPTED:
+	//
+	//	esp_fallback: {disk: disk, from: /EFI/BLISSOS}
+	//
+	// A reader sees one thing with two settings rather than two adjacent words whose relationship is
+	// only in the prose. The flat form still works, because files use it.
 	"esp_from": {Name: "esp_from", Kind: KindString,
-		Summary: "with esp_fallback: the loader directory inside the ESP, default /EFI/BLISSOS"},
+		Summary: "with the FLAT form of `esp_fallback:`: the loader directory inside the ESP, as " +
+			"in `esp_from: /EFI/BLISSOS`. Required - there is no default, because a distribution's " +
+			"own name in a primitive is wrong for the next guest. Prefer " +
+			"`esp_fallback: {disk, from}`"},
+	"esp_fallback": {Name: "esp_fallback", Kind: KindAny,
+		Summary: "copy a disk's EFI loader tree to \\EFI\\BOOT and repair its config search. " +
+			"The value is the disk (`disk` for the one this stage built) or {disk, from}, where " +
+			"`from` is the loader directory inside the ESP"},
 	// --- the three-step model ---------------------------------------------------------------
 	//
 	// ONE OCR STEP, ONE CONDITION STEP, AND A LOOP THAT NAMES ALL THREE. The six keys they replace
