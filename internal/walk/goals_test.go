@@ -2089,7 +2089,20 @@ func TestAConditionDoesNotCarryATimeout(t *testing.T) {
 			}
 			if cond {
 				checked++
+				// `until: {from: console}` IS THE ONE CONDITION THAT MAY CARRY `timeout:` AND
+				// `poll:`, BECAUSE ITS SOURCE IS A FILE THAT GROWS. There is no "read it once" that
+				// means anything for a serial log, so the poll is the operation rather than a hidden
+				// retry around it - and the step says `from: console`, so a reader sees why.
+				console := false
+				if v, ok := m["from"]; ok {
+					if str, ok := v.(string); ok && str == "console" {
+						console = true
+					}
+				}
 				for _, k := range []string{"timeout", "poll", "keep_alive"} {
+					if console {
+						break
+					}
 					if _, ok := m[k]; ok {
 						t.Errorf("%s: %s has a condition with %q. A retry is a `loop:` with "+
 							"`max:`, `do:`, `ocr:`, `check:` and `until: {fact: ...}` - a `timeout:` "+

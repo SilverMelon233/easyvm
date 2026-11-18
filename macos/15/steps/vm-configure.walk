@@ -75,18 +75,11 @@ walkthrough "macos 15 - configure the vm (share, login hook, guest agent)"
   step "show what the guest sees at the share"
     ssh == sh -c 'curl -fsS --max-time 20 http://172.30.0.1:8080/shared/ 2>&1 | head -20; echo "fetch exit = $?"'
     timeout == 120
-  step "write the launcher"
-    os == macos
-    timeout == 60
-    write == launcher
-  step "write the login agent plist"
-    timeout == 60
-    write == macos_agent_plist
   step "copy the launcher in"
-    scp == [bootstrap-launcher.sh, /tmp/bootstrap-launcher.sh]
+    scp == {template: launcher, to: /tmp/bootstrap-launcher.sh}
     timeout == 300
   step "copy the login agent plist in"
-    scp == [org.vm.bootstrap.plist, /tmp/bootstrap.plist]
+    scp == {template: macos_agent_plist, to: /tmp/bootstrap.plist}
     timeout == 300
   step "install the login agent"
     ssh == "set -e\nlaunchd_home=$(eval echo \"~$(id -un)\")\nmkdir -p \"$launchd_home/Library/LaunchAgents\"\ncp /tmp/bootstrap-launcher.sh \"$launchd_home/bootstrap-launcher.sh\"\nchmod +x \"$launchd_home/bootstrap-launcher.sh\"\nsed 's|__LAUNCHER__|'\"$launchd_home\"'/bootstrap-launcher.sh|' /tmp/bootstrap.plist > \"$launchd_home/Library/LaunchAgents/org.vm.bootstrap.plist\"\necho INSTALLED_FOR_NEXT_LOGIN\n"
@@ -127,8 +120,12 @@ walkthrough "macos 15 - configure the vm (share, login hook, guest agent)"
   step "prove the machine will not go to sleep"
     ssh == "pmset -g custom | grep -iE \"displaysleep|sleep\" | head -4; defaults -currentHost read com.apple.screensaver idleTime\n"
     timeout == 120
-  step "stop the machine"
-    shutdown == ssh
+  step "ask the guest to power off"
+    ssh == poweroff
+    timeout == 300
+    optional == true
+  step "wait for the machine to stop"
+    shutdown == wait
     timeout == 300
   step "publish the disk"
     compress == '{{ out }}'

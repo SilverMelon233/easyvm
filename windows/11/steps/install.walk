@@ -28,7 +28,8 @@ walkthrough "windows 11 - install to a desktop"
   step "wait for the firmware to offer the DVD"
     blind_after == 60
     timeout == 180
-    until_console == DVD-ROM
+    until == DVD-ROM
+    from == console
   press Escape, waiting 1s, named "press a key so the loader takes it"
   press Escape, waiting 1s, named "press it again, because the prompt is emitted more than once"
   press Escape, waiting 2s, named "and once more, for a loader that was not listening yet"

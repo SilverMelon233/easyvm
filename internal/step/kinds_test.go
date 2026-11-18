@@ -53,25 +53,45 @@ func TestEveryKindAcceptsItsShapesAndRefusesTheOthers(t *testing.T) {
 	}
 }
 
-// `KindAny` IS EMPTY, AND THAT IS THE RESULT RATHER THAN AN ACCIDENT.
+// `KindAny` IS FOR A KEY WHOSE TWO FORMS DIFFER IN STRUCTURE, AND EACH USE MUST BE ARGUED FOR HERE.
 //
-// It held ten keys. Measured one at a time against the loaded tree, EVERY ONE was a declaration that
-// had drifted from what its executor accepts - `desktop` was called a mapping and is a string,
-// `at_color` was called a rectangle and is an [r,g,b] triple, `boot` was called a mapping and is a
-// bool whose `os:`/`iso:` are SIBLING keys. None of them needed a "more than one shape" kind.
+// It held ten keys once. Measured one at a time against the loaded tree, EVERY ONE of those ten was
+// a declaration that had drifted from what its executor accepts - `desktop` was called a mapping and
+// is a string, `at_color` was called a rectangle and is an [r,g,b] triple, `boot` was called a
+// mapping and is a bool whose `os:`/`iso:` are SIBLING keys. None of them needed this kind.
 //
-// A KEY LANDING HERE IS A DECISION, so this test fails until somebody records it: the kind is the
-// weakest one - "the executor decides" - and it should cost a line of justification to use.
+// SO A KEY LANDING HERE IS A DECISION, and it does not get to make it silently: this test fails
+// until somebody writes the reason below.
+var kindAnyReasons = map[string]string{
+	"scp": "a LIST [local-file, remote-path], or a MAPPING {template, to}. The two are not the same " +
+		"shape in the way a number and a template string are - one names two ends, the other names " +
+		"a file to RENDER and one end. Measured: 24 of the list form, 12 of the mapping form.",
+}
+
 func TestNoKeyIsUncheckedWithoutAReason(t *testing.T) {
-	var found []string
+	var unjustified []string
 	for name, key := range Keys {
-		if key.Kind == KindAny {
-			found = append(found, name)
+		if key.Kind != KindAny {
+			continue
+		}
+		if _, ok := kindAnyReasons[name]; !ok {
+			unjustified = append(unjustified, name)
 		}
 	}
-	if len(found) != 0 {
-		t.Fatalf("`KindAny` is on %v. Every key it used to hold turned out to be a MISTYPED "+
-			"DECLARATION rather than a key with two structural forms - measure the shapes the loader "+
-			"produces before adding one here", found)
+	if len(unjustified) > 0 {
+		t.Fatalf("`KindAny` is on %v with no reason recorded in kindAnyReasons. Every key it held "+
+			"before was a MISTYPED DECLARATION rather than a key with two structural forms - so "+
+			"measure the shapes the loader produces and write down why they cannot be one", unjustified)
+	}
+	// AND THE OTHER DIRECTION: a reason for a key that is no longer KindAny is a stale argument.
+	for name := range kindAnyReasons {
+		key, ok := Keys[name]
+		if !ok {
+			t.Errorf("kindAnyReasons explains `%s:`, which is not a key", name)
+			continue
+		}
+		if key.Kind != KindAny {
+			t.Errorf("kindAnyReasons explains `%s:` as multi-shaped, and its Kind is %s", name, key.Kind)
+		}
 	}
 }

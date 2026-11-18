@@ -49,8 +49,12 @@ walkthrough "linux-ubuntu - sshd"
   step "prove the account over ssh"
     ssh == id -un; hostname
     timeout == 120
-  step "stop the machine"
-    shutdown == ssh
+  step "ask the guest to power off"
+    ssh == poweroff
+    timeout == 300
+    optional == true
+  step "wait for the machine to stop"
+    shutdown == wait
     timeout == 300
   step "publish the disk"
     compress == '{{ out }}'

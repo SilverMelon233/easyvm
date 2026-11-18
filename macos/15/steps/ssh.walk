@@ -76,8 +76,12 @@ walkthrough "macos 15 ssh - the setup assistant, remote login, and a graceful sh
     ssh == printf '%s\n' "{{ password }}" | sudo -S scutil --set LocalHostName {{ user }}
   step "note what is absent"
     ssh == command -v brew || true
-  step "stop the machine"
-    shutdown == ssh
+  step "ask the guest to power off"
+    ssh == poweroff
+    timeout == 300
+    optional == true
+  step "wait for the machine to stop"
+    shutdown == wait
     timeout == 300
   step "publish the disk"
     compress == '{{ out }}'

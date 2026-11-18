@@ -72,18 +72,11 @@ walkthrough "windows 11 - configure the vm (share, logon hook)"
   step "show what the guest sees at the share"
     ssh == powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 'http://172.30.0.1:8080/shared/').Content; Write-Output ('fetch exit = ' + $LASTEXITCODE)"
     timeout == 120
-  step "write the launcher"
-    os == windows
-    timeout == 60
-    write == launcher
-  step "write the task registration script"
-    timeout == 60
-    write == windows_task
   step "copy the launcher in"
-    scp == [bootstrap-launcher.ps1, "C:/Users/{{ user }}/bootstrap-launcher.ps1"]
+    scp == {template: launcher, to: "C:/Users/{{ user }}/bootstrap-launcher.ps1"}
     timeout == 300
   step "copy the task registration script in"
-    scp == [bootstrap-install.ps1, "C:/Users/{{ user }}/bootstrap-install.ps1"]
+    scp == {template: windows_task, to: "C:/Users/{{ user }}/bootstrap-install.ps1"}
     timeout == 300
   step "register the logon task"
     ssh == "powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/{{ user }}/bootstrap-install.ps1\n"
@@ -97,8 +90,12 @@ walkthrough "windows 11 - configure the vm (share, logon hook)"
   step "prove all four winlogon values are what an unattended boot needs"
     ssh == "powershell -NoProfile -Command \"$k = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'; $w = Get-ItemProperty -Path $k; Write-Output ('AutoAdminLogon    = ' + $w.AutoAdminLogon); Write-Output ('DefaultUserName   = ' + $w.DefaultUserName); Write-Output ('DefaultDomainName = ' + $w.DefaultDomainName); if ($w.DefaultPassword) { Write-Output 'DefaultPassword   = present'; Write-Output PASSWORD_PRESENT } else { Write-Output 'DefaultPassword   = MISSING'; Write-Output PASSWORD_MISSING; exit 1 }\"\n"
     timeout == 120
-  step "stop the machine"
-    shutdown == ssh
+  step "ask the guest to power off"
+    ssh == poweroff
+    timeout == 300
+    optional == true
+  step "wait for the machine to stop"
+    shutdown == wait
     timeout == 300
   step "publish the disk"
     compress == '{{ out }}'

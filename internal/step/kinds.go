@@ -81,6 +81,13 @@ func checkKind(key Key, value any) error {
 		}
 	case KindColor:
 		return checkNumbers(key, value, 3, "[r, g, b]")
+	case KindAny:
+		// A KEY THAT REACHES HERE OWES A CHECK OF ITS OWN, because `KindAny` means "the executor
+		// decides" and an unvalidated key is what this package exists to stop.
+		if key.Name == "scp" {
+			return checkSCP(key, value)
+		}
+		return nil
 	case KindRecord:
 		// A FILE NAME STARTS A RECORDING AND `false` STOPS IT. A number is neither.
 		switch value.(type) {
@@ -166,4 +173,41 @@ func asFloat(v any) (float64, bool) {
 		return t, true
 	}
 	return 0, false
+}
+
+// checkSCP accepts the two forms `scp:` has, and nothing else.
+//
+//	[x, y]                          a list of exactly two names
+//	{template: KIND, to: REMOTE}    a bootstrap file to render and one destination
+func checkSCP(key Key, value any) error {
+	switch v := value.(type) {
+	case []any:
+		if len(v) != 2 {
+			return expect(key, "[local-file, remote-path] - 2 names", value)
+		}
+		for _, item := range v {
+			if str, ok := item.(string); !ok || strings.TrimSpace(str) == "" {
+				return expect(key, "[local-file, remote-path] - 2 names", value)
+			}
+		}
+		return nil
+	case map[string]any:
+		kind, _ := v["template"].(string)
+		to, _ := v["to"].(string)
+		if strings.TrimSpace(kind) == "" || strings.TrimSpace(to) == "" {
+			return expect(key, "{template: KIND, to: REMOTE} - both are required", value)
+		}
+		for k := range v {
+			if k != "template" && k != "to" {
+				return fmt.Errorf("`scp:` has no key %q; the mapping form is {template, to}", k)
+			}
+		}
+		switch kind {
+		case "launcher", "macos_agent_plist", "windows_task":
+			return nil
+		}
+		return fmt.Errorf("`scp: {template: %s}` is not a file this build writes; the kinds are "+
+			"launcher, macos_agent_plist, windows_task", kind)
+	}
+	return expect(key, "[local-file, remote-path] or {template, to}", value)
 }

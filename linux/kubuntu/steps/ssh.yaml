@@ -93,8 +93,12 @@ steps:
 - name: prove the account over ssh
   ssh: id -un; hostname
   timeout: 120
-- name: stop the machine
-  shutdown: ssh
+- name: ask the guest to power off
+  ssh: poweroff
+  timeout: 300
+  optional: true
+- name: wait for the machine to stop
+  shutdown: wait
   timeout: 300
 - name: publish the disk
   compress: '{{ out }}'

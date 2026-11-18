@@ -234,8 +234,9 @@ var Keys = map[string]Key{
 			"walkthrough whose job is to prove the vocabulary drives a guest, not to install a " +
 			"distribution through its GUI"},
 	"shutdown": {Name: "shutdown", Kind: KindString,
-		Summary: "a NAMED method: guest_agent, ssh, acpi, or kill; there is no silent fallback " +
-			"between them"},
+		Summary: "a NAMED method: guest_agent, wait, acpi, or kill; there is no silent fallback " +
+			"between them. `wait` sends nothing and only waits for a guest that an earlier " +
+			"`ssh: poweroff` step asked to stop"},
 	"graceful": {Name: "graceful", Kind: KindBool,
 		Summary: "ask the guest to shut down rather than killing it"},
 	"record": {Name: "record", Kind: KindRecord,
@@ -383,10 +384,15 @@ var Keys = map[string]Key{
 		Summary: "with wait_for_change: how long to wait for a change at all"},
 
 	// --- the screen: read --------------------------------------------------------------
-	"until_console": {Name: "until_console", Kind: KindString,
-		Summary: "wait for text in the guest's SERIAL output - the firmware's own words, which " +
-			"a screenshot cannot see. A Windows install ISO prints its boot prompt there and " +
-			"waits five seconds for a key"},
+	// `until_console:` WAS HERE AND IS `until: {from: console}` NOW.
+	//
+	// The two steps differed in ONE thing - where the text came from - and that made a dead key
+	// (`until:` 0 uses) beside a live one (`until_console:` 4). The source is a parameter:
+	//
+	//	until: {from: console, words: [...], timeout: 180, blind_after: 60}
+	//
+	// The serial log is the firmware's own words, which a screenshot cannot see: a Windows install
+	// ISO prints its boot prompt there and waits five seconds for a key.
 	"blind_after": {Name: "blind_after", Kind: KindInt,
 		Summary: "with until_console: go on after this many seconds whether or not the text " +
 			"appeared, for media that boot with no prompt at all"},
@@ -419,11 +425,32 @@ var Keys = map[string]Key{
 	"ssh_after_reboot": {Name: "ssh_after_reboot", Kind: KindBool,
 		Summary: "on a require_ssh: wait out the old daemon first, or the wait passes on the " +
 			"process that is about to die"},
-	"scp": {Name: "scp", Kind: KindList,
-		Summary: "[local-file, remote-path] - copy a script in before running it"},
+	// TWO FORMS, AND THE SECOND REPLACED A STEP.
+	//
+	//	scp: [local-file, remote-path]                    copy a file an earlier step made
+	//	scp: {template: launcher, to: /tmp/x}             RENDER one of this build's bootstrap
+	//	                                                  files and copy it, in one step
+	//
+	// The second exists because all 16 `write:` steps in the tree were followed immediately by the
+	// `scp:` of what they had just written: "make this" and "copy the thing you made" were two
+	// names for one operation.
+	"scp": {Name: "scp", Kind: KindAny,
+		Summary: "copy a file in. [local-file, remote-path], or {template: KIND, to: REMOTE} to " +
+			"render a bootstrap file (launcher, macos_agent_plist, windows_task) and copy it"},
+	// IT IS `scp` PLUS `ssh`, AND IT EARNS THE STEP AT LENGTH.
+	//
+	// `doScript` writes the body on the host, copies it in, and runs it by path - which is exactly
+	// what `scp:` and `ssh:` do in two steps, so this was a candidate for deletion. MEASURED, the
+	// bodies are 400 to 6600 characters and every one carries BOTH quote characters (the largest:
+	// 23 single and 18 double). Inlined into `ssh: "..."` each needs its double quotes escaped, and
+	// `install-powershell-7.ps1` alone would become a 6600-character line with dozens of `\"`.
+	//
+	// SO THE STEP IS THE ESCAPE VALVE: it exists for the case where `ssh:` would be unreadable, and
+	// the file says `{shell, name, body}` instead. A short command belongs in `ssh:`; this is for the
+	// ones that do not fit.
 	"script": {Name: "script", Kind: KindMapping,
-		Summary: "a body written on the host, copied in, and run by path. The guest's " +
-			"interpreter runs it, not ours"},
+		Summary: "a LONG body: written on the host, copied in, and run by path, with no shell " +
+			"escaping. For a command that fits in `ssh:`, write it there instead"},
 	"adb": {Name: "adb", Kind: KindScript,
 		Summary: "a command run over adb IN the guest; Android's remote access is adbd and " +
 			"there is no sshd until a stage installs one"},
@@ -710,6 +737,8 @@ var Keys = map[string]Key{
 	"fetch": {Name: "fetch", Kind: KindString,
 		Summary: "produce one host-side input: an installer image, a guest agent, a firmware, an " +
 			"answer CD. The value names WHAT, not how it is obtained"},
+	"to": {Name: "to", Kind: KindString,
+		Summary: "with `scp: {template: KIND}`: the remote path it is copied to"},
 	"template": {Name: "template", Kind: KindString,
 		Summary: "with `generate: answer_iso`: the answer file to substitute into. It is a path in " +
 			"the repository because the placeholders are the file's vocabulary, not a download"},

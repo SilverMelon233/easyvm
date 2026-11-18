@@ -528,7 +528,8 @@ func parseVerbed(l line, verb, rest string, step map[string]any) (map[string]any
 			if err != nil {
 				return nil, fmt.Errorf("line %d: %w", l.no, err)
 			}
-			step["until_console"] = words[0]
+			step["until"] = words[0]
+			step["from"] = "console"
 			if secs, err := parseTimeoutClause(rest); err == nil && secs > 0 {
 				step["timeout"] = secs
 			}
@@ -547,7 +548,8 @@ func parseVerbed(l line, verb, rest string, step map[string]any) (map[string]any
 			if err != nil {
 				return nil, fmt.Errorf("line %d: %w", l.no, err)
 			}
-			step["until_console"] = words[0]
+			step["until"] = words[0]
+			step["from"] = "console"
 			step["timeout"] = 180
 			return step, nil
 		}
@@ -965,8 +967,8 @@ func walkVerbFor(key string) (string, bool) {
 		"click": "click", "double": "double", "key": "press", "type": "type", "run": "run",
 		"ssh": "ssh", "settle": "settle", "ocr": "read", "want": "decide",
 		"when": "when", "when_not": "unless", "loop": "repeat",
-		"until_console": "wait for the console to say", "shutdown": "stop",
-		"check": "decide", "screenshot": "screenshot", "compress": "compress",
+		"shutdown": "stop",
+		"check":    "decide", "screenshot": "screenshot", "compress": "compress",
 		"scp":    "scp",
 		"script": "script", "write": "write", "reboot": "reboot",
 		"require_ssh": "require_ssh", "see": "read", "fetch": "fetch", "esp_fallback": "esp_fallback",

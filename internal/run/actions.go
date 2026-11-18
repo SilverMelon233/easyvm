@@ -688,6 +688,27 @@ func (e *Executor) doSCP(s walk.Step) error {
 	if client == nil {
 		return fail(s.Name, "no ssh connection; a `require_ssh:` step must come first")
 	}
+	// `scp: {template: launcher, to: /tmp/x}` IS THE ONE-STEP FORM, and it replaces a `write:` step
+	// plus the `scp:` that copied what it wrote. Measured: all 16 `write:` steps were followed
+	// immediately by exactly that `scp:`.
+	if m, ok := s.Spec["scp"].(map[string]any); ok {
+		kind, _ := m["template"].(string)
+		remote, _ := m["to"].(string)
+		if kind == "" || remote == "" {
+			return fail(s.Name, "`scp:` as a mapping needs `template:` (what to render) and "+
+				"`to:` (where it goes): `scp: {template: launcher, to: /tmp/bootstrap-launcher.sh}`")
+		}
+		local, err := e.writeTemplate(s, kind)
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(e.Work, local)
+		if err := scpFile(client, path, remote); err != nil {
+			return fail(s.Name, "scp %s -> %s: %v", local, remote, err)
+		}
+		e.Driver.Log(fmt.Sprintf("  scp: %s (%s) -> %s", local, kind, remote))
+		return nil
+	}
 	raw, ok := s.Spec["scp"].([]any)
 	if !ok || len(raw) != 2 {
 		return fail(s.Name, "`scp:` must be [local-file, remote-path]")
@@ -902,12 +923,27 @@ func (e *Executor) doWrite(s walk.Step) error {
 	if kind == "" {
 		return fail(s.Name, "`write:` must name a file kind")
 	}
+	name, err := e.writeTemplate(s, kind)
+	if err != nil {
+		return err
+	}
+	e.Driver.Log(fmt.Sprintf("  wrote %s; the scp: step after this copies it in", name))
+	return nil
+}
+
+// writeTemplate renders one bootstrap file into the work directory and returns its name.
+//
+// IT IS SHARED WITH `scp:`'s `template:` ARGUMENT, because `write:` AND THE `scp:` AFTER IT WERE
+// ALWAYS ONE OPERATION. Measured over the tree: all 16 `write:` steps are followed immediately by
+// the `scp:` that copies the same file in, so a file said "make this" and then "copy the thing you
+// just made" - two names for one fact, and a reader cannot see the file's content without opening
+// Go. `scp: {template: launcher, to: /tmp/x}` is one step that says both.
+func (e *Executor) writeTemplate(s walk.Step, kind string) (string, error) {
 	family := s.Get("family")
 	if family == "" {
 		family = s.Get("os")
 	}
 	if family == "" && e.File != nil {
-		// The walkthrough's own os, from its first boot step, if it names one.
 		for _, other := range e.File.Steps {
 			if v := other.Get("os"); v != "" {
 				family = v
@@ -942,22 +978,18 @@ func (e *Executor) doWrite(s walk.Step) error {
 		body, name = bootstrap.WindowsTaskScript(
 			"C:/Users/"+e.userForPaths()+"/bootstrap-launcher.ps1"), "bootstrap-install.ps1"
 	default:
-		return fail(s.Name, "`write: %s` is not a file this build writes; the kinds are "+
+		return "", fail(s.Name, "`%s` is not a file this build writes; the kinds are "+
 			"launcher, macos_agent_plist, windows_task", kind)
 	}
 
 	path := filepath.Join(e.Work, name)
 	if err := os.MkdirAll(e.Work, 0o755); err != nil {
-		return fail(s.Name, "%v", err)
+		return "", fail(s.Name, "%v", err)
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		return fail(s.Name, "writing %s: %v", name, err)
+		return "", fail(s.Name, "writing %s: %v", name, err)
 	}
-	// THE PATH IS LOGGED because the `scp:` that follows names it, and a mismatch between the two
-	// is the failure this split exists to make visible.
-	e.Driver.Log(fmt.Sprintf("  wrote %s (%d bytes); the scp: step after this copies it in",
-		path, len(body)))
-	return nil
+	return name, nil
 }
 
 func (e *Executor) userForPaths() string {

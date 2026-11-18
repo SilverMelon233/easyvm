@@ -277,10 +277,24 @@ func (e *Executor) readCrop(crop image.Image, label string) ([]string, error) {
 // words, checked once. `timeout:` and `poll:` are refused with it, because accepting them would
 // restore the loop this replaced.
 func (e *Executor) doUntil(s walk.Step) error {
+	// `from: console` IS THE SERIAL LOG, AND IT IS A PARAMETER RATHER THAN A SECOND KEY.
+	//
+	// `until_console:` WAS ITS OWN STEP with its own do* function, and the two differed in ONE thing:
+	// where the text was read. The console wait polls a file for `timeout:` seconds and matches a
+	// substring; the screen wait reads once and matches words. That made `until:` a dead key (0 uses)
+	// beside a live twin (4), and two functions to keep in step.
+	//
+	// THE CONSOLE PATH KEEPS ITS OWN POLLING because a serial log is a FILE that grows: there is no
+	// "read it once" that means anything, so `timeout:`, `poll:` and `blind_after:` are legal here
+	// and refused for the screen.
+	if s.Get("from") == "console" {
+		return e.untilConsole(s)
+	}
 	if s.Has("timeout") || s.Has("poll") {
 		return fail(s.Name, "`until:` is ONE measurement and takes no `timeout:` or `poll:`. A "+
 			"retry is a `loop:` - with `do:`, `ocr:`, `check:` and `until: {fact: ...}` - so the "+
-			"file says how many times it will look and what it waits between")
+			"file says how many times it will look and what it waits between. For a serial log, "+
+			"which grows, say `from: console`")
 	}
 	if s.Has("keep_alive") {
 		return fail(s.Name, "`keep_alive:` belonged to the retrying `until:`. A loop that has to "+
@@ -846,10 +860,10 @@ func ConsolePath(work string) string { return filepath.Join(work, "console.log")
 // OCR STILL HAS ITS PLACE IN THIS STAGE, one step later: `until:` on the installer's first pane is
 // how the run confirms it actually reached Setup. That is a question about a screen, which is what
 // OCR is for; this step is a question about a five-second firmware window, which is not.
-func (e *Executor) doUntilConsole(s walk.Step) error {
-	want := s.Get("until_console")
+func (e *Executor) untilConsole(s walk.Step) error {
+	want := s.Get("until")
 	if want == "" {
-		return fail(s.Name, "`until_console:` must name the text to wait for")
+		return fail(s.Name, "`until: {from: console}` must name the text to wait for")
 	}
 	timeout := seconds(s, "timeout", 180)
 	poll := seconds(s, "poll", 1)

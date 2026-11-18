@@ -179,6 +179,7 @@ the measuring machine and wrong on the runner.
 | `disk_gpt`, `disk_esp_mib` | `disk` | the target's layout | 2 |
 | `disk_settle`, `disk_min_mb` | `disk_settle` | wait for the disk to stop growing | 12 |
 | `esp_from` | `esp_fallback` | the loader directory inside the ESP | 1 |
+| `template`, `to` | `scp` | render one bootstrap file and copy it in one step | 0 |
 | `ssh_probe`, `ssh_after_reboot` | `require_ssh` | how to probe, and whether to wait out the old daemon | 11 |
 | `adb_connect`, `adb_privileged` | `adb` | connection and privilege | 2 |
 | `rect`, `rect_at`, `of` | `see`, `ocr` | where to read, the size a pixel rect was measured at, what to bind | 291 |
@@ -190,7 +191,7 @@ the measuring machine and wrong on the runner.
 | `do`, `until`, `max`, `fact` | `loop` | the action, the stop test, the ceiling | 79 |
 | `then`, `else` | `if` | the branches | 21 |
 | `template`, `release`, `recovery` | `fetch` | inputs to one asset build | 5 |
-| `until_console`, `blind_after` | step | wait on serial output | 2 |
+| `blind_after` | step | with `until: {from: console}`: go on after this long with no text | 2 |
 | `mode`, `words`, `without`, `text`, `pattern`, `range`, `from` | `check` | the older single-comparison form, retained while files still use it | 46 |
 
 # 6. File header — not step keys (5 rows, 7 names)
@@ -257,6 +258,7 @@ name, and they keep working because the executor reads both.
 | `press`, `sweep` | 0 | `at_button:`, `loop: {do: [{click: …}]}` — **DEAD** |
 | `demo_script` | 0 | `write:` — **DELETED**: zero uses and it only ever answered `notImplemented` |
 | `host_log`, `line_gap`, `adb_serial`, `share_dir`, `end`, `stuck_after`, `as`, `cpus` | 0 | — **DEAD** |
+| `until_console` | 0 | `until: {from: console}` - **DELETED**: it was `until:` with a different source, which is a parameter |
 | `host_log` (step) | 0 | — **DELETED**: zero uses and no branch remains |
 | `share_serve`, `share_mount`, `share_family` | 0 | the share is always on - **DELETED**: `share_mount:` had not mounted since the transport became HTTP, `share_serve:` set one variable, and `share_family:`'s `macos` and `linux` took the same branch |
 | `keep_alive` | 0 | the wake is unconditional — **MIGRATED** |

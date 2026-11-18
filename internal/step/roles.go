@@ -157,7 +157,6 @@ var Roles = map[string]Role{
 	"change_timeout":  RoleArgument,
 
 	// --- the screen: read ---------------------------------------------------------------
-	"until_console":    RoleAction,
 	"blind_after":      RoleArgument,
 	"until":            RoleAction,
 	"until_dark":       RoleAction,
@@ -234,6 +233,7 @@ var Roles = map[string]Role{
 	"colour":       RoleSubkey,
 	"any_of":       RoleSubkey,
 	"from":         RoleSubkey,
+	"to":           RoleSubkey, // `scp: {template, to}` at step level
 	"all":          RoleSubkey,
 	"any":          RoleSubkey,
 	"not":          RoleSubkey,
@@ -264,6 +264,8 @@ var Consumes = map[string][]string{
 	"check":    {"mode", "words", "without", "range", "text", "pattern", "as", "from"},
 	"desktop":  {"os", "timeout"},
 	"adb":      {"adb_serial"},
+	"until":    {"from", "blind_after", "poll", "as"},
+	"scp":      {"template", "to"},
 }
 
 // ActionsIn says which step-level keys would start work in this step, IN DISPATCH ORDER.
@@ -337,7 +339,7 @@ func plural(n int) string {
 var dispatchOrder = []string{
 	"boot", "boot_from", "shutdown", "disk", "record", "compress",
 	"see", "want", "check", "loop", "if", "needs", "require", "require_ssh", "ssh",
-	"when", "do", "when_not", "when_not_any", "until_console",
+	"when", "do", "when_not", "when_not_any",
 	"until", "until_any", "run", "esp_fallback", "adb_connect", "adb_privileged", "adb",
 	"at_color", "at_bottom", "at_button", "disk_settle", "screenshot", "write",
 	"fetch", "asset", "build", "generate",

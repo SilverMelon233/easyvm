@@ -311,8 +311,8 @@ func (e *Executor) runOne(s walk.Step) error {
 			return err
 		}
 		return e.dispatchRest(s)
-	case s.Has("until_console"):
-		return e.doUntilConsole(s)
+	// `until:` IS ONE KEY AND TWO SOURCES: the screen (a single reading) or the serial log (a file
+	// that grows, so it polls). See doUntil's `from:` branch.
 	case s.Has("until") || s.Has("until_any"):
 		return e.doUntil(s)
 	// `run` BEFORE `expect`, AND THAT ORDER IS THE FIX RATHER THAN A PREFERENCE.

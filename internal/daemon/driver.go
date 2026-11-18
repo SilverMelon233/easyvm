@@ -1049,17 +1049,22 @@ func (m machineControl) Stop(method string, grace time.Duration) error {
 		// `windows-ssh` and every throwaway overlay here.
 		d.logf("  killing the guest")
 		killNow = true
+	case "wait":
+		// THE GUEST WAS ASKED TO STOP BY SOMETHING ELSE - a `ssh: poweroff` step - AND THIS WAITS FOR
+		// IT TO GO.
+		//
+		// `ssh` WAS A METHOD HERE AND IT SENT THE REQUEST AS WELL, WHICH MADE THE SHUTDOWN A SECOND
+		// WAY TO RUN ONE COMMAND. Every Linux and BSD file used it to deliver `poweroff`, which is a
+		// fact about the guest rather than about the machine, so it belongs in an `ssh:` step where a
+		// reader can see it. What CANNOT be written as `ssh:` is waiting for qemu to exit - the
+		// connection dies before the process does - and that is all this method does now.
+		//
+		// IT DOES NOT SEND ANYTHING. A file that says `shutdown: wait` without an earlier
+		// `ssh: poweroff` waits out the grace and then reports it, which is the honest outcome.
+		d.logf("  waiting for the guest to power off")
 	case "ssh":
-		// THE GUEST SHUTS ITSELF DOWN, AND THE FILESYSTEM IT IS ABOUT TO PUBLISH IS CLOSED.
-		//
-		// This is the method every Linux and BSD `vm-configure` file names, and it was not
-		// implemented - so a stage that had done all its work failed on its LAST step:
-		//
-		//	stop the machine: shutdown method "ssh" is not implemented in this build; `kill` is
-		//
-		// A KILL IS NOT A SUBSTITUTE HERE. The disk this stage produces is the artifact, and a killed
-		// guest leaves a filesystem that has to replay a journal on the next boot - which reads, in
-		// the next stage's log, as a slow boot rather than as a torn disk.
+		// KEPT FOR A FILE THAT WAS NOT PORTED. It is the old one-step form: send `poweroff` and wait.
+		// New files write the two steps, so the command is visible in the file.
 		if err := d.shutdownOverSSH(); err != nil {
 			return err
 		}
@@ -1075,7 +1080,9 @@ func (m machineControl) Stop(method string, grace time.Duration) error {
 			return err
 		}
 	default:
-		return fmt.Errorf("%q is not a shutdown method; use guest_agent, ssh, acpi or kill", method)
+		return fmt.Errorf("%q is not a shutdown method; use guest_agent, wait, acpi or kill. To stop "+
+			"a guest over ssh, write the command as its own step: `ssh: poweroff` then "+
+			"`shutdown: wait`", method)
 	}
 	// AND THE PROCESS IS WAITED FOR, WHICHEVER PATH ASKED IT TO STOP. A guest that was asked politely
 	// has to actually exit, or the disk is still open when the next step reads it.

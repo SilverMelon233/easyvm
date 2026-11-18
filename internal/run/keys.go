@@ -32,7 +32,7 @@ func ExecutableKeys() []string {
 		// are an ARGUMENT of `run:` and `doRun` calls `doExpectAny` after the typing, because a
 		// branch at the top level would take a step that both types and checks and run only the
 		// check.
-		"until", "until_any", "until_console", "at_color",
+		"until", "until_any", "at_color",
 		"at_button", "at_bottom", "run", "disk_settle", "do",
 		// A DISK EDIT, NOT A GUEST ACTION. It has its own branch because the guest it belongs to has
 		// usually just been shut down - qemu holds the qcow2's write lock while it runs.
