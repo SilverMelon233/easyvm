@@ -110,15 +110,20 @@ steps:
   # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
   # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
   #
-  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
-  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
-  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
-  # it and is what a whole-frame search found, is outside.
+  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
+  #
+  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
+  #   rgb(144,207,176) 1947 px  <- the fill
+  #   rgb(166,217,192)   70 px  <- its antialiased edge
+  #
+  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
+  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
+  # The region still stops at y=980 so the dock, below it, is outside.
   at_color:
-  - 96
-  - 208
-  - 216
-  color_tolerance: 40
+  - 144
+  - 207
+  - 176
+  color_tolerance: 30
   color_region:
   - 0
   - 0
@@ -135,15 +140,20 @@ steps:
   # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
   # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
   #
-  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
-  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
-  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
-  # it and is what a whole-frame search found, is outside.
+  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
+  #
+  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
+  #   rgb(144,207,176) 1947 px  <- the fill
+  #   rgb(166,217,192)   70 px  <- its antialiased edge
+  #
+  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
+  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
+  # The region still stops at y=980 so the dock, below it, is outside.
   at_color:
-  - 96
-  - 208
-  - 216
-  color_tolerance: 40
+  - 144
+  - 207
+  - 176
+  color_tolerance: 30
   color_region:
   - 0
   - 0
@@ -160,15 +170,20 @@ steps:
   # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
   # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
   #
-  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
-  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
-  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
-  # it and is what a whole-frame search found, is outside.
+  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
+  #
+  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
+  #   rgb(144,207,176) 1947 px  <- the fill
+  #   rgb(166,217,192)   70 px  <- its antialiased edge
+  #
+  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
+  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
+  # The region still stops at y=980 so the dock, below it, is outside.
   at_color:
-  - 96
-  - 208
-  - 216
-  color_tolerance: 40
+  - 144
+  - 207
+  - 176
+  color_tolerance: 30
   color_region:
   - 0
   - 0
@@ -185,15 +200,20 @@ steps:
   # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
   # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
   #
-  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
-  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
-  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
-  # it and is what a whole-frame search found, is outside.
+  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
+  #
+  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
+  #   rgb(144,207,176) 1947 px  <- the fill
+  #   rgb(166,217,192)   70 px  <- its antialiased edge
+  #
+  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
+  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
+  # The region still stops at y=980 so the dock, below it, is outside.
   at_color:
-  - 96
-  - 208
-  - 216
-  color_tolerance: 40
+  - 144
+  - 207
+  - 176
+  color_tolerance: 30
   color_region:
   - 0
   - 0
@@ -215,15 +235,20 @@ steps:
   # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
   # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
   #
-  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
-  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
-  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
-  # it and is what a whole-frame search found, is outside.
+  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
+  #
+  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
+  #   rgb(144,207,176) 1947 px  <- the fill
+  #   rgb(166,217,192)   70 px  <- its antialiased edge
+  #
+  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
+  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
+  # The region still stops at y=980 so the dock, below it, is outside.
   at_color:
-  - 96
-  - 208
-  - 216
-  color_tolerance: 40
+  - 144
+  - 207
+  - 176
+  color_tolerance: 30
   color_region:
   - 0
   - 0
@@ -245,15 +270,20 @@ steps:
   # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
   # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
   #
-  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
-  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
-  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
-  # it and is what a whole-frame search found, is outside.
+  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
+  #
+  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
+  #   rgb(144,207,176) 1947 px  <- the fill
+  #   rgb(166,217,192)   70 px  <- its antialiased edge
+  #
+  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
+  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
+  # The region still stops at y=980 so the dock, below it, is outside.
   at_color:
-  - 96
-  - 208
-  - 216
-  color_tolerance: 40
+  - 144
+  - 207
+  - 176
+  color_tolerance: 30
   color_region:
   - 0
   - 0
@@ -393,15 +423,20 @@ steps:
   # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
   # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
   #
-  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
-  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
-  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
-  # it and is what a whole-frame search found, is outside.
+  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
+  #
+  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
+  #   rgb(144,207,176) 1947 px  <- the fill
+  #   rgb(166,217,192)   70 px  <- its antialiased edge
+  #
+  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
+  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
+  # The region still stops at y=980 so the dock, below it, is outside.
   at_color:
-  - 96
-  - 208
-  - 216
-  color_tolerance: 40
+  - 144
+  - 207
+  - 176
+  color_tolerance: 30
   color_region:
   - 0
   - 0
