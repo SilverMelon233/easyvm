@@ -53,27 +53,25 @@ func TestEveryKindAcceptsItsShapesAndRefusesTheOthers(t *testing.T) {
 	}
 }
 
-// AND ANY KEY WHOSE SHAPES ARE STRUCTURAL SAYS SO, RATHER THAN BEING SILENTLY UNCHECKED.
+// `KindAny` IS EMPTY, AND THAT IS THE RESULT RATHER THAN AN ACCIDENT.
 //
-// `KindAny` is the weakest kind, so the list is pinned: a key added to it without a reason is a key
-// nobody vetted. `boot`, `script` and `rect` are the three whose two forms differ in STRUCTURE rather
-// than in type - a flag beside a mapping with options, a body beside a body with settings, and a name
-// beside two kinds of list.
-func TestTheStructuralKeysAreTheOnesWeThinkTheyAre(t *testing.T) {
-	want := map[string]bool{"boot": true, "script": true, "rect": true}
+// It held ten keys. Measured one at a time against the loaded tree, EVERY ONE was a declaration that
+// had drifted from what its executor accepts - `desktop` was called a mapping and is a string,
+// `at_color` was called a rectangle and is an [r,g,b] triple, `boot` was called a mapping and is a
+// bool whose `os:`/`iso:` are SIBLING keys. None of them needed a "more than one shape" kind.
+//
+// A KEY LANDING HERE IS A DECISION, so this test fails until somebody records it: the kind is the
+// weakest one - "the executor decides" - and it should cost a line of justification to use.
+func TestNoKeyIsUncheckedWithoutAReason(t *testing.T) {
 	var found []string
 	for name, key := range Keys {
 		if key.Kind == KindAny {
 			found = append(found, name)
 		}
 	}
-	if len(found) != len(want) {
-		t.Fatalf("`KindAny` is on %v; it should be on exactly %v - a key whose shapes differ only in "+
-			"TYPE belongs on one of the precise kinds", found, want)
-	}
-	for _, name := range found {
-		if !want[name] {
-			t.Errorf("%q is `KindAny` and this test does not expect it", name)
-		}
+	if len(found) != 0 {
+		t.Fatalf("`KindAny` is on %v. Every key it used to hold turned out to be a MISTYPED "+
+			"DECLARATION rather than a key with two structural forms - measure the shapes the loader "+
+			"produces before adding one here", found)
 	}
 }

@@ -65,14 +65,24 @@ const (
 	// loader substitutes variables after this map is read. `timeout: '{{ boot_timeout }}'` is what
 	// ubuntu and windows ssh legs write.
 	KindTemplated
-	// KindAny is a key with MORE THAN ONE ACCEPTED SHAPE where the shapes are STRUCTURAL, not merely
-	// typed: `boot: true` is a flag and `boot: {os: linux}` is the same key with options;
-	// `script: "..."` is a body and `script: {body, shell, name}` is the same body with settings;
-	// `rect:` is a name, a pixel list or a fraction list.
+	// KindAny is a key with more than one accepted shape. IT IS NOW EMPTY, AND THAT IS THE FINDING.
 	//
-	// IT IS NOT A HOLE - each of these has its own executor reading the shapes - but it is the
-	// weakest of the kinds, and a key belongs here only when its two forms differ in STRUCTURE. A
-	// key whose two forms differ only in TYPE gets its own Kind above (`record`, `timeout`).
+	// IT HELD TEN KEYS AND EVERY ONE WAS A DECLARATION THAT HAD DRIFTED, NOT A KEY THAT NEEDED IT.
+	// Measured on the loaded tree - the shape `Validate` actually sees, after variables are
+	// substituted and after the older names are read under their current ones:
+	//
+	//	boot      bool:55                       one shape (its `os:`/`iso:` are SIBLING keys)
+	//	disk      string:31                     one shape
+	//	script    map{body,name,shell}:16       one shape
+	//	rect      []any[4]:2                    one shape
+	//	desktop   string:21                     one shape
+	//	timeout   int/float64/string:482/6/26   one shape once the {{ }} template is resolved
+	//	record    bool:49 string:51             TWO, and both are statements - see KindRecord
+	//
+	// SO THE TWO KEYS THAT REALLY DO CARRY TWO FORMS HAVE THEIR OWN KINDS AND ARE NOT HERE:
+	// `KindRecord` names its pair (a file name or false) and `KindTemplated` names the template. This
+	// kind stays in the list because a future key may need it, but a key landing here is a DECISION
+	// and `TestTheStructuralKeysAreTheOnesWeThinkTheyAre` fails until somebody records it.
 	KindAny
 )
 
@@ -149,7 +159,7 @@ var Keys = map[string]Key{
 	// --- the machine's own lifecycle ----------------------------------------------------
 	// `boot: true` IS A FLAG AND `boot: {os: linux}` IS THE SAME KEY WITH OPTIONS - both are in the
 	// tree, so the Kind here is `any` and `doBoot` is what reads the two shapes.
-	"boot": {Name: "boot", Kind: KindAny,
+	"boot": {Name: "boot", Kind: KindBool,
 		Summary: "start a machine this file owns; its options include os, cpu, mem_mb, cpus, " +
 			"share, iso, disk, tpm"},
 	"os": {Name: "os", Kind: KindString,
@@ -388,7 +398,7 @@ var Keys = map[string]Key{
 			"process that is about to die"},
 	"scp": {Name: "scp", Kind: KindList,
 		Summary: "[local-file, remote-path] - copy a script in before running it"},
-	"script": {Name: "script", Kind: KindAny,
+	"script": {Name: "script", Kind: KindMapping,
 		Summary: "a body written on the host, copied in, and run by path. The guest's " +
 			"interpreter runs it, not ours"},
 	"adb": {Name: "adb", Kind: KindScript,
@@ -571,7 +581,7 @@ var Keys = map[string]Key{
 		Summary: "a comparison modifier: subtract another reading first, as " +
 			"`{minus: body.mean, greater_than: 40}`"},
 
-	"rect": {Name: "rect", Kind: KindAny,
+	"rect": {Name: "rect", Kind: KindRect,
 		Summary: "with `see:` and `check:`: the region to measure, as a FRACTION of the frame " +
 			"rather than a pixel pair, so it cannot be measured at the wrong size. Forms: " +
 			"`middle`, `top 4.5%`, `bottom 40px`, or [x0, y0, x1, y1] as fractions"},
