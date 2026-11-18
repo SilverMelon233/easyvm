@@ -7,7 +7,11 @@
 // it exists, and the validator refuses anything not on the list.
 package step
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // Key is one accepted field name in a step mapping.
 type Key struct {
@@ -265,8 +269,6 @@ var Keys = map[string]Key{
 			"ACPI handler"},
 	"argv": {Name: "argv", Kind: KindList,
 		Summary: "with `qga: exec`: the program and its arguments, as a list"},
-	"path": {Name: "path", Kind: KindString,
-		Summary: "with `qga: file-read`/`file-write`: the file in the GUEST"},
 	"body": {Name: "body", Kind: KindString,
 		Summary: "with `qga: file-write`: the bytes to put in the guest's file"},
 	"graceful": {Name: "graceful", Kind: KindBool,
@@ -641,73 +643,6 @@ var Keys = map[string]Key{
 	// THE THREE TEXT COMPARISONS ANSWER THREE QUESTIONS, and the split is measured rather than
 	// tidy: `contains:` asks whether the region CONTAINS words, `like:`/`ratio:` asks whether it IS
 	// a sentence, and `fuzzy:` is the tolerance `contains:` needs when a glyph is misread.
-	"contains": {Name: "contains", Kind: KindList,
-		Summary: "with `check: text:`: ALL these words, any order, case and punctuation folded"},
-	"contains_any": {Name: "contains_any", Kind: KindWordSets,
-		Summary: "with `check: text:`: ANY one of these word-sets"},
-	"not_contains": {Name: "not_contains", Kind: KindList,
-		Summary: "with `check: text:`: NONE of these words may be present"},
-	"equals": {Name: "equals", Kind: KindString,
-		Summary: "with `check: text:`: the whole region's text equals this, normalised"},
-	"matches": {Name: "matches", Kind: KindString,
-		Summary: "with `check: text:`: a regular expression over the region's text"},
-	"like": {Name: "like", Kind: KindString,
-		Summary: "with `check: text:`: the whole region is approximately THIS sentence - the " +
-			"only place a ratio belongs, because it needs a long string to be reliable"},
-	"fuzzy": {Name: "fuzzy", Kind: KindInt,
-		Summary: "with `check: text: contains:`: an EDIT DISTANCE per word, 0 (exact) to 2. A " +
-			"distance and not a ratio, because `disk`->`dsk` is one edit and scores 0.750 as a ratio"},
-	"ratio": {Name: "ratio", Kind: KindFloat,
-		Summary: "with `check: text: like:`: how close, 0 to 1. 0.85 separates one misread glyph " +
-			"from a wrong crop"},
-	"mean": {Name: "mean", Kind: KindMapping,
-		Summary: "with `check: colour:`: mean brightness 0..255 over the rect, compared with " +
-			"less_than, greater_than, at_least, at_most, between or equals"},
-	"spread": {Name: "spread", Kind: KindMapping,
-		Summary: "with `check: colour:`: the mean absolute deviation of brightness - what FLAT " +
-			"means. A panel's border measures 0 to 2; a wallpaper 8 or more"},
-	"sat": {Name: "sat", Kind: KindMapping,
-		Summary: "with `check: colour:`: mean HSV saturation 0..1"},
-	"flat_rows": {Name: "flat_rows", Kind: KindMapping,
-		Summary: "with `check: colour:`: how many rows in the rect are ONE COLOUR across its full " +
-			"width - the number that sees a panel whose colour matches its wallpaper"},
-	"contrast": {Name: "contrast", Kind: KindMapping,
-		Summary: "with `check: colour:`: max minus min brightness inside the rect"},
-	"vs": {Name: "vs", Kind: KindMapping,
-		Summary: "with `check: colour:`: compare this rect's number against ANOTHER rect's - " +
-			"`{rect: middle, mean: {greater_than: 40}}` is the panel rule's brightness difference"},
-	"min": {Name: "min", Kind: KindMapping,
-		Summary: "with `check: colour:`: the darkest pixel in the rect"},
-	"less_than": {Name: "less_than", Kind: KindFloat,
-		Summary: "a comparison: < this"},
-	"greater_than": {Name: "greater_than", Kind: KindFloat,
-		Summary: "a comparison: > this"},
-	"at_least": {Name: "at_least", Kind: KindFloat,
-		Summary: "a comparison: >= this"},
-	"at_most": {Name: "at_most", Kind: KindFloat,
-		Summary: "a comparison: <= this"},
-	"between": {Name: "between", Kind: KindPair,
-		Summary: "a comparison: [low, high] inclusive"},
-
-	"rect": {Name: "rect", Kind: KindRect,
-		Summary: "with `see:` and `check:`: the region to measure, as a FRACTION of the frame " +
-			"rather than a pixel pair, so it cannot be measured at the wrong size. Forms: " +
-			"`middle`, `top 4.5%`, `bottom 40px`, or [x0, y0, x1, y1] as fractions"},
-	"rect_at": {Name: "rect_at", Kind: KindPair,
-		Summary: "with a PIXEL `rect:`: [width, height] the rectangle was measured at. A rectangle " +
-			"is pixels on ONE screen, and naming that screen is what lets it be scaled for a guest " +
-			"drawing at another size"},
-	"of": {Name: "of", Kind: KindList,
-		Summary: "with `see:`: which numbers to bind - mean, spread, sat, flat_rows, contrast, " +
-			"min, max, or text"},
-	"colour": {Name: "colour", Kind: KindList,
-		Summary: "with `check:`: a list of pixel criteria, each with its own `rect:` and any of " +
-			"mean, spread, sat, flat_rows, contrast, min, max, vs"},
-	"any_of": {Name: "any_of", Kind: KindList,
-		Summary: "with `check:`: groups of criteria where ONE must pass - the measured panel " +
-			"rule is a disjunction of four shapes, which is what this key exists for"},
-	"from": {Name: "from", Kind: KindString,
-		Summary: "with `check:`: which named reading the older single-comparison form compares"},
 
 	// `settle:` IS `wait:` AND `wait_after:` WITH ONE NAME.
 	//
@@ -742,58 +677,14 @@ var Keys = map[string]Key{
 		Summary: "compare a named reading and bind a BOOLEAN: {name, from, mode, ...}. `mode:` says " +
 			"HOW to compare. `must: true` makes a FALSE answer fail the step, which is what a file " +
 			"means when it says the screen IS the reference"},
-	"must": {Name: "must", Kind: KindBool,
-		Summary: "with `check:`: a FALSE answer fails the step. Without it a check only BINDS the " +
-			"boolean, for an `if:` or a `loop: until:` to consume - and an assertion with no consumer " +
-			"is a step that cannot fail, which is how a run reported 44/44 with a screen matching " +
-			"0.6781 against a floor of 0.97"},
-	"mode": {Name: "mode", Kind: KindString,
-		Summary: "with `check:`: how the reading is compared - says, says_any, says_without, " +
-			"size_between, number_between, equals, contains or matches. The modes are the extension " +
-			"point: a new kind of comparison is a new value, not a new top-level key"},
-	"words": {Name: "words", Kind: KindList,
-		Summary: "with `check: mode: says`/`says_any`/`says_without`: the word list, or a list of " +
-			"word-sets"},
-	"without": {Name: "without", Kind: KindWords,
-		Summary: "with `check: mode: says_without`: words that must NOT be on screen - for a test " +
-			"that has to say \"this page is gone\", which Go's regexp cannot express because RE2 has " +
-			"no lookahead"},
-	"range": {Name: "range", Kind: KindList,
-		Summary: "with `check: mode: size_between`/`number_between`: [low, high]. GB for a size, " +
-			"so a pane printing MB or TB is comparable"},
-	"text": {Name: "text", Kind: KindString,
-		Summary: "with `check: mode: equals`/`contains`: the text to compare against"},
-	"pattern": {Name: "pattern", Kind: KindString,
-		Summary: "with `check: mode: matches`: a regular expression over the normalised reading"},
-	"as": {Name: "as", Kind: KindString,
-		Summary: "bind a condition's result as a named boolean: `until_any: [...] as: up`. The " +
-			"name can then be tested by `if:` and `until: {fact: ...}`. With `unless:` the " +
-			"boolean is TRUE when the words were NOT there"},
 	"if": {Name: "if", Kind: KindString,
 		Summary: "run `then:` when this named boolean is true and `else:` when it is false. The " +
 			"boolean comes from a `check:` step; a branch is a plain step list"},
-	"then": {Name: "then", Kind: KindList,
-		Summary: "with `if:`: the steps to run when the boolean is true"},
-	"else": {Name: "else", Kind: KindList,
-		Summary: "with `if:`: the steps to run when the boolean is false"},
-	"fact": {Name: "fact", Kind: KindString,
-		Summary: "with `until:` inside a loop: the boolean a `check:` step produced. `until:` " +
-			"tests it and can do nothing else - the comparison belongs to `check:`"},
 	"loop": {Name: "loop", Kind: KindMapping,
 		Summary: "the parts written down: `max:`, `do:` (the action), `ocr:` (the reading -> text), " +
 			"`check:` (the comparison -> boolean), `until: {fact: ...}` (tests the boolean). " +
 			"Optionally `every: <seconds>` with `clock: [...]` - an action that runs ONCE when that " +
 			"long has passed, whatever the screen says"},
-	"every": {Name: "every", Kind: KindFloat,
-		Summary: "with `loop:`: seconds after which the `clock:` actions run once, independent of the " +
-			"reading. For a pane that cannot be recognised - a black frame, or OpenCore's boot " +
-			"picker whose labels OCR reads as noise - where the honest stop is the clock"},
-	"clock": {Name: "clock", Kind: KindList,
-		Summary: "with `loop: every:`: the actions to run once when the clock runs out. It is named " +
-			"`clock` because a bare YAML key spelled o-n parses as the boolean true"},
-	"max": {Name: "max", Kind: KindInt,
-		Summary: "with `loop:`: the attempt ceiling. Required, because a loop with no ceiling " +
-			"presses a key until the stage times out"},
 	// THREE KINDS OF HOST-SIDE PREPARATION, AND `fetch:` WAS ALL THREE OF THEM.
 	//
 	// MEASURED FROM THE 23 USES IN THIS REPOSITORY, its eight values did three different jobs:
@@ -814,8 +705,6 @@ var Keys = map[string]Key{
 	"fetch": {Name: "fetch", Kind: KindString,
 		Summary: "produce one host-side input: an installer image, a guest agent, a firmware, an " +
 			"answer CD. The value names WHAT, not how it is obtained"},
-	"to": {Name: "to", Kind: KindString,
-		Summary: "with `scp: {template: KIND}`: the remote path it is copied to"},
 	// `reference:` MAKES THE MEASUREMENT A COMPARISON, AND THE RESULT IS A NUMBER.
 	//
 	//	see: {name: screen, rect: [0,0,1920,1080], reference: reference/desktop.png}
@@ -826,9 +715,6 @@ var Keys = map[string]Key{
 	//
 	// MEASURED over four real CI recordings (ubuntu, windows, macos, freebsd): the same image scores
 	// 1.0000, one second later 0.9910-0.9947, and two different screens 0.0002-0.0166.
-	"reference": {Name: "reference", Kind: KindString,
-		Summary: "with `see:`: an image to compare the rect against, relative to the walkthrough. " +
-			"Binds `<name>.similarity`, 0..1, so a `check: number_between` decides it"},
 	"template": {Name: "template", Kind: KindString,
 		Summary: "with `generate: answer_iso`: the answer file to substitute into. It is a path in " +
 			"the repository because the placeholders are the file's vocabulary, not a download"},
@@ -882,18 +768,97 @@ func Validate(stepName string, mapping map[string]any) error {
 		return err
 	}
 	for name, value := range mapping {
-		key, ok := Keys[name]
+		if key, ok := Keys[name]; ok {
+			// THE NAME IS WHAT THE LOG SAYS, SO IT IS A STRING AND NOTHING ELSE.
+			if name == "name" {
+				continue
+			}
+			if err := checkKind(key, value); err != nil {
+				return fmt.Errorf("step %q: %w", stepName, err)
+			}
+			continue
+		}
+		key, ok := Subkeys[name]
 		if !ok {
 			return fmt.Errorf("step %q has unknown key %q; an unknown key used to mean a step that did nothing",
 				stepName, name)
 		}
-		// THE NAME IS WHAT THE LOG SAYS, SO IT IS A STRING AND NOTHING ELSE.
-		if name == "name" {
-			continue
+		// A SUB-KEY IS ALLOWED HERE ONLY WHEN THE STEP ALSO NAMES WHAT READS IT.
+		//
+		// `rect:` beside `click:` is real: the CLICK does not take a rectangle, the `when_not:` GATE
+		// that qualified it does, and the dispatcher strips the region before the click runs. What is
+		// not real is `{mean: 40}` - a step whose only key is an argument to a question nobody asked.
+		//
+		// BEFORE THE SPLIT BOTH LOADED, and the second one reached the dispatcher, which answered
+		// "no implementation for this step's keys" - a true sentence about a mistake made earlier.
+		owners := OwnersOf(name)
+		if len(owners) == 0 {
+			return fmt.Errorf("step %q writes `%s:`, which is only meaningful INSIDE another key's "+
+				"value (%s). A step cannot say it at its own level", stepName, name, Subkeys[name].Summary)
+		}
+		consumed := false
+		for _, owner := range owners {
+			if _, present := mapping[owner]; present {
+				consumed = true
+			}
+		}
+		if !consumed {
+			return fmt.Errorf("step %q writes `%s:`, which belongs to %s - and this step does not "+
+				"name any of them. A sub-key without its owner reads as a step with no action",
+				stepName, name, quoted(owners))
 		}
 		if err := checkKind(key, value); err != nil {
 			return fmt.Errorf("step %q: %w", stepName, err)
 		}
 	}
 	return nil
+}
+
+// OwnersOf names the keys whose value may legitimately carry this sub-key at step level.
+//
+// IT IS THE INVERSE OF `Consumes`, plus the five keys whose arguments live in the key's own mapping
+// rather than beside it: `loop:` owns `max`/`every`/`clock`/`fact`, `if:` owns `then`/`else`, and
+// `check:` owns `must`. Those are still sub-keys - they are written inside a mapping in every file -
+// but the action that owns them is the one in the step, so a step that names it may carry them.
+func OwnersOf(subkey string) []string {
+	var out []string
+	for action, args := range Consumes {
+		for _, a := range args {
+			if a == subkey {
+				out = append(out, action)
+				break
+			}
+		}
+	}
+	if owners, ok := nestedOwners[subkey]; ok {
+		out = append(out, owners...)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// nestedOwners is the part `Consumes` cannot express: keys written inside another key's MAPPING.
+var nestedOwners = map[string][]string{
+	"max":   {"loop"},
+	"every": {"loop"},
+	"clock": {"loop"},
+	"fact":  {"loop"},
+	"then":  {"if"},
+	"else":  {"if"},
+	"must":  {"check"},
+}
+
+// quoted renders owners as `a:`, `b:` and `c:` for a failure message.
+func quoted(owners []string) string {
+	parts := make([]string, len(owners))
+	for i, o := range owners {
+		parts[i] = "`" + o + ":`"
+	}
+	switch len(parts) {
+	case 1:
+		return parts[0]
+	case 2:
+		return parts[0] + " or " + parts[1]
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
 }

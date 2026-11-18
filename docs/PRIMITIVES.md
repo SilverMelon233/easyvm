@@ -163,40 +163,58 @@ guesses were immediately followed by a real measurement of the same screen. That
 the bug class that failed cachyos and endeavouros on CI, where the guess was right on
 the measuring machine and wrong on the runner.
 
-# 5. Subkeys — written INSIDE another key (15 groups)
+# 5. Subkeys — written INSIDE another key (11 groups)
+
+A SUBCKEY IS NOT A STEP KEY. `mode:` is written inside `check:`, and `rect:` inside `see:`; a step that
+writes one at its own level is a step whose only key is an argument to a question nobody asked. Two
+tables enforce that split - `Keys` for what a step may say, `Subkeys` for what belongs inside a value -
+and `Validate` refuses `{mean: 40}` while accepting `{click: ..., when_not: ..., rect: ...}` (the gate
+reads the region, the click does not).
 
 | key | parent | value | uses |
 |---|---|---|---|
-| `os` | `boot` | `linux` `windows` `macos` `freebsd` `android` | 56 |
-| `cpu` | `boot` | N vCPUs (always `-cpu Skylake-Client-v4`) | 0 |
-| `memory_mb` | `boot` | MiB of RAM | 7 |
-| `microvm` | `boot` | the smallest machine: no firmware, no PCIe, no VGA | new |
-| `kernel`, `initrd` | `boot` | the kernel qemu hands a microvm, because there is no boot sector | new |
-| `iso` | `boot` | the installer medium | 56 |
-| `recovery` | `boot` | macOS's recovery image | 0 |
-| `answer_cd`, `driver_cd` | `boot` | Windows' extra media | 2 |
-| `disk_gb` | `disk` | the target's size | 16 |
-| `disk_gpt`, `disk_esp_mib` | `disk` | the target's layout | 2 |
-| `disk_settle`, `disk_min_mb` | `disk_settle` | wait for the disk to stop growing | 12 |
-| `kernel_append`, `microvm_display` | `boot` | the microvm's own kernel line, and whether it has a VGA adapter | 0 |
+| `rect`, `rect_at`, `scale` | `check`, `see`, `when`, `when_not`, `until` | the region to read, the size a pixel rect was measured at, the enlargement | 291 |
+| `from` | `check`, `until` | the frame a `see:` captured, or the source (`console`) | 46 |
+| `mode` | `check` | how the frame is questioned: `like`, `mean_between`, `sat_between`, `spread_between`, `text` | 128 |
+| `words`, `without`, `range` | `check` | the words that satisfy it, the words that must not be there, the numeric bounds | 128 |
+| `reference` | `check` | the image a `mode: like` compares the region against | 0 |
+| `must` | `check` | a FALSE answer fails the step; without it a check only binds the boolean for an `if:` or a `loop:` | 0 |
+| `as`, `pattern`, `text` | `check` | the name a gate binds, a regular expression, the text a comparison is about | 46 |
+| `max`, `every`, `clock`, `fact` | `loop` | the ceiling, the seconds the clock runs, the actions it fires, the boolean it stops on | 79 |
+| `then`, `else` | `if` | the branches | 21 |
+| `of` | — | **DEAD**: the `see:` that measured numbers is gone; a question is a `check:` | 0 |
+| `to`, `path`, `body`, `argv` | `scp`, `qga` | the remote path, the guest file, the bytes, the command line | 0 |
+
+## Step-level arguments that are NOT subkeys
+
+These are written BESIDE the action that reads them (`boot: true` with `os:` on the next line), so
+they live in `Keys` and `Validate` accepts them at step level. The list is here because a reader
+looking for `os:` expects to find it in a table, and the difference from the section above is where
+the file puts the key rather than what it means.
+
+| key | parent | value | uses |
+|---|---|---|---|
+| `os` | `boot`, `write`, `fetch`, `desktop` | `linux` `windows` `macos` `freebsd` `android` | 56 |
+| `iso`, `recovery`, `answer_cd`, `driver_cd` | `boot` | the media the machine starts from | 58 |
+| `cpu`, `memory_mb`, `microvm`, `microvm_display` | `boot` | how much machine to build | 7 |
+| `kernel`, `initrd`, `kernel_append` | `boot` | the kernel a microvm is handed, because there is no boot sector | new |
+| `disk_gb`, `disk_gpt`, `disk_esp_mib`, `disk_min_mb`, `disk_settle` | `disk`, `compress` | the target's size, layout and the wait for it to stop growing | 30 |
 | `esp_from` | `esp_fallback` | the loader directory inside the ESP | 1 |
-| `template`, `to` | `scp` | render one bootstrap file and copy it in one step | 0 |
+| `template` | `scp`, `fetch` | what to render | 9 |
 | `ssh_probe`, `ssh_after_reboot` | `require_ssh` | how to probe, and whether to wait out the old daemon | 11 |
 | `adb_connect`, `adb_privileged` | `adb` | connection and privilege | 2 |
-| `rect`, `rect_at`, `of` | `see`, `ocr` | where to read, the size a pixel rect was measured at, what to bind | 291 |
-| `text`, `colour`, `any_of` | `check` | the criteria | 119 |
-| `contains`, `equals`, `matches`, `like` | `check` | the modes that compare TEXT or a PICTURE | 119 |
-| `must` | `check` | a FALSE answer fails the step; without it a check only binds the boolean for an `if:` or a `loop:` | 0 |
-| `flat_rows`, `min`, `max`, `contrast`, `vs` | `see` | the numbers a measurement binds | 291 |
-| `contains_any`, `not_contains`, `ratio`, `fuzzy`, `at_least`, `at_most`, `between`, `greater_than` | — | **DEAD**: declared and read by nothing since `want:` went | 0 |
-| `reference` | `see` | an image to compare the rect against; binds `<name>.similarity` 0..1 | 0 |
-| `do`, `until`, `max`, `fact`, `every`, `clock` | `loop` | the action, the stop test, the ceiling, and the clock that fires once | 79 |
-| `then`, `else` | `if` | the branches | 21 |
-| `template`, `release`, `recovery` | `fetch` | inputs to one asset build | 5 |
-| `argv`, `path`, `body` | `qga` | the command line, the guest file, the bytes | 0 |
 | `minimum` | `wait_until` | the threshold a `console_idle`/`disk_idle`/`frame_still` wait needs | 0 |
-| `blind_after` | step | with `until: {from: console}`: go on after this long with no text | 2 |
-| `mode`, `words`, `without`, `text`, `pattern`, `range`, `from` | `check` | the older single-comparison form, retained while files still use it | 46 |
+| `blind_after` | `until` | with `from: console`: go on after this long with no text | 2 |
+| `colour`, `any_of`, `contains`, `equals`, `matches`, `like`, `fuzzy`, `ratio`, `not_contains`, `contains_any` | `check` | the text and pixel comparisons | 119 |
+| `mean`, `spread`, `sat`, `flat_rows`, `contrast`, `min`, `max`, `vs`, `at_least`, `at_most`, `between`, `greater_than`, `less_than` | `check` | the measurements and the bounds they are held to | 291 |
+
+
+<!-- A HANDFUL OF ARGUMENTS LOOK LIKE SUBCKEYS AND ARE NOT: `os`, `iso`, `disk_gb`, `template` and
+their neighbours are written BESIDE the action that reads them, so they are step keys and live in
+`Keys`. The difference is where the file puts them, and a reader can see it: `boot: {os: ...}` has the
+argument inside the mapping, `boot: true` with `os: linux` beside it has it at step level. Both forms
+exist, which is why `os` is an argument in `Consumes` rather than a subkey. -->
+
 
 # 6. File header — not step keys (5 rows, 7 names)
 

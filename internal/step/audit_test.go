@@ -106,11 +106,20 @@ func TestEveryKeyInTheTableExists(t *testing.T) {
 	// THE FILE HEADER AND THE RETIREMENT LIST ARE NOT STEP KEYS. A header field lives in the walk
 	// package's document validator, and a retired key is one the code may have already deleted -
 	// neither belongs in this package's vocabulary, so neither is checked here.
+	// A TABLE ROW MAY NAME EITHER KIND, AND THE TWO TABLES ARE THE ANSWER.
+	//
+	// `main` rows are step keys and live in `Keys`; `subkey` rows are written INSIDE a value and live
+	// in `Subkeys`. Keeping them apart is the point of the split - a step may not say `mean:` - but
+	// the document is one table, so a row in either section must exist somewhere.
 	for _, k := range append(append([]string{}, tb.main...), tb.subkey...) {
-		if _, ok := Keys[k]; !ok {
-			t.Errorf("docs/PRIMITIVES.md lists `%s:` and the vocabulary does not declare it - a "+
-				"reader would write a file that cannot load", k)
+		if _, ok := Keys[k]; ok {
+			continue
 		}
+		if _, ok := Subkeys[k]; ok {
+			continue
+		}
+		t.Errorf("docs/PRIMITIVES.md lists `%s:` and neither table declares it - a reader would "+
+			"write a file that cannot load", k)
 	}
 }
 
@@ -124,6 +133,11 @@ func TestNoKeyIsMissingFromTheTable(t *testing.T) {
 	}
 	var undeclared []string
 	for k := range Keys {
+		if !documented[k] {
+			undeclared = append(undeclared, k)
+		}
+	}
+	for k := range Subkeys {
 		if !documented[k] {
 			undeclared = append(undeclared, k)
 		}

@@ -208,18 +208,41 @@ func TestOneActionAndItsArguments(t *testing.T) {
 }
 
 // TestEveryConsumedKeyIsAStepKey keeps Consumes honest: an action may only claim to read a key that
-// actually exists at step level.
+// the vocabulary declares.
+//
+// THE ANSWER COMES FROM EITHER TABLE. `qga:` reads `path:` and `argv:`, which are written INSIDE its
+// value and live in `Subkeys`; `ssh:` reads `user:`, which is a step key and lives in `Keys`. A test
+// that looked only at `Keys` would call every nested argument a typo.
+//
+// A GATE MAY CONSUME TOO, AND IT IS NOT AN ACTION. `when_not:` reads the screen, so it reads `rect:`
+// as well - but it is a GATE: it decides whether the step's action runs rather than being that
+// action. The rule this test enforces is "the owner is a key a file may write at step level", which
+// a gate is.
 func TestEveryConsumedKeyIsAStepKey(t *testing.T) {
 	for action, args := range Consumes {
-		if Roles[action] != RoleAction {
-			t.Errorf("Consumes names `%s:` as an action and Roles says it is a %s",
-				action, Roles[action])
+		switch Roles[action] {
+		case RoleAction, RoleGate:
+		case RoleUnknown:
+			// `expect:` and `until_any:` are retired or merged names kept in Consumes so the
+			// argument list stays readable; they are not step keys any more and a file cannot
+			// write them.
+			if _, ok := Keys[action]; ok {
+				t.Errorf("Consumes names `%s:` and Roles does not classify it", action)
+			}
+			continue
+		default:
+			t.Errorf("Consumes names `%s:` and Roles says it is a %s; only an action or a gate "+
+				"consumes arguments", action, Roles[action])
 		}
 		for _, a := range args {
-			if _, ok := Keys[a]; !ok {
-				t.Errorf("Consumes[%q] names `%s:`, which is not a key - a typo here silently "+
-					"stops the argument being recognised", action, a)
+			if _, ok := Keys[a]; ok {
+				continue
 			}
+			if _, ok := Subkeys[a]; ok {
+				continue
+			}
+			t.Errorf("Consumes[%q] names `%s:`, which is in neither table - a typo here silently "+
+				"stops the argument being recognised", action, a)
 		}
 	}
 }
