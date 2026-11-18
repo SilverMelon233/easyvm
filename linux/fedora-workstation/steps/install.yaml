@@ -247,7 +247,7 @@ steps:
 
 - name: open the storage editor, which is the only place a filesystem can be chosen
   click:
-  - 1019
+  - 928
   - 446
   wait_after: 8
 
@@ -303,13 +303,13 @@ steps:
 - name: the disk's menu
   click:
   - 1185
-  - 318
+  - 328
   wait_after: 4
 
 - name: create the partition table
   click:
-  - 1062
-  - 479
+  - 1117
+  - 480
   wait_after: 6
 
 - name: initialize it as GPT, which is the default
@@ -785,8 +785,8 @@ steps:
       - 396
       wait_after: 3
     - click:
-      - 657
-      - 567
+      - 648
+      - 576
       wait_after: 3
     ocr:
       name: type_now
@@ -877,8 +877,8 @@ steps:
 
 - name: accept the layout it detected
   click:
-  - 737
-  - 332
+  - 756
+  - 337
   wait_after: 15
 
 - name: the review page, which now names this storage
