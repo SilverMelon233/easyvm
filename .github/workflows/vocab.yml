@@ -571,7 +571,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          # `tr` RATHER THAN `format()`: artifact names forbid `/ : " < > | * ? \r \n \\`.
+          # `tr` RATHER THAN `format()`: artifact names forbid the characters Windows reserves.
           slug=$(printf '%s' "${{ inputs.walk }}" | tr '/' '-' | sed 's/\.walk$//')
           echo "name=${slug}-video" >> "$GITHUB_OUTPUT"
 
