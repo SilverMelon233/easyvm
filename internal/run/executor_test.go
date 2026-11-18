@@ -86,6 +86,14 @@ func (m *fakeMachine) Stop(method string, grace time.Duration) error {
 }
 func (m *fakeMachine) Reboot() error   { return nil }
 func (m *fakeMachine) IsRunning() bool { return m.d.started > 0 }
+func (m *fakeMachine) PressPowerButton() error {
+	m.d.stopped = append(m.d.stopped, "acpi")
+	return nil
+}
+func (m *fakeMachine) ResetMachine() error { return nil }
+func (m *fakeMachine) GuestAgent(string, map[string]any) (string, error) {
+	return "", nil
+}
 
 func newExec(d Driver, steps ...map[string]any) (*Executor, []walk.Step) {
 	var docs []walk.Step

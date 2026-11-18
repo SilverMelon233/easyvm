@@ -102,6 +102,11 @@ func (m recordingMachine) Stop(string, time.Duration) error { return nil }
 func (m recordingMachine) Reboot() error                    { return nil }
 func (m recordingMachine) IsRunning() bool                  { return m.running }
 func (m recordingMachine) ReleaseDiff() error               { return nil }
+func (m recordingMachine) PressPowerButton() error          { return nil }
+func (m recordingMachine) ResetMachine() error              { return nil }
+func (m recordingMachine) GuestAgent(string, map[string]any) (string, error) {
+	return "", nil
+}
 
 // noMachineDriver has no machine at all, which is the state every driver is in before a `boot:`.
 type noMachineDriver struct{ fakeFrameDriver }

@@ -110,12 +110,18 @@ type Driver struct {
 	// machine is perfectly healthy (a `reboot:` kills it), which is why it repairs itself at the
 	// moment of use rather than being treated as part of the machine's lifetime. See `sshSession`.
 	ssh *sshSession
+	// sshTarget is the address the session dials, kept so `/api/state` can probe it.
+	sshTarget guest.Target
 	// diff is the throwaway overlay this run wrote into, when it made one. Its Close is what
 	// proves the base was not written to, so it belongs to the driver rather than to a step.
 	diff *overlay.Overlay
 	// frameMu serialises screen capture. ONE FRAME AT A TIME, because three readers of one screen do
 	// not need three screendumps and interleaved writes produce unreadable files.
 	frameMu sync.Mutex
+	// frames is the one-a-second capture every reader shares. See framecache.go for the measurement
+	// that made it: the sampler and a gate fought over one QMP socket and the gate lost 166 of 180
+	// attempts in silence.
+	frames *frameCache
 	// shareDir is the directory a `share_serve:` step published, or "" when none did. The daemon
 	// serves it over HTTP at `/shared/` - there is no smbd, no port and no config file any more.
 	shareDir string
@@ -149,14 +155,16 @@ func NewDriver(owner *Daemon, f *walk.File, work, bootDisk string, port int,
 	// A `dev.yaml` runs against a machine that is already up, so the session must exist before any step
 	// asks for it - and it dials lazily, on the first use, so a file whose first step is a `disk:` does
 	// not pay for a connection the guest cannot accept yet.
+	// THE TARGET IS KEPT, not just captured by the closure, because `/api/state` has to answer
+	// "does sshd accept a connection" and a probe needs the address to ask.
+	d.sshTarget = guest.Target{
+		Host:     "172.30.0.1",
+		Port:     port,
+		User:     f.SSHUser,
+		Password: password,
+	}
 	d.ssh = newSSHSession(func() (*guest.Client, error) {
-		target := guest.Target{
-			Host:     "172.30.0.1",
-			Port:     port,
-			User:     f.SSHUser,
-			Password: password,
-		}
-		return guest.Dial(target, 30*time.Second)
+		return guest.Dial(d.sshTarget, 30*time.Second)
 	})
 	return d, func() {
 		d.shutdown()
@@ -191,21 +199,71 @@ func (d *Driver) Log(msg string) { fmt.Println(msg) }
 // takes the same result. That is not a cache with a timeout - it is the observation that three readers
 // of one screen do not need three screens, and it makes the interleaving impossible instead of
 // making the readers polite.
+// Frame returns a capture from the shared cache, waiting for one if the cache is empty.
+//
+// IT USED TO TAKE A FRESH SCREENDUMP FOR EVERY CALLER, under a mutex. That made three readers of one
+// screen fight: the recorder, a `check:` gate and the browser page all asked qemu, and the gate lost
+// - measured on macos-setup, 14 of 180 attempts returned a frame. The cache takes one capture a
+// second, which is what the recorder alone used to make, and every reader shares it.
+//
+// A CALLER THAT NEEDED A FRESH FRAME USES FrameAt. This one is "the newest" and is what a reader
+// looks at when it does not care when the frame was taken - the browser page, a recording tick.
 func (d *Driver) Frame() (run.Frame, error) {
-	// THE LOCK IS HELD FOR THE WHOLE CAPTURE, so a second caller cannot start a second screendump.
-	// It waits, and then takes the frame that the first caller produced.
-	d.frameMu.Lock()
-	defer d.frameMu.Unlock()
+	cache := d.frameCache()
+	if cache == nil {
+		return nil, fmt.Errorf("this machine has no frame cache")
+	}
+	f, err := cache.latest()
+	if err != nil {
+		// THE FIRST CALLER MAY ARRIVE BEFORE THE FIRST TICK. Waiting once is cheaper than making
+		// every caller understand that the cache starts empty.
+		if f2, _, err2 := cache.atOrAfter(time.Time{}, 3*time.Second); err2 == nil {
+			return f2, nil
+		}
+		return nil, err
+	}
+	return f, nil
+}
 
-	conn, err := d.qmpSocket()
-	if err != nil {
-		return nil, err
+// FrameAt returns a capture taken at or after `since`, waiting for one if the newest is older.
+//
+// THIS IS THE ONE A STEP USES AFTER IT CHANGED THE SCREEN. `see:` that follows a click must read the
+// screen the click produced, and the frame already in the cache was taken BEFORE it - so a check
+// against that one tests a screen that no longer exists. `ok` is false when the wait expired and the
+// frame is older than asked for, which a caller reports rather than pretending.
+func (d *Driver) FrameAt(since time.Time, budget time.Duration) (run.Frame, bool, error) {
+	cache := d.frameCache()
+	if cache == nil {
+		return nil, false, fmt.Errorf("this machine has no frame cache")
 	}
-	f, err := conn.Screendump(filepath.Join(d.work, "frames"))
+	f, ok, err := cache.atOrAfter(since, budget)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return frame{path: f.Path, w: f.Width, h: f.Height}, nil
+	return f, ok, nil
+}
+
+// frameCache starts the cache on first use, so a driver built by a test that never looks at the
+// screen pays for no ticker.
+func (d *Driver) frameCache() *frameCache {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.frames == nil {
+		d.frames = newFrameCache(func() (cachedFrame, error) {
+			d.frameMu.Lock()
+			defer d.frameMu.Unlock()
+			conn, err := d.qmpSocket()
+			if err != nil {
+				return cachedFrame{}, err
+			}
+			f, err := conn.Screendump(filepath.Join(d.work, "frames"))
+			if err != nil {
+				return cachedFrame{}, err
+			}
+			return cachedFrame{path: f.Path, w: f.Width, h: f.Height, at: time.Now()}, nil
+		})
+	}
+	return d.frames
 }
 
 type frame struct {
@@ -1049,49 +1107,17 @@ func (m machineControl) Stop(method string, grace time.Duration) error {
 		// `windows-ssh` and every throwaway overlay here.
 		d.logf("  killing the guest")
 		killNow = true
-	case "wait":
-		// THE GUEST WAS ASKED TO STOP BY SOMETHING ELSE - a `ssh: ... poweroff` step - AND THIS WAITS
-		// FOR IT TO GO.
-		//
-		// THE STEP THAT SENDS THE REQUEST NEEDS `sudo`, AND WITHOUT IT NOTHING HERE FAILS: `poweroff`
-		// as a plain user exits 1 on every distribution here, the connection stays up, so the old
-		// `shutdown: ssh` logged nothing and then waited the whole grace before killing a guest it
-		// had never asked to stop. MEASURED: that is what every `shutdown: ssh` in this tree did.
-		//
-		// So the command is `printf '%s\n' '{{ password }}' | sudo -S -p '' poweroff`, the same
-		// shape every other privileged step in these files uses. `sudo -v` does not survive: its
-		// timestamp is five minutes and an install is forty.
-		//
-		// `ssh` WAS A METHOD HERE AND IT SENT THE REQUEST AS WELL, WHICH MADE THE SHUTDOWN A SECOND
-		// WAY TO RUN ONE COMMAND. Every Linux and BSD file used it to deliver `poweroff`, which is a
-		// fact about the guest rather than about the machine, so it belongs in an `ssh:` step where a
-		// reader can see it. What CANNOT be written as `ssh:` is waiting for qemu to exit - the
-		// connection dies before the process does - and that is all this method does now.
-		//
-		// IT DOES NOT SEND ANYTHING. A file that says `shutdown: wait` without an earlier
-		// `ssh: poweroff` waits out the grace and then reports it, which is the honest outcome.
-		d.logf("  waiting for the guest to power off")
 	case "ssh":
 		// KEPT FOR A FILE THAT WAS NOT PORTED. It is the old one-step form: send `poweroff` and wait.
 		// New files write the two steps, so the command is visible in the file.
 		if err := d.shutdownOverSSH(); err != nil {
 			return err
 		}
-	case "guest_agent":
-		if err := d.shutdownOverAgent(); err != nil {
-			return err
-		}
-	case "acpi":
-		// THE POWER BUTTON, WHICH SOME GUESTS ANSWER AND SOME PROMPT ON. Windows and Linux shut down
-		// from it; macOS puts up "Restart / Sleep / Cancel / Shut Down" and waits for a click, which
-		// is why every macOS file names `ssh` or `guest_agent` instead.
-		if err := d.shutdownOverACPI(); err != nil {
-			return err
-		}
 	default:
-		return fmt.Errorf("%q is not a shutdown method; use guest_agent, wait, acpi or kill. To stop "+
-			"a guest over ssh, write the command as its own step: `ssh: poweroff` then "+
-			"`shutdown: wait`", method)
+		return fmt.Errorf("%q is not a shutdown method; the ones this build has are `kill` and "+
+			"`ssh`. To press the power button write `acpi: power`, to ask the guest agent write "+
+			"`qga: shutdown`, and to stop it over ssh write the command as its own step: "+
+			"`ssh: ... poweroff` then `wait_until: stopped`", method)
 	}
 	// AND THE PROCESS IS WAITED FOR, WHICHEVER PATH ASKED IT TO STOP. A guest that was asked politely
 	// has to actually exit, or the disk is still open when the next step reads it.
@@ -1162,7 +1188,7 @@ func (d *Driver) shutdownOverAgent() error {
 			"is the step that checks it", sock, err)
 	}
 	d.logf("  asking the guest agent to shut down")
-	if err := qgaShutdown(sock); err != nil {
+	if err := qgaShutdown(sock, "powerdown"); err != nil {
 		return fmt.Errorf("guest agent shutdown: %w", err)
 	}
 	return nil
@@ -1333,6 +1359,93 @@ func (m machineControl) OS() string {
 // and been reaped gives `os.ErrProcessDone`; one that exited and has not been reaped is a zombie, which
 // `Signal` also refuses - and in this container that is the normal state, because PID 1 is the daemon
 // and it reaps only when it gets round to it.
+// ResetMachine is the QMP reset, which is what `acpi: reset` sends.
+func (m machineControl) ResetMachine() error {
+	conn, err := m.d.qmpSocket()
+	if err != nil {
+		return err
+	}
+	m.d.logf("  resetting the machine")
+	return conn.Reset()
+}
+
+// PressPowerButton is `acpi: power`: the ACPI power-button event, and nothing else.
+//
+// `shutdown: acpi` USED TO BE THIS PLUS A WAIT. The wait is `wait_until: stopped` now, so a file
+// shows both halves - and a file that presses the button and does not wait is a file whose meaning
+// is visible rather than one that stopped early by accident.
+func (m machineControl) PressPowerButton() error {
+	return m.d.shutdownOverACPI()
+}
+
+// GuestAgent runs one qemu-guest-agent command.
+//
+// THE NAMES ARE THE PROTOCOL'S OWN, so a reader of the walkthrough and a reader of the QGA schema see
+// the same words. This switch is the whole list, so an unknown name is refused here rather than
+// reaching the agent and coming back in its vocabulary.
+func (m machineControl) GuestAgent(command string, args map[string]any) (string, error) {
+	sock := filepath.Join(m.d.work, "qga.sock")
+	if _, err := os.Stat(sock); err != nil {
+		return "", fmt.Errorf("no guest agent socket at %s: %v. The guest must have "+
+			"qemu-guest-agent installed AND running", sock, err)
+	}
+	switch command {
+	case "ping":
+		return "", qgaPing(sock)
+	case "info":
+		return qgaInfo(sock)
+	case "shutdown":
+		mode, _ := args["mode"].(string)
+		return "", qgaShutdown(sock, mode)
+	case "exec":
+		code, out, err := qgaExec(sock, stringsOf(args["argv"]),
+			time.Duration(floatOf(args["timeout"], 300)*float64(time.Second)))
+		if err != nil {
+			return out, err
+		}
+		if code != 0 {
+			return out, fmt.Errorf("the command exited %d: %s", code, out)
+		}
+		return out, nil
+	case "file-write":
+		path, _ := args["path"].(string)
+		body, _ := args["body"].(string)
+		return "", qgaWriteFile(sock, path, []byte(body))
+	case "file-read":
+		path, _ := args["path"].(string)
+		data, err := qgaReadFile(sock, path)
+		return string(data), err
+	case "set-time":
+		return "", qgaSetTime(sock, time.Now())
+	case "interfaces":
+		out, err := qgaNetworkInterfaces(sock)
+		return strings.Join(out, "\n"), err
+	}
+	return "", fmt.Errorf("`qga: %s` is not a command this build runs; the ones it runs are ping, "+
+		"info, shutdown, exec, file-read, file-write, set-time and interfaces", command)
+}
+
+func stringsOf(v any) []string {
+	list, _ := v.([]any)
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		if str, ok := item.(string); ok {
+			out = append(out, str)
+		}
+	}
+	return out
+}
+
+func floatOf(v any, fallback float64) float64 {
+	switch t := v.(type) {
+	case float64:
+		return t
+	case int:
+		return float64(t)
+	}
+	return fallback
+}
+
 func (m machineControl) IsRunning() bool {
 	d := m.d
 	d.mu.Lock()
@@ -1779,4 +1892,11 @@ func netDevice(boot machine.Boot, mac string, mtu int) string {
 		return fmt.Sprintf("virtio-net-device,netdev=net0,mac=%s", mac)
 	}
 	return fmt.Sprintf("virtio-net-pci,netdev=net0,mac=%s,romfile=,host_mtu=%d", mac, mtu)
+}
+
+// SSHTarget is where this machine's sshd listens, for a caller that has to ask whether it answers.
+func (d *Driver) SSHTarget() guest.Target {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.sshTarget
 }

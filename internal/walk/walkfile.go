@@ -411,6 +411,18 @@ func parseVerbed(l line, verb, rest string, step map[string]any) (map[string]any
 		return parseBoot(l, rest, step)
 	case "stop":
 		return parseStop(l, rest, step)
+	case "acpi":
+		// `acpi power` / `acpi reset`
+		step["acpi"] = strings.TrimSpace(rest)
+		return step, nil
+	case "qga":
+		// `qga shutdown`, `qga ping`, `qga info`, ... - the protocol's own command names.
+		step["qga"] = strings.TrimSpace(rest)
+		return step, nil
+	case "wait until":
+		// `wait until stopped`
+		step["wait_until"] = strings.TrimSpace(rest)
+		return step, nil
 
 	// ---- input ---------------------------------------------------------------------------
 	case "click", "double":
@@ -967,8 +979,8 @@ func walkVerbFor(key string) (string, bool) {
 		"click": "click", "double": "double", "key": "press", "type": "type", "run": "run",
 		"ssh": "ssh", "settle": "settle", "ocr": "read", "want": "decide",
 		"when": "when", "when_not": "unless", "loop": "repeat",
-		"shutdown": "stop",
-		"check":    "decide", "screenshot": "screenshot", "compress": "compress",
+		"shutdown": "stop", "acpi": "acpi", "qga": "qga", "wait_until": "wait until",
+		"check": "decide", "screenshot": "screenshot", "compress": "compress",
 		"scp":   "scp",
 		"write": "write", "reboot": "reboot",
 		"require_ssh": "require_ssh", "see": "read", "fetch": "fetch", "esp_fallback": "esp_fallback",

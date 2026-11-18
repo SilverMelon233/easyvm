@@ -69,6 +69,15 @@ type Machine interface {
 	Reboot() error
 	// IsRunning reports whether qemu is still there.
 	IsRunning() bool
+	// PressPowerButton asks the guest to shut down through ACPI, the way a physical power button
+	// does. It SENDS NOTHING ELSE: the wait is `wait_until: stopped`, so the file can see both halves.
+	PressPowerButton() error
+	// ResetBoot resets the machine through QMP - the same request the ACPI reset pin makes, without
+	// needing a guest-side handler.
+	ResetMachine() error
+	// GuestAgent runs one `qemu-guest-agent` command and returns its output. The commands are the
+	// protocol's own: ping, info, shutdown, exec, file-read, file-write, set-time, interfaces.
+	GuestAgent(command string, args map[string]any) (string, error)
 	// ReleaseDiff deletes the throwaway diff the machine ran on and proves the base it read
 	// through was not written to. It is idempotent: a run that flattened already released it.
 	//

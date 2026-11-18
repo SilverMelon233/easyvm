@@ -84,12 +84,17 @@ func (e *Executor) doOCR(s walk.Step) error {
 		return err
 	}
 
-	// THE WAIT IS EXPLICIT IN THE FILE AND HONOURED HERE.
-	if spec.Wait > 0 {
-		time.Sleep(time.Duration(spec.Wait * float64(time.Second)))
-	}
-
-	f, err := e.Driver.Frame()
+	// THE WAIT IS NOW A TIME ON THE FRAME RATHER THAN A SLEEP, AND THE DIFFERENCE IS REAL.
+	//
+	// `wait: 5` used to sleep five seconds and then ask for a screendump. With a frame captured every
+	// second, "a frame from five seconds ago or later" is the same intent, honoured by the cache - and
+	// a sleep that long is also five seconds in which a `check:` elsewhere could have read a screen.
+	//
+	// THE BUDGET IS THE WAIT PLUS SLACK: the frame has to be NEWER than the click, and the tick that
+	// brings it is up to a second away. A file that says `wait: 0` gets the newest frame at or after
+	// now, which is the next tick rather than the stale one in the cache.
+	since := time.Now().Add(time.Duration(spec.Wait * float64(time.Second)))
+	f, err := e.frameFrom(since, time.Duration(spec.Wait*float64(time.Second))+3*time.Second)
 	if err != nil {
 		return fail(s.Name, "%v", err)
 	}

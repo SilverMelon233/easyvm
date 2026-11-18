@@ -27,10 +27,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/easydev-org/easyvm/internal/guest"
 	"github.com/easydev-org/easyvm/internal/keys"
 	"github.com/easydev-org/easyvm/internal/protocol"
 	"github.com/easydev-org/easyvm/internal/qmp"
@@ -654,6 +656,127 @@ func (d *Daemon) snapshot() State {
 	// THE CONSOLE HAS NO PORT OF ITS OWN ANY MORE. The page, its assets and the WebSocket are served
 	// by the daemon's listener on :8080, so a person opens the Service URL - there is no second port to
 	// report, and no URL that can point at something that is not listening.
+	st = d.withMeasuredFacts(st)
+	return st
+}
+
+// withMeasuredFacts adds the things a step may WAIT ON, measured now.
+//
+// THEY ARE MEASURED RATHER THAN REMEMBERED because every one of them is a question about the world
+// that changes without anybody telling this struct: a guest agent starts answering, a disk stops
+// growing, a console goes quiet. A cached boolean would be right at the moment it was set and wrong
+// afterwards, which is exactly the failure mode `share_mount:` had.
+//
+// EACH ONE IS CHEAP AND BOUNDED. Nothing here waits: `wait_until:` polls this snapshot, so a
+// measurement that blocked would make the wait unable to see its own condition.
+func (d *Daemon) withMeasuredFacts(st State) State {
+	slot := d.machine
+	if slot == nil || slot.driver == nil {
+		// NO MACHINE IS NOT "EVERYTHING IS FALSE". A nil pointer says "not applicable", which is
+		// what lets `wait_until: ssh` refuse a file that never booted instead of waiting 30 minutes
+		// for a port that could never open.
+		return st
+	}
+	drv := slot.driver
+
+	// --- qemu -----------------------------------------------------------------------------
+	phase := "absent"
+	running := false
+	pid := 0
+	if m := drv.Machine(); m != nil {
+		running = m.IsRunning()
+		if running {
+			phase = "running"
+		} else {
+			phase = "stopping"
+		}
+	}
+	st.QEMU = &protocol.QEMUState{Running: running, PID: pid, Phase: phase}
+
+	// --- the console ----------------------------------------------------------------------
+	path := run.ConsolePath(d.work)
+	var size int64
+	var idle float64
+	if fi, err := os.Stat(path); err == nil {
+		size = fi.Size()
+		idle = time.Since(fi.ModTime()).Seconds()
+	}
+	st.Console = &protocol.ConsoleState{Path: path, Bytes: size, IdleSeconds: idle}
+
+	// --- the disk -------------------------------------------------------------------------
+	if m := drv.Machine(); m != nil {
+		if dsk, ok := m.(interface{ Disk() string }); ok {
+			if p := dsk.Disk(); p != "" {
+				mb := int64(0)
+				if fi, err := os.Stat(p); err == nil {
+					mb = fi.Size() / (1 << 20)
+				}
+				st.Disk = &protocol.DiskState{Path: p, AllocatedMB: mb}
+			}
+		}
+	}
+
+	// --- ssh, as a CONNECTION rather than a forwarded port --------------------------------
+	//
+	// THE PORT IS FORWARDED FROM THE MOMENT THE MACHINE STARTS, so `dial tcp` on it succeeds whether
+	// or not sshd is up - measured on every stage whose `wait for sshd` reported a timeout while the
+	// port answered instantly. The probe therefore has to SPEAK SSH, which is what `guest.Probe`
+	// does, and it gets a short budget because this runs on every `/api/state`.
+	sshUp := false
+	if tp, ok := drv.(interface{ SSHTarget() guest.Target }); ok {
+		target := tp.SSHTarget()
+		if target.Port != 0 && guest.Probe(target, 1, 2*time.Second) == nil {
+			sshUp = true
+		}
+	}
+	st.SSHReady = &sshUp
+
+	// --- qga -----------------------------------------------------------------------------
+	qgaUp := false
+	if sock := filepath.Join(d.work, "qga.sock"); fileExistsDaemon(sock) {
+		if qgaPing(sock) == nil {
+			qgaUp = true
+		}
+	}
+	st.QGAReady = &qgaUp
+
+	// --- recording -----------------------------------------------------------------------
+	recording := false
+	if rec, ok := drv.(interface{ Recording() bool }); ok {
+		recording = rec.Recording()
+	}
+	st.Recording = &recording
+
+	// --- the share -----------------------------------------------------------------------
+	//
+	// IT IS ALWAYS ON NOW, so this is a fact about the DIRECTORY rather than about a server: a share
+	// whose directory does not exist answers 503, and a step that waits for it would wait forever.
+	shareUp := false
+	if sv, ok := drv.(interface{ ShareDir() string }); ok {
+		shareUp = sv.ShareDir() != ""
+	}
+	st.ShareReady = &shareUp
+
+	// --- the last frame, and the guest phase it implies ------------------------------------
+	//
+	// A GUEST IS `up` WHEN THE FRAMEBUFFER HAS SETTLED AT A DESKTOP SIZE. The console is not enough:
+	// a guest with `-serial null` writes nothing and one that is installing writes constantly, so the
+	// console alone cannot tell "still booting" from "working". The frame size is the boot's actual
+	// milestone - the firmware's mode is small and the desktop's is not.
+	booted := "booting"
+	if f, err := drv.Frame(); err == nil {
+		w, h := f.Size()
+		age := 0.0
+		if fi, err := os.Stat(f.Path()); err == nil {
+			age = time.Since(fi.ModTime()).Seconds()
+		}
+		st.Frame = &protocol.FrameState{Width: w, Height: h, AgeSeconds: age}
+		if w >= 800 && h >= 600 {
+			booted = "up"
+		}
+	}
+	st.Guest = &protocol.GuestState{Phase: booted, Since: 0}
+
 	return st
 }
 
@@ -764,4 +887,55 @@ func (d *Daemon) screenshot() Response {
 	st := d.snapshot()
 	return Response{OK: true, State: &st,
 		Screen: &Screen{Path: f.Path, Width: f.Width, Height: f.Height}}
+}
+
+// Facts reports the measurements a `wait_until:` step polls, as strings.
+//
+// IT IS THE SAME MEASUREMENT `/api/state` SERVES, not a second implementation: the snapshot is built
+// first and this reads it. Two sources for "is sshd up" is how a step comes to wait on one answer
+// while the log shows another.
+//
+// A MISSING FACT IS ABSENT FROM THE MAP rather than empty, so a condition that needs it can say so
+// instead of comparing "" to a number.
+func (d *Daemon) Facts() (map[string]string, error) {
+	st := d.snapshot()
+	out := map[string]string{}
+	if st.QEMU != nil {
+		out["qemu_running"] = strconv.FormatBool(st.QEMU.Running)
+		out["qemu_phase"] = st.QEMU.Phase
+	}
+	if st.SSHReady != nil {
+		out["ssh_ready"] = strconv.FormatBool(*st.SSHReady)
+	}
+	if st.QGAReady != nil {
+		out["qga_ready"] = strconv.FormatBool(*st.QGAReady)
+	}
+	if st.Console != nil {
+		out["console_bytes"] = strconv.FormatInt(st.Console.Bytes, 10)
+		out["console_idle"] = fmt.Sprintf("%.1f", st.Console.IdleSeconds)
+	}
+	if st.Disk != nil {
+		out["disk_allocated_mb"] = strconv.FormatInt(st.Disk.AllocatedMB, 10)
+		out["disk_grow_rate"] = fmt.Sprintf("%.2f", st.Disk.GrowRateMBps)
+	}
+	if st.Recording != nil {
+		out["recording"] = strconv.FormatBool(*st.Recording)
+	}
+	if st.ShareReady != nil {
+		out["share_ready"] = strconv.FormatBool(*st.ShareReady)
+	}
+	if st.Frame != nil {
+		out["frame_age"] = fmt.Sprintf("%.1f", st.Frame.AgeSeconds)
+		out["frame_size"] = fmt.Sprintf("%dx%d", st.Frame.Width, st.Frame.Height)
+	}
+	if st.Guest != nil {
+		out["guest_phase"] = st.Guest.Phase
+	}
+	return out, nil
+}
+
+// fileExistsDaemon is one stat, named so the snapshot reads as a question.
+func fileExistsDaemon(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

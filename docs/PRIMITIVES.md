@@ -38,7 +38,10 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 | key | value | what it does | uses |
 |---|---|---|---|
 | `boot` | mapping | start the machine this file owns | 56 |
-| `shutdown` | `ssh` `kill` `acpi` `guest_agent` | stop it by a NAMED method | 54 |
+| `shutdown` | `kill` | kill the machine; every other way to stop a guest is a step of its own | 16 |
+| `acpi` | `power` `reset` | send one ACPI message - it does not wait | 1 |
+| `qga` | `ping` `info` `shutdown` `exec` `file-read` `file-write` `set-time` `interfaces` | one guest-agent command | 0 |
+| `wait_until` | `stopped` | wait for the machine's process to go | 0 |
 | `disk` | mapping | the file `boot:` starts from | 29 |
 | `record` | path / `false` | start or stop the screen recording | 100 |
 | `compress` | path | flatten the overlay into an artifact | 49 |
@@ -190,6 +193,8 @@ the measuring machine and wrong on the runner.
 | `do`, `until`, `max`, `fact` | `loop` | the action, the stop test, the ceiling | 79 |
 | `then`, `else` | `if` | the branches | 21 |
 | `template`, `release`, `recovery` | `fetch` | inputs to one asset build | 5 |
+| `argv`, `path`, `body` | `qga` | the command line, the guest file, the bytes | 0 |
+| `minimum` | `wait_until` | the threshold a `console_idle`/`disk_idle`/`frame_still` wait needs | 0 |
 | `blind_after` | step | with `until: {from: console}`: go on after this long with no text | 2 |
 | `mode`, `words`, `without`, `text`, `pattern`, `range`, `from` | `check` | the older single-comparison form, retained while files still use it | 46 |
 

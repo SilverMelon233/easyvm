@@ -112,16 +112,22 @@ var Roles = map[string]Role{
 	"cpu":       RoleArgument,
 
 	// --- how big the guest is ------------------------------------------------------------
-	"memory_mb": RoleArgument,
-	"cpus":      RoleArgument,
-	"kernel":    RoleArgument,
-	"initrd":    RoleArgument,
-	"microvm":   RoleArgument,
-	"shutdown":  RoleAction,
-	"graceful":  RoleModifier, // how the shutdown asks
-	"record":    RoleAction,   // start with a name, or `false` to stop
-	"compress":  RoleAction,
-	"boot_from": RoleAction,
+	"memory_mb":  RoleArgument,
+	"cpus":       RoleArgument,
+	"kernel":     RoleArgument,
+	"initrd":     RoleArgument,
+	"microvm":    RoleArgument,
+	"shutdown":   RoleAction,
+	"acpi":       RoleAction,
+	"qga":        RoleAction,
+	"wait_until": RoleAction,
+	"minimum":    RoleArgument,
+	"argv":       RoleArgument,
+	"body":       RoleArgument,
+	"graceful":   RoleModifier, // how the shutdown asks
+	"record":     RoleAction,   // start with a name, or `false` to stop
+	"compress":   RoleAction,
+	"boot_from":  RoleAction,
 
 	// --- the disk ------------------------------------------------------------------------
 	"disk":         RoleAction, // names a file; with `disk_gb:` it creates one
@@ -233,6 +239,7 @@ var Roles = map[string]Role{
 	"any_of":       RoleSubkey,
 	"from":         RoleSubkey,
 	"to":           RoleSubkey, // `scp: {template, to}` at step level
+	"path":         RoleSubkey, // `qga: {path: ...}` at step level
 	"all":          RoleSubkey,
 	"any":          RoleSubkey,
 	"not":          RoleSubkey,
@@ -264,6 +271,7 @@ var Consumes = map[string][]string{
 	"desktop":  {"os", "timeout"},
 	"adb":      {"adb_serial"},
 	"until":    {"from", "blind_after", "poll", "as"},
+	"qga":      {"argv", "path", "body", "mode", "timeout"},
 	"scp":      {"template", "to"},
 }
 
@@ -342,7 +350,7 @@ var dispatchOrder = []string{
 	"until", "until_any", "run", "esp_fallback", "adb_connect", "adb_privileged", "adb",
 	"at_color", "at_bottom", "at_button", "disk_settle", "screenshot", "write",
 	"fetch", "asset", "build", "generate",
-	"scp", "desktop", "type", "key", "double", "click",
+	"scp", "desktop", "type", "key", "double", "click", "acpi", "qga", "wait_until",
 	"wait", "settle",
 }
 

@@ -234,10 +234,29 @@ var Keys = map[string]Key{
 			"walkthrough whose job is to prove the vocabulary drives a guest, not to install a " +
 			"distribution through its GUI"},
 	"shutdown": {Name: "shutdown", Kind: KindString,
-		Summary: "a NAMED method: guest_agent, wait, acpi, or kill; there is no silent fallback " +
-			"between them. `wait` sends nothing and only waits for a guest that an earlier " +
-			"`ssh:` step asked to stop - and that step needs `sudo`, or the request is refused and " +
-			"`wait` spends its whole grace waiting for a machine nobody asked to stop"},
+		Summary: "a NAMED method: guest_agent, ssh, acpi, or kill. EVERY ONE OF THEM STOPS THE " +
+			"MACHINE AND WAITS FOR IT TO GO - a method that only waited was here for one commit and " +
+			"did not belong: `shutdown:` names how to stop it, so a verb that stopped nothing was a " +
+			"word that lied. Waiting for qemu to release the disk is a precondition of `compress:` " +
+			"and lives there"},
+	// `acpi:` AND `qga:` ARE CHANNELS WITH OPERATIONS, AND THEY REPLACED TWO `shutdown:` METHODS.
+	//
+	// `shutdown: acpi` and `shutdown: guest_agent` asked "how do I stop this machine" when the file
+	// meant "send this message". That made the channel unavailable for anything else - a RESET is an
+	// ACPI message and a `guest-exec` is an agent command, and neither is a shutdown.
+	"acpi": {Name: "acpi", Kind: KindString,
+		Summary: "send one ACPI message: `power` (the power button) or `reset`. It SENDS ONLY - " +
+			"whether the guest goes is `wait_until: stopped`, a step of its own"},
+	"qga": {Name: "qga", Kind: KindString,
+		Summary: "run one qemu-guest-agent command: ping, info, shutdown, exec, file-read, " +
+			"file-write, set-time, interfaces. The only channel into a guest with no sshd and no " +
+			"ACPI handler"},
+	"argv": {Name: "argv", Kind: KindList,
+		Summary: "with `qga: exec`: the program and its arguments, as a list"},
+	"path": {Name: "path", Kind: KindString,
+		Summary: "with `qga: file-read`/`file-write`: the file in the GUEST"},
+	"body": {Name: "body", Kind: KindString,
+		Summary: "with `qga: file-write`: the bytes to put in the guest's file"},
 	"graceful": {Name: "graceful", Kind: KindBool,
 		Summary: "ask the guest to shut down rather than killing it"},
 	"record": {Name: "record", Kind: KindRecord,
@@ -676,6 +695,20 @@ var Keys = map[string]Key{
 	"settle": {Name: "settle", Kind: KindFloat,
 		Summary: "seconds to wait where there is NO fact to wait on; the older `wait:` and " +
 			"`wait_after:` both become this"},
+	// `wait_until:` IS THE OTHER HALF OF EVERY SHUTDOWN, AS A STEP.
+	//
+	// `shutdown: ssh` used to send the request and wait for qemu in one key, and its request was
+	// refused (no `sudo`) - so the wait spent its whole grace on a machine nobody had asked to stop.
+	// Sending is now `ssh: ... poweroff` and this is the waiting, visible in the file as its own step.
+	"minimum": {Name: "minimum", Kind: KindFloat,
+		Summary: "with `wait_until: console_idle|disk_idle|frame_still`: the number of seconds (or " +
+			"MiB/s of growth) that counts as arrived. A wait on a THRESHOLD has no default because " +
+			"'quiet' is not one number: a boot prompt is quiet for a second and an install pauses " +
+			"for a minute between phases"},
+	"wait_until": {Name: "wait_until", Kind: KindString,
+		Summary: "wait for a CONDITION about the machine: `stopped` - its process has gone. " +
+			"A file that sent `acpi: power` or `ssh: poweroff` says this next, and a file that " +
+			"did not gets a clear message instead of a disk qemu still holds open"},
 
 	"check": {Name: "check", Kind: KindMapping,
 		Summary: "compare a named reading and bind a BOOLEAN: {name, from, mode, ...}. `from:` is " +

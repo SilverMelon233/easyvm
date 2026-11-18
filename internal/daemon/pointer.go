@@ -22,11 +22,6 @@ import (
 //
 // THE FRAME IS THE MACHINE'S OWN. A coordinate is a measurement of a screen, so the only frame that can
 // say whether it fits is the one the guest is drawing at - `d.frameSize()`.
-//
-// AND THAT IS THE CHECK'S BLIND SPOT: with no machine there is no frame, so the bound is skipped and
-// the request goes on to be refused for having nothing to click (409). The order is deliberate - "there
-// is no machine" is the more useful answer - but it means the OUT-OF-FRAME path can only be exercised
-// against a running guest, which is why the HTTP test does not cover it.
 func xyOf(command string, req protocol.Request) (int, int, error) {
 	if req.X == nil || req.Y == nil {
 		var missing []string
