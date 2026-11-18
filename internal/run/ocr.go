@@ -244,11 +244,37 @@ func (e *Executor) doCheck(s walk.Step) error {
 	if strings.TrimSpace(from) == "" {
 		return fail(s.Name, "`check:` must say `from:` - the reading an `ocr:` step produced")
 	}
-	words, ok := e.seen[from]
-	if !ok {
-		return fail(s.Name, "`check: from: %s` names a reading no `ocr:` step has made. An `ocr:` "+
-			"step has to come first, in file order, with that `name:`", from)
+	// A `from:` MAY NAME A NUMBER RATHER THAN WORDS, AND THAT IS WHAT MAKES `mode: number_between`
+	// USEFUL. `see:` binds seven numbers per reading - `<name>.mean`, `<name>.similarity` and so on -
+	// and until now nothing read them: `number_between` parsed digits out of a WORD LIST, so a file
+	// could only compare a number that an `ocr:` step happened to read as text.
+	//
+	// MEASURED, and it is why this exists: `check: {from: shot, mode: number_between}` on a reading
+	// that bound `shot.similarity` failed on a real run with "names a reading no ocr: step has made".
+	if _, hasWords := e.seen[from]; !hasWords {
+		if num, hasNumber := e.numbers[from]; hasNumber {
+			return e.runNumberCheck(s.Name, raw, from, num)
+		}
+		// `<name>` alone may also mean `<name>.<the only number>` - a `see: {reference:}` binds exactly
+		// one, and making a file write `from: shot.similarity` when it wrote `reference:` would be the
+		// same duplication in the other direction.
+		var found []string
+		for k := range e.numbers {
+			if strings.HasPrefix(k, from+".") {
+				found = append(found, k)
+			}
+		}
+		if len(found) == 1 {
+			return e.runNumberCheck(s.Name, raw, from, e.numbers[found[0]])
+		}
+		if len(found) > 1 {
+			return fail(s.Name, "`check: from: %s` names a reading with %d numbers (%s). Name one, "+
+				"as in `from: %s.similarity`", from, len(found), strings.Join(found, ", "), from)
+		}
+		return fail(s.Name, "`check: from: %s` names a reading no `ocr:` or `see:` step has made. A "+
+			"reading has to come first, in file order, with that `name:`", from)
 	}
+	words := e.seen[from]
 
 	mode, _ := raw["mode"].(string)
 	if mode == "" {
@@ -675,3 +701,56 @@ func numbersIn(words []string) []float64 {
 // none: `42 percent`, `41 of 100`, `step 3`. Requiring a unit made `number_between` answer false for
 // every reading that was not a disk capacity.
 var bareNumberPattern = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(?:(tb|gb|mb)\b)?`)
+
+// runNumberCheck applies a `check:` mode to ONE number a `see:` step bound.
+//
+// ONLY THE MODES THAT COMPARE A NUMBER ARE OFFERED, because the others are about words and would
+// have nothing to look at. The refusal names them, so a file that wrote `mode: says` about a number
+// learns what to write instead.
+func (e *Executor) runNumberCheck(step string, raw map[string]any, from string, value float64) error {
+	mode, _ := raw["mode"].(string)
+	var okNow bool
+	var detail string
+	switch mode {
+	case "number_between":
+		lo, hi, err := modeRange(raw)
+		if err != nil {
+			return fail(step, "%v", err)
+		}
+		okNow = value >= lo && value <= hi
+		detail = fmt.Sprintf("%.4f is %s %.4f..%.4f", value, map[bool]string{true: "in", false: "outside"}[okNow], lo, hi)
+	case "equals":
+		// A NUMBER'S `equals:` HAS NO TOLERANCE, DELIBERATELY: a file that wants a range says
+		// `number_between`, and a float compared for equality is a fact about a measurement nobody
+		// should assert.
+		want, hasWant := toFloat(raw["value"])
+		if !hasWant {
+			return fail(step, "`mode: equals` on a number needs `value:`")
+		}
+		okNow = value == want
+		detail = fmt.Sprintf("%.4f == %.4f", value, want)
+	case "":
+		return fail(step, "`check:` must say `mode:`; for a number the modes are number_between "+
+			"and equals")
+	default:
+		return fail(step, "`mode: %s` compares WORDS and `from: %s` names a NUMBER (%.4f). The "+
+			"modes for a number are number_between and equals", mode, from, value)
+	}
+	name, _ := raw["name"].(string)
+	if strings.TrimSpace(name) == "" {
+		return fail(step, "`check:` must name the boolean it produces, as in `check: {name: same, "+
+			"from: shot, mode: number_between, range: [0.97, 1.0]}`")
+	}
+	if e.facts == nil {
+		e.facts = make(map[string]bool)
+	}
+	e.facts[name] = okNow
+	e.Driver.Log(fmt.Sprintf("  %s: %s = %v (%s)", step, name, okNow, detail))
+	return nil
+}
+
+// finishNumberCheck binds the verdict under the check's own name.
+func finishNumberCheck(step string, raw map[string]any, okNow bool, detail string) error {
+	_ = finishNumberCheck
+	return nil
+}
