@@ -112,21 +112,23 @@ var Roles = map[string]Role{
 	"cpu":       RoleArgument,
 
 	// --- how big the guest is ------------------------------------------------------------
-	"memory_mb":  RoleArgument,
-	"cpus":       RoleArgument,
-	"kernel":     RoleArgument,
-	"initrd":     RoleArgument,
-	"microvm":    RoleArgument,
-	"shutdown":   RoleAction,
-	"acpi":       RoleAction,
-	"qga":        RoleAction,
-	"wait_until": RoleAction,
-	"minimum":    RoleArgument,
-	"argv":       RoleArgument,
-	"body":       RoleArgument,
-	"graceful":   RoleModifier, // how the shutdown asks
-	"compress":   RoleAction,
-	"boot_from":  RoleAction,
+	"memory_mb":       RoleArgument,
+	"cpus":            RoleArgument,
+	"kernel":          RoleArgument,
+	"initrd":          RoleArgument,
+	"microvm":         RoleArgument,
+	"microvm_display": RoleArgument,
+	"kernel_append":   RoleArgument,
+	"shutdown":        RoleAction,
+	"acpi":            RoleAction,
+	"qga":             RoleAction,
+	"wait_until":      RoleAction,
+	"minimum":         RoleArgument,
+	"argv":            RoleArgument,
+	"body":            RoleArgument,
+	"graceful":        RoleModifier, // how the shutdown asks
+	"compress":        RoleAction,
+	"boot_from":       RoleAction,
 
 	// --- the disk ------------------------------------------------------------------------
 	"disk":         RoleAction, // names a file; with `disk_gb:` it creates one
@@ -255,7 +257,7 @@ var Roles = map[string]Role{
 // problem this whole design is about - an argument may belong to more than one action.
 var Consumes = map[string][]string{
 	"type":     {"click", "clear", "modifier", "type_gap"},
-	"boot":     {"os", "iso", "recovery", "answer_cd", "driver_cd", "kernel", "initrd", "memory_mb", "cpus", "cpu", "microvm", "boot_from"},
+	"boot":     {"os", "iso", "recovery", "answer_cd", "driver_cd", "kernel", "initrd", "memory_mb", "cpus", "cpu", "microvm", "microvm_display", "kernel_append", "boot_from"},
 	"disk":     {"disk_gb", "disk_gpt", "disk_esp_mib", "disk_min_mb"},
 	"write":    {"os", "release"},
 	"fetch":    {"os", "release", "recovery", "template"},

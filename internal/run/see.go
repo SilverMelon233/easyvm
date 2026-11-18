@@ -303,6 +303,18 @@ func parseSeeStep(s walk.Step) (raw map[string]any, name string, rectRaw any, of
 			"measured at the wrong size")
 	}
 	ofRaw, _ = raw["of"].([]any)
+	// `reference:` BINDS `similarity`, SO IT IS AN `of:` THAT NAMES ITS OWN MEASUREMENT.
+	//
+	//	see: {name: shot, rect: [...], reference: reference/desktop.png}
+	//
+	// A file that writes `reference:` is asking for one number - how much of the screen matched - and
+	// making it also write `of: [similarity]` would be two ways to say it. A file that writes NEITHER
+	// is still refused: a `see:` with nothing to bind is a reading nobody asked for.
+	if len(ofRaw) == 0 {
+		if ref, _ := raw["reference"].(string); ref != "" {
+			ofRaw = []any{"similarity"}
+		}
+	}
 	if len(ofRaw) == 0 {
 		return nil, "", nil, nil, fail(s.Name, "`see:` must say `of:` - which numbers to bind. "+
 			"`of: [mean, spread]` binds %s.mean and %s.spread", name, name)
