@@ -840,6 +840,20 @@ steps:
     words:
     - - configured
     - - Review
+# THE REVIEW PAGE HAS ITS OWN `Begin installation`, AND NOTHING PRESSED IT.
+#
+# MEASURED: the review page read 120 words and `configured = true`, and then the install step waited
+# on a disk that never moved - because the wizard was still ON the review page. `Next` on the
+# installation-method page only gets you there; the button that starts writing is on THAT page.
+#
+# ITS COORDINATE IS THE SAME FOOTER AS EVERY OTHER PAGE (726, 999), measured on the frame that showed
+# `Use configured storage` selected with `vda1 / vda2 /boot/efi` listed under it.
+- name: begin the installation
+  click:
+  - 726
+  - 999
+  wait_after: 20
+
 - name: the install is written
   disk_settle: 180
   disk_min_mb: 512
