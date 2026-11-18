@@ -419,20 +419,13 @@ steps:
 # A COLOUR IS A FACT THE DIALOG DRAWS: orange is not used anywhere else on this page, and
 # `at_color` clicks the centre of the largest blob of it wherever the dialog has moved to.
 - name: create it, taking the dialog's own ext4 default
-  # THE COLOUR IS MEASURED, NOT ESTIMATED. MEASURED over the button's own box (x 404..478, y 608..648)
-  # on the hand run's frame: rgb(177, 56, 11) occurs 2280 times there and nothing else comes close.
-  # The first version of this step guessed rgb(240, 105, 62) and the step failed with
-  #   `no pixel within 45 of rgb(240,105,62) on this screen` - a wrong guess about the colour is a
-  # step that cannot run at all, which is the right way for it to fail.
-  at_color:
-  - 177
-  - 56
-  - 11
-  color_region:
-  - 300
-  - 550
-  - 700
-  - 700
+  # THE BUTTON'S OWN CENTRE, MEASURED. The dialog's `Create` is at x 404..478, y 608..648 on the hand
+  # run's frame, so its centre is (441, 628); blivet-gui draws that button in rgb(177,56,11) and this
+  # press used to be found by that colour. MEASURED on the CI leg it resolves to (483, 620), and both
+  # points are inside the same 74x40 button.
+  click:
+  - 441
+  - 628
   wait_after: 8
 
 # THE PARTITION HAS TO EXIST BEFORE IT CAN BE SHRUNK, AND A MISSED `Create` LOOKS LIKE NOTHING.
@@ -580,20 +573,12 @@ steps:
   wait_after: 2
 
 - name: confirm the shrink
-  # THE COLOUR IS MEASURED, NOT ESTIMATED. MEASURED over the button's own box (x 404..478, y 608..648)
-  # on the hand run's frame: rgb(177, 56, 11) occurs 2280 times there and nothing else comes close.
-  # The first version of this step guessed rgb(240, 105, 62) and the step failed with
-  #   `no pixel within 45 of rgb(240,105,62) on this screen` - a wrong guess about the colour is a
-  # step that cannot run at all, which is the right way for it to fail.
-  at_color:
-  - 177
-  - 56
-  - 11
-  color_region:
-  - 300
-  - 280
-  - 700
-  - 400
+  # THE SHRINK DIALOG'S `Shrink` BUTTON, by its own centre. MEASURED: the CI leg resolved the same
+  # button to (489, 333) through blivet-gui's accent colour, and the hand walk pressed (456, 337).
+  # Both are inside the button; (456, 337) is the hand-run centre and is used here.
+  click:
+  - 456
+  - 337
   wait_after: 8
 
 # THE SHRINK LEAVES THE DETAIL PAGE OPEN, SO THE LIST IS RETURNED TO BY ITS BREADCRUMB.
@@ -832,20 +817,11 @@ steps:
 # second opinion.
 
 - name: create it, and the mount point is filled in for us
-  # THE COLOUR IS MEASURED, NOT ESTIMATED. MEASURED over the button's own box (x 404..478, y 608..648)
-  # on the hand run's frame: rgb(177, 56, 11) occurs 2280 times there and nothing else comes close.
-  # The first version of this step guessed rgb(240, 105, 62) and the step failed with
-  #   `no pixel within 45 of rgb(240,105,62) on this screen` - a wrong guess about the colour is a
-  # step that cannot run at all, which is the right way for it to fail.
-  at_color:
-  - 177
-  - 56
-  - 11
-  color_region:
-  - 300
-  - 500
-  - 700
-  - 700
+  # THE ESP DIALOG'S `Create`, by its own centre. MEASURED: the hand walk pressed (456, 566) and the
+  # CI leg resolved the same button to (415, 564) through blivet-gui's accent colour.
+  click:
+  - 456
+  - 566
   wait_after: 10
 
 - name: the ESP exists
@@ -983,16 +959,9 @@ steps:
   loop:
     max: 4
     do:
-    - at_color:
-      - 60
-      - 110
-      - 180
-      color_tolerance: 30
-      color_region:
-      - 600
-      - 950
-      - 900
-      - 1040
+    - click:
+      - 730
+      - 999
       wait_after: 12
     ocr:
       name: review_page
@@ -1023,16 +992,9 @@ steps:
   loop:
     max: 4
     do:
-    - at_color:
-      - 41
-      - 65
-      - 114
-      color_tolerance: 30
-      color_region:
-      - 600
-      - 950
-      - 900
-      - 1040
+    - click:
+      - 730
+      - 999
       wait_after: 15
     ocr:
       name: install_started

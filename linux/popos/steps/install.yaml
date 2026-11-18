@@ -49,18 +49,12 @@ steps:
 # THE x RANGE WAS ALREADY RIGHT, which is what makes this a height error rather than a typo: the
 # icon sits at x~1211 on both frames because the dock is centred and narrower than the screen.
 - name: open the installer from the dock
-  at_button:
-  - 1190
-  - 1030
-  - 1235
-  - 1070
-  # MEASURED, AND IT WAS REMOVED BY ACCIDENT: the script that replaced the seven footer presses with
-  # `at_color` deleted EVERY `at_fallback:` in the file, including this one - which belongs to the
-  # dock icon and not to a footer. MEASURED on the next run:
-  #
-  #	open the installer from the dock: no control fill in [1190,1030 1235,1070], and no
-  #	`at_fallback:` to use instead
-  at_fallback:
+  # THE ICON'S OWN CENTRE, (1211, 1050), MEASURED. The dock is centred and the installer's ring icon
+  # sits at x~1211 on every frame; this file already carried that point as an `at_fallback`, and the
+  # search that preceded it never found a fill inside [1190,1030 1235,1070] on CI - the log says
+  # `no fill in [1190,1030 1235,1070]; using the measured fallback (1211,1050)` - so the fallback was
+  # the only thing pressing anything. It is the press now.
+  click:
   - 1211
   - 1050
   wait_after: 20
@@ -157,16 +151,9 @@ steps:
   loop:
     max: 8
     do:
-    - at_color:
-      - 144
-      - 207
-      - 176
-      color_tolerance: 30
-      color_region:
-      - 1100
-      - 700
-      - 1920
-      - 900
+    - click:
+      - 1367
+      - 810
       wait_after: 6
     ocr:
       name: kb
@@ -278,16 +265,9 @@ steps:
       fact: latin
 
 - name: take the keyboard layout
-  at_color:
-  - 144
-  - 207
-  - 176
-  color_tolerance: 30
-  color_region:
-  - 1100
-  - 700
-  - 1920
-  - 900
+  click:
+  - 1367
+  - 810
   wait_after: 6
 
 - name: the install page is up
@@ -320,16 +300,9 @@ steps:
   wait_after: 3
 
 - name: install
-  at_color:
-  - 144
-  - 207
-  - 176
-  color_tolerance: 30
-  color_region:
-  - 1100
-  - 700
-  - 1920
-  - 900
+  click:
+  - 1367
+  - 810
   wait_after: 6
 
 - name: the drive page is up
@@ -364,16 +337,9 @@ steps:
 # `Erase and Install` IS RED - rgb(234,144,144), measured over its own box, 3436 pixels. IT IS THE
 # WIZARD'S DESTRUCTIVE ACTION AND IT HAS ITS OWN COLOUR, so the accent search never sees it.
 - name: erase and install
-  at_color:
-  - 234
-  - 144
-  - 144
-  color_tolerance: 30
-  color_region:
-  - 1200
-  - 700
-  - 1920
-  - 900
+  click:
+  - 1367
+  - 810
   wait_after: 10
 
 - name: wait for the account pane
@@ -531,42 +497,11 @@ steps:
   type_gap: 0.09
   wait_after: 2
 - name: account password next
-  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
-  #
-  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
-  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
-  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
-  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
-  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
-  #
-  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
-  #
-  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
-  #   rgb(144,207,176) 1947 px  <- the fill
-  #   rgb(166,217,192)   70 px  <- its antialiased edge
-  #
-  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
-  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
-  # The region still stops at y=980 so the dock, below it, is outside.
-  at_color:
-  - 144
-  - 207
-  - 176
-  color_tolerance: 30
-  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
-  #
-  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
-  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
-  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
-  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
-  # (1367, 810): the `Select` button exactly.
-  color_region:
-  - 1100
-  - 700
-  - 1920
-  - 900
-  at_fallback:
+  click:
+  - 1367
+  - 810
   wait_after: 25
+
 # THE PRESS IS FOLLOWED BY A VERDICT, FOR THE SAME REASON AS EVERY OTHER BUTTON IN THIS TREE.
 #
 # MEASURED on the CI leg: (1081, 808) was pressed and the run then waited an hour for a disk that never
@@ -580,18 +515,9 @@ steps:
 # THE POP INSTALLER'S PRIMARY BUTTON IS ITS OWN TEAL, not Calamares' blue: measured over that button's
 # box it is `rgb(26, 188, 156)` - the accent the installer uses for `Select`, `Next` and `Install`.
 - name: drive encryption - don't encrypt
-  at_color:
-  - 26
-  - 188
-  - 156
-  color_tolerance: 30
-  # THE FOOTER ONLY: this installer's teal is also its dock's accent and appears in the wallpaper's
-  # nebula, so a whole-frame search finds decoration. The buttons are in the bottom tenth.
-  color_region:
-  - 0
-  - 700
-  - 1920
-  - 1080
+  click:
+  - 1367
+  - 810
   wait_after: 15
 
 - name: the install has started
