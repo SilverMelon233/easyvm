@@ -466,8 +466,8 @@ steps:
 #
 # MEASURED off run 44268828616's own frame of `Choose Account Password`:
 #
-#	Choose Account Password box   x 1158..1614, y 450..489   centre (1386, 470)
-#	Confirm Password box          x 1158..1614, y 576..615   centre (1386, 596)
+#	Choose Account Password box   x 966..1434, y 430..466    centre (1200, 448)
+#	Confirm Password box          x 966..1434, y 528..560    centre (1200, 544)
 #
 # - this pane does not carry the name form's two left-hand boxes at all: the labels sit above
 # full-width fields on the right of the card. This file pressed (1190, 530) and (1190, 602), which is
@@ -482,16 +482,16 @@ steps:
 # exactly as `Password is too short` is a warning in kubuntu's Calamares.
 - name: type the password
   click:
-  - 1386
-  - 470
+  - 1200
+  - 448
   clear: true
   type: '{{ password }}'
   type_gap: 0.09
   wait_after: 2
 - name: confirm the password
   click:
-  - 1386
-  - 596
+  - 1200
+  - 544
   clear: true
   type: '{{ password }}'
   type_gap: 0.09
