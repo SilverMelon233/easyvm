@@ -92,40 +92,19 @@ steps:
     until:
       fact: done
 - name: welcome
-  at_color:
-  - 60
-  - 110
-  - 180
-  color_tolerance: 25
-  color_region:
-  - 0
-  - 950
-  - 1920
-  - 1080
+  click:
+  - 1329
+  - 836
   wait_after: 15
 - name: location
-  at_color:
-  - 60
-  - 110
-  - 180
-  color_tolerance: 25
-  color_region:
-  - 0
-  - 950
-  - 1920
-  - 1080
+  click:
+  - 1329
+  - 836
   wait_after: 15
 - name: keyboard
-  at_color:
-  - 60
-  - 110
-  - 180
-  color_tolerance: 25
-  color_region:
-  - 0
-  - 950
-  - 1920
-  - 1080
+  click:
+  - 1329
+  - 836
   wait_after: 15
 # THE USERS PAGE HAS TO BE UP BEFORE ANYTHING IS TYPED INTO IT, AND ON CI IT WAS NOT.
 #
@@ -245,16 +224,9 @@ steps:
   type: '{{ password }}'
   wait_after: 3
 - name: users
-  at_color:
-  - 60
-  - 110
-  - 180
-  color_tolerance: 25
-  color_region:
-  - 0
-  - 950
-  - 1920
-  - 1080
+  click:
+  - 1329
+  - 836
   wait_after: 18
 - name: choose gnome
   click:
@@ -262,28 +234,14 @@ steps:
   - 400
   wait_after: 4
 - name: packagechooser
-  at_color:
-  - 60
-  - 110
-  - 180
-  color_tolerance: 25
-  color_region:
-  - 0
-  - 950
-  - 1920
-  - 1080
+  click:
+  - 1329
+  - 836
   wait_after: 15
 - name: unfree notes
-  at_color:
-  - 60
-  - 110
-  - 180
-  color_tolerance: 25
-  color_region:
-  - 0
-  - 950
-  - 1920
-  - 1080
+  click:
+  - 1329
+  - 836
   wait_after: 12
 - name: partitions - erase the disk
   click:
@@ -291,16 +249,9 @@ steps:
   - 390
   wait_after: 6
 - name: partitions
-  at_color:
-  - 60
-  - 110
-  - 180
-  color_tolerance: 25
-  color_region:
-  - 0
-  - 950
-  - 1920
-  - 1080
+  click:
+  - 1329
+  - 836
   wait_after: 18
 # THE SUMMARY PAGE'S `Install` IS 31 PIXELS LOWER THAN THE OTHER PAGES' `Next`.
 #
