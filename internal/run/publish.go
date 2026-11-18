@@ -515,40 +515,27 @@ func (e *Executor) startAutomaticRecording() error {
 // could not tell which leg it came from. Nothing reads the name - the workflow uploads `work/*.mp4` -
 // so this only has to be unique and self-describing.
 func (e *Executor) recordingName() string {
-	stage := "install"
-	if e.File != nil && e.File.Path != "" {
-		base := strings.TrimSuffix(filepath.Base(e.File.Path), filepath.Ext(e.File.Path))
-		if base != "" {
-			stage = base
-		}
-	}
-	// THE WALKTHROUGH'S OWN DIRECTORY NAMES THE GUEST: `linux/ubuntu/steps/install.walk` is
-	// `ubuntu-install.mp4`, and a file run by hand from somewhere else keeps its stage name alone.
-	guest := ""
-	if e.File != nil && e.File.Path != "" {
-		dir := filepath.Dir(filepath.Dir(e.File.Path)) // steps/ -> the guest's directory
-		if g := filepath.Base(dir); g != "" && g != "steps" && g != "." {
-			guest = g
-		}
-	}
-	// THE START TIME, SO TWO RUNS OF ONE LEG CANNOT OVERWRITE EACH OTHER.
+	// THE START TIME, AND NOTHING ELSE.
 	//
-	// A name derived only from the walkthrough means the second run of `ubuntu-install` replaces the
-	// first run's video - and the run a person wants to watch is usually the one that FAILED, which
-	// the next dispatch deletes. The timestamp is the start of the walk, so the file sorts into the
-	// order the runs happened.
+	// I FIRST DERIVED `<guest>-<stage>` AS WELL, AND IT WAS A SECOND COPY OF A FACT THE ARTIFACT
+	// ALREADY CARRIES. The upload is:
 	//
-	// IT IS `2006-01-02T15-04-05` IN UTC: no colons, because the name is a path component, and UTC
-	// because a CI runner's local zone is not a fact about the run.
+	//	name: ${{ matrix.name }}-video      ->  linux-ubuntu-install-video
+	//	path: work/*.mp4
+	//
+	// so a file called `2026-11-18T05-25-50-ubuntu-install.mp4` inside `linux-ubuntu-install-video`
+	// says the leg twice, and NOTHING reads the name - grepped: no code, no workflow, no script.
+	//
+	// THE TIMESTAMP IS THE PART THAT EARNS ITS PLACE: a name derived from the walkthrough alone means
+	// the second run of a leg REPLACES the first run's video, and the video a person wants is usually
+	// the one that failed, which the next dispatch deletes.
 	stamp := e.startedAt
 	if stamp.IsZero() {
 		stamp = time.Now()
 	}
-	prefix := stamp.UTC().Format("2006-01-02T15-04-05")
-	if guest != "" {
-		return prefix + "-" + guest + "-" + stage + ".mp4"
-	}
-	return prefix + "-" + stage + ".mp4"
+	// UTC, AND NO COLONS: the name is a path component, and a CI runner's local zone is not a fact
+	// about the run.
+	return stamp.UTC().Format("2006-01-02T15-04-05") + ".mp4"
 }
 
 // startLiveEncoder opens the two processes that turn frames into a video as the run goes.
