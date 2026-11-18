@@ -27,7 +27,7 @@ walkthrough "freebsd 15.1 - the desktop is up"
   step "the desktop is not a login prompt"
     see == greeter
   step "check there is no login prompt"
-    check == {from: greeter, mode: text_without, name: no_prompt, without: [login, password], words: [applications], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}
+    check == {from: greeter, mode: text, name: no_prompt, without: [login, password], words: [[applications]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}
   step "the guest agent answers, which is what makes a graceful shutdown possible"
     ssh == sh -c 'pgrep -f qemu-ga >/dev/null && readlink -f /dev/vtcon/org.qemu.guest_agent.0 && echo GUEST_AGENT_UP'
     timeout == 180

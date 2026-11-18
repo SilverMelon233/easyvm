@@ -271,11 +271,32 @@ func TestThePaneModelKeysAreDispatched(t *testing.T) {
 // file's end condition, and a stuck timer. Each was declared, documented, and never implemented.
 // Deleting them is the point of "no redundancy" — a vocabulary that keeps a word nobody can honour is
 // a vocabulary a reader has to check against the source rather than trust.
+//
+// `UNTIL_ANY:` WAS IN THIS LIST AND SHOULD NEVER HAVE BEEN. The commit that deleted it said it "had
+// no dispatcher branch", and `doUntil` had read it all along:
+//
+//	for _, set := range wordSetsOf(s, "until_any") {
+//		alternatives = append(alternatives, set)
+//	}
+//
+// so `until:` and `until_any:` were the two spellings the same function documents - one word-set,
+// or a list of alternatives - and deleting the name made a legal file unloadable while the code that
+// implemented it stayed. `macos/26/steps/setup.yaml` writes it once, on the step whose comment says
+// "the Setup Assistant is up, OR THIS STAGE FAILS".
+//
+// IT IS PUT BACK, AND THE TEST THAT DEMANDED IT STAY DELETED IS THE THING THAT WAS WRONG. A test is a
+// claim about the code; when the claim and the code disagree, the code is not automatically the one
+// that is broken.
 func TestTheDeadPaneStateMachineKeysAreGone(t *testing.T) {
-	for _, key := range []string{"once", "end", "stuck_after", "until_any"} {
+	for _, key := range []string{"once", "end", "stuck_after"} {
 		if _, ok := step.Keys[key]; ok {
 			t.Errorf("`%s:` is declared again. It was part of the pane state machine, it had no "+
 				"dispatcher branch, and no file uses it", key)
 		}
+	}
+	// AND `until_any:` IS THE ONE THAT IS NOT DEAD: `doUntil` reads it beside `until:`.
+	if _, ok := step.Keys["until_any"]; !ok {
+		t.Error("`until_any:` is not declared, and `doUntil` reads it: a file that spells the " +
+			"alternatives form is refused while the executor implements it")
 	}
 }

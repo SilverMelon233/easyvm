@@ -166,6 +166,7 @@ var Roles = map[string]Role{
 	// --- the screen: read ---------------------------------------------------------------
 	"blind_after":      RoleArgument,
 	"until":            RoleAction,
+	"until_any":        RoleAction,
 	"until_dark":       RoleAction,
 	"wait_for_change":  RoleAction,
 	"poll":             RoleArgument,

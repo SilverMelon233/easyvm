@@ -486,7 +486,11 @@ func runCheckMode(step, mode string, words []string, raw map[string]any) (bool, 
 // checkModeNames is the single list, so a new mode is added HERE and named in the error above.
 func checkModeNames() []string {
 	return []string{"says", "says_any", "says_without", "size_between", "number_between", "equals",
-		"contains", "matches"}
+		"contains", "matches",
+		// AND THE FRAME MODES, WHICH ARE THE SAME QUESTION ASKED OF A PICTURE. They are in one list
+		// because a reader choosing a mode should see every mode, and because a file that says
+		// `from: <a frame>` may now use any word relation the other path offers.
+		"text", "like", "mean_between", "sat_between", "spread_between"}
 }
 
 // modeWords reads a plain word list, `words:`.
@@ -852,7 +856,20 @@ func (e *Executor) checkFrame(step string, raw map[string]any, from, path string
 		}
 		okNow = sim >= lo && sim <= hi
 		detail = fmt.Sprintf("%.4f similar, wanted %.4f..%.4f", sim, lo, hi)
-	case "text":
+	case "text", "contains", "matches", "equals":
+		// THE WORD MODES, ALL FOUR, FROM ONE READ.
+		//
+		// `contains`, `matches` AND `equals` WERE ONLY EVER IMPLEMENTED FOR A READING BOUND AS WORDS
+		// (`e.seen`), and the frame path refused them with "not a measurement of a frame". MEASURED:
+		// `macos/26/steps/setup.yaml` asks `mode: matches` to decide whether the installer has
+		// finished, and `macos/15` and `macos/26` both ask `mode: contains` about a disk row. Those
+		// are the checks that end an eight-hour install, so a mode the frame path cannot answer is
+		// not a tidiness problem - the walk either fails or, worse, a `must:`-less check binds false
+		// and the loop runs to its ceiling.
+		//
+		// SO THE READ HAPPENS ONCE AND THE RELATION IS APPLIED TO IT, which is the same thing
+		// `runCheckMode` does for `e.seen`. The two paths now agree about what a mode means.
+		//
 		// `scale:` IS THE ENLARGEMENT FOR SMALL TEXT, and it belongs to the READ rather than to the
 		// capture. MEASURED on the real 640x480 recovery frame: at scale 6 four rows read, at scale 2
 		// only two - so a file that needs a small row to be legible says so where it reads it.
@@ -864,9 +881,16 @@ func (e *Executor) checkFrame(step string, raw map[string]any, from, path string
 		if err != nil {
 			return fail(step, "%v", err)
 		}
-		okNow, detail, err = e.judgeWords(step, raw, words)
+		if mode == "text" {
+			okNow, detail, err = e.judgeWords(step, raw, words)
+			if err != nil {
+				return err
+			}
+			break
+		}
+		okNow, detail, err = runCheckMode(step, mode, words, raw)
 		if err != nil {
-			return err
+			return fail(step, "%v", err)
 		}
 	default:
 		r := screen.Measure(img, rect)
@@ -880,7 +904,8 @@ func (e *Executor) checkFrame(step string, raw map[string]any, from, path string
 			got, what = r.Spread, "spread"
 		default:
 			return fail(step, "`mode: %s` is not a measurement of a frame; the ones this build "+
-				"has are like, mean_between, sat_between, spread_between and text", mode)
+				"has are like, mean_between, sat_between, spread_between, text, contains, "+
+				"matches and equals", mode)
 		}
 		lo, hi, err := modeRange(raw)
 		if err != nil {

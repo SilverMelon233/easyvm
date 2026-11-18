@@ -512,8 +512,21 @@ func parseVerbed(l line, verb, rest string, step map[string]any) (map[string]any
 		step["settle"] = secs
 		return step, nil
 
-	// ---- a reading -----------------------------------------------------------------------
-	case "read":
+	// ---- a reading, and the capture it is named for --------------------------------------
+	//
+	// `read` AND `see` ARE THE SAME LINE, and only one of them was a verb here.
+	//
+	// `see: {name: shot}` IS THE STEP THAT CAPTURES, and the sentence form for it is
+	// `see the screen as "shot"` - which is what `linux/alpine-microvm/steps/measure.walk` and
+	// `reading-example.walk` write. With no `case "see"` the line fell through to the fallback and
+	// became `see: "the whole screen as \"page"` - ONE STRING, quotes and all, where a mapping was
+	// expected. The walk still LOADED, the frame was named `the whole screen as "page`, and every
+	// `check: {from: page}` in the file referred to a name nothing had bound.
+	//
+	// MEASURED AS A SILENT FAILURE, which is the worst kind: `easyvm check` printed "7 step(s)" and
+	// nothing else, and the three questions after it would each have answered "names a reading no
+	// ocr: or see: step has made" on a real run.
+	case "read", "see":
 		return parseRead(l, rest, step)
 
 	// ---- the serial console, which is all a microvm has --------------------------------

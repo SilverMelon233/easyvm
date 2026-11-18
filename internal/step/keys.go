@@ -433,6 +433,9 @@ var Keys = map[string]Key{
 			"appeared, for media that boot with no prompt at all"},
 	"until": {Name: "until", Kind: KindWords,
 		Summary: "words that end a wait loop"},
+	"until_any": {Name: "until_any", Kind: KindWordSets,
+		Summary: "the alternatives form of `until:`: ONE of these word-sets must be on screen. " +
+			"`doUntil` reads it beside `until:` and joins the two into one list of alternatives"},
 	"until_dark": {Name: "until_dark", Kind: KindBool,
 		Summary: "wait until the screen goes black - an installer's own start signal"},
 	"wait_for_change": {Name: "wait_for_change", Kind: KindBool,
