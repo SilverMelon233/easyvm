@@ -1,0 +1,77 @@
+walkthrough "linux-fedora-workstation - sshd"
+  resolution 1920x1080
+  password admin
+  var out == {default: out/distro.qcow2, from: args.out}
+  var user == {default: vmuser, from: args.user}
+  header recording_resolution == [1920, 1080]
+
+  step "boot the disk"
+    boot == true
+    os == linux
+    timeout == 900
+  step "greeter - wake the screen"
+    key == esc
+    optional == true
+    settle == 5
+  click "greeter - the user tile" at 960 488, waiting 4s, optionally, named "greeter - the user tile"
+  step "greeter - the password box"
+    clear == false
+    click == [936, 628]
+    optional == true
+    settle == 4
+    type == '{{ password }}'
+  step "greeter - submit"
+    key == ret
+    optional == true
+    settle == 12
+  click "desktop - give the shell focus" at 960 700, waiting 2s, named "desktop - give the shell focus"
+  press meta_l, waiting 4s, named "open the overview"
+  step "search for the terminal"
+    settle == 4
+    type == terminal
+  click "open the terminal" at 960 178, waiting 20s, named "open the terminal"
+  step "install openssh-server"
+    run == echo {{ password }} | sudo -S dnf install -y openssh-server 2>&1 | tail -5
+    settle == 45
+    terminal_wait == 0
+  step "allow password authentication"
+    run == echo {{ password }} | sudo -S -p '' sh -c 'mkdir -p /etc/ssh/sshd_config.d; printf "PasswordAuthentication yes\n" > /etc/ssh/sshd_config.d/99-vm.conf; sed -i "s/^#\?\s*PasswordAuthentication.*/PasswordAuthentication yes/" /etc/ssh/sshd_config; grep -q "^PasswordAuthentication yes" /etc/ssh/sshd_config || printf "PasswordAuthentication yes\n" >> /etc/ssh/sshd_config' 2>&1 | tail -3
+    settle == 3
+    terminal_wait == 0
+  step "enable sshd at boot"
+    run == echo {{ password }} | sudo -S systemctl enable sshd 2>&1 | tail -3
+    settle == 8
+    terminal_wait == 0
+  step "prove the setting took"
+    run == echo {{ password }} | sudo -S sh -c 'sshd -T 2>/dev/null | grep -i "^passwordauthentication" || echo PASSWORDAUTH-UNREADABLE' 2>&1 | tail -3
+    settle == 3
+    terminal_wait == 0
+  step "start sshd"
+    run == echo {{ password }} | sudo -S systemctl restart sshd 2>&1 | tail -3
+    settle == 10
+    terminal_wait == 0
+  step "prove sshd is active"
+    run == systemctl is-active sshd
+    settle == 5
+    terminal_wait == 0
+  step "open the firewall for ssh"
+    run == echo {{ password }} | sudo -S sh -c "firewall-cmd --add-service=ssh --permanent; firewall-cmd --reload; firewall-cmd --list-services" 2>&1 | tail -5
+    settle == 8
+    terminal_wait == 0
+  step "wait for sshd"
+    require_ssh == true
+    timeout == 600
+  step "prove the kernel over ssh"
+    ssh == uname -a
+    timeout == 120
+  step "prove the account over ssh"
+    ssh == id -un; hostname
+    timeout == 120
+  step "ask the guest to power off"
+    ssh == printf '%s\n' '{{ password }}' | sudo -S -p '' poweroff
+    timeout == 300
+  step "wait for the machine to stop"
+    timeout == 300
+    wait_until == stopped
+  step "publish the disk"
+    compress == '{{ out }}'

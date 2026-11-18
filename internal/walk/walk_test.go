@@ -22,7 +22,10 @@ const realFiles = "../.."
 // THE WINDOWS AND MACOS FILES ARE NOW HERE, which is what moved this from "28 of 54 borrowed from
 // the Python repository" to "10 of 10 in this one". None of them uses a `python:` step any more:
 // the extension each one named became a key in the vocabulary.
-const portedFloor = 10
+// THE FLOOR IS A REGRESSION GUARD, NOT A TARGET: it is the number of walkthroughs that load today.
+// It went from 10 to 40 when the generator converted the upstream files whose vocabulary already
+// matched, and it may only go up.
+const portedFloor = 40
 
 func TestLoadsEveryRealWalkthrough(t *testing.T) {
 	if _, err := os.Stat(realFiles); err != nil {
@@ -39,20 +42,25 @@ func TestLoadsEveryRealWalkthrough(t *testing.T) {
 		if err != nil {
 			return nil
 		}
-		if info.IsDir() || !strings.HasSuffix(path, ".yaml") {
+		if info.IsDir() || !strings.Contains(path, string(filepath.Separator)+"steps"+string(filepath.Separator)) {
 			return nil
 		}
-		if !strings.Contains(path, string(filepath.Separator)+"steps"+string(filepath.Separator)) {
-			return nil
-		}
-		// A `.yaml` WITH A `.walk` BESIDE IT IS THE FILE THAT WAS REPLACED, and testing it would
-		// report the vocabulary as broken because the OLD file is still on disk. The merge brought
-		// the upstream `.yaml` files back; each is converted in its own time, and until then the
-		// `.walk` is what this package is answerable for.
-		if strings.HasSuffix(path, ".yaml") {
+		// THE `.walk` IS THE FILE THIS PACKAGE IS ANSWERABLE FOR, AND THE `.yaml` BESIDE IT IS THE
+		// FILE IT REPLACED.
+		//
+		// THIS USED TO WALK `.yaml` AND SKIP ANY THAT HAD A `.walk`, which was right while the
+		// migration was a handful of hand-written files and became wrong the moment a generator could
+		// convert the rest: 31 files gained a `.walk` in one commit, every `.yaml` was skipped for
+		// having one, and nothing was loaded at all. The measurement said "0 of 10" about a tree that
+		// had 47 loadable files in it.
+		switch {
+		case strings.HasSuffix(path, ".walk"):
+		case strings.HasSuffix(path, ".yaml"):
 			if _, err := os.Stat(strings.TrimSuffix(path, ".yaml") + ".walk"); err == nil {
-				return nil
+				return nil // superseded; the `.walk` above is counted instead
 			}
+		default:
+			return nil
 		}
 		found++
 		f, loadErr := Load(path, nil)

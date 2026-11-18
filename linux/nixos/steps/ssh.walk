@@ -1,0 +1,64 @@
+walkthrough "linux-nixos - sshd"
+  resolution 1920x1080
+  password admin
+  var out == {default: out/distro.qcow2, from: args.out}
+  var user == {default: vmuser, from: args.user}
+  header recording_resolution == [1920, 1080]
+
+  step "boot the disk"
+    boot == true
+    os == linux
+    timeout == 900
+  press Escape, waiting 5s, named "greeter - wake the screen"
+  click "greeter - the user tile" at 960 488, waiting 4s, named "greeter - the user tile"
+  step "greeter - the password box"
+    clear == false
+    click == [936, 628]
+    settle == 4
+    type == '{{ password }}'
+  press Return, waiting 12s, named "greeter - submit"
+  settle 240s, named "let the session finish starting"
+  click "skip the welcome dialog" at 858 748, waiting 5s, named "skip the welcome dialog"
+  press Escape, waiting 2s, named "clear anything left over"
+  step "the desktop is up"
+    loop == {check: {from: screen, mode: text, name: done, rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], words: [[Dashboard], [Activities]]}, do: [{click: [420, 300], settle: 10}], max: 12, see: {name: screen}, until: {fact: done}}
+  click "desktop - give the shell focus" at 960 700, waiting 2s, named "desktop - give the shell focus"
+  press meta_l, waiting 4s, named "open the overview"
+  step "search for the terminal"
+    settle == 3
+    type == terminal
+  step "wait for the Console result"
+    loop == {check: {from: screen, mode: text, name: done, rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], words: [[Console]]}, do: [{click: [420, 300], settle: 5}], max: 18, see: {name: screen}, until: {fact: done}}
+  click "open the terminal" at 960 160, waiting 20s, named "open the terminal"
+  step "declare openssh in configuration.nix"
+    run == "echo {{ password }} | sudo -S sh -c 'sed -i \"$ d\" /etc/nixos/configuration.nix; printf \"  services.openssh.enable = true;\\n  services.openssh.settings.PasswordAuthentication = true;\\n  networking.firewall.enable = false;\\n}\\n\" >> /etc/nixos/configuration.nix'\n"
+    settle == 6
+    terminal_wait == 0
+    type_gap == 0.15
+  step "rebuild the system"
+    run == echo {{ password }} | sudo -S nixos-rebuild switch 2>&1 | tail -8
+    settle == 300
+    terminal_wait == 0
+    type_gap == 0.15
+  step "prove sshd is active"
+    run == systemctl is-active sshd
+    settle == 5
+    terminal_wait == 0
+    type_gap == 0.15
+  step "wait for sshd"
+    require_ssh == true
+    timeout == 600
+  step "prove the kernel over ssh"
+    ssh == uname -a
+    timeout == 120
+  step "prove the account over ssh"
+    ssh == id -un; hostname
+    timeout == 120
+  step "ask the guest to power off"
+    ssh == printf '%s\n' '{{ password }}' | sudo -S -p '' poweroff
+    timeout == 300
+  step "wait for the machine to stop"
+    timeout == 300
+    wait_until == stopped
+  step "publish the disk"
+    compress == '{{ out }}'

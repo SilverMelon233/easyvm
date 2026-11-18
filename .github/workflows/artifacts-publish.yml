@@ -47,8 +47,12 @@ on:
           - recovery
         default: all
       disks_repository:
-        description: The ghcr repository artifacts are mirrored INTO and built FOR
-        default: easydev-org/easyvm
+        description: >-
+          The ghcr package the pinned inputs are MIRRORED INTO. Defaults to THIS repository rather
+          than the upstream one, because this job PUSHES and a token can only write to the package
+          its own repository holds. Point it at `easydev-org/easyvm` and every push here is a 403 -
+          and worse, a fork that got the credentials would be writing over the product's inputs.
+        default: ""
       which:
         description: >-
           One exact tag, overriding `group`. Empty publishes the group. The comment on each entry
@@ -195,7 +199,7 @@ jobs:
         with:
           path: ${{ steps.fetch.outputs.path }}
           tag: ${{ matrix.artifact.tag }}
-          repository: ${{ inputs.disks_repository }}
+          repository: ${{ inputs.disks_repository || github.repository }}
           media-type: application/vnd.easydev.artifact
           token: ${{ github.token }}
           check-name: mirror-${{ matrix.artifact.tag }}
@@ -286,7 +290,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/recovery/${{ matrix.tag }}
           tag: ${{ matrix.tag }}
-          repository: ${{ inputs.disks_repository }}
+          repository: ${{ inputs.disks_repository || github.repository }}
           token: ${{ github.token }}
           check-name: recovery-mirror-${{ matrix.tag }}
 
@@ -404,7 +408,7 @@ jobs:
             -v "$GITHUB_WORKSPACE/work:/work" \
             -v "$GITHUB_WORKSPACE:/repo:ro" \
             --entrypoint /bin/sh \
-            ghcr.io/easydev-org/easyvm:latest -c '
+            ghcr.io/${{ github.repository }}:latest -c '
               set -eu
               easyvm serve --work /work --http :8080 > /tmp/daemon.log 2>&1 &
               i=0
@@ -483,7 +487,7 @@ jobs:
         with:
           path: ${{ github.workspace }}/work/boot.img
           tag: macos-asset-boot${{ matrix.suffix }}
-          repository: ${{ inputs.disks_repository }}
+          repository: ${{ inputs.disks_repository || github.repository }}
           token: ${{ github.token }}
           check-name: opencore-boot${{ matrix.suffix }}
 
@@ -492,7 +496,7 @@ jobs:
         with:
           path: ${{ github.workspace }}/work/macos.rom
           tag: macos-asset-rom${{ matrix.suffix }}
-          repository: ${{ inputs.disks_repository }}
+          repository: ${{ inputs.disks_repository || github.repository }}
           token: ${{ github.token }}
           check-name: opencore-rom${{ matrix.suffix }}
 
@@ -501,6 +505,6 @@ jobs:
         with:
           path: ${{ github.workspace }}/work/macos.vars
           tag: macos-asset-vars${{ matrix.suffix }}
-          repository: ${{ inputs.disks_repository }}
+          repository: ${{ inputs.disks_repository || github.repository }}
           token: ${{ github.token }}
           check-name: opencore-vars${{ matrix.suffix }}
