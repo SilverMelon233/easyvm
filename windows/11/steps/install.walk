@@ -33,7 +33,7 @@ walkthrough "windows 11 - install to a desktop"
   press Escape, waiting 1s, named "press it again, because the prompt is emitted more than once"
   press Escape, waiting 2s, named "and once more, for a loader that was not listening yet"
   step "Setup is on screen"
-    loop == {check: {from: screen, mode: text, name: done, words: [Windows, Setup], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 5}], max: 180, see: {name: screen}, until: {fact: done}}
+    loop == {check: {from: screen, mode: text, name: done, words: [Windows, Setup], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 5}], max: 180, see: {name: screen}, until: {fact: done}}
   step "wait for the desktop"
     desktop == windows
     timeout == 5400
