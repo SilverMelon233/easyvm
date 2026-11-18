@@ -90,8 +90,13 @@ type Request struct {
 	// does not run vet: the image's `binary` job failed on
 	//
 	//	internal/protocol/protocol.go:92:5: struct field Y repeats json tag "x"
-	X    int    `json:"x,omitempty"`
-	Y    int    `json:"y,omitempty"`
+	//
+	// THEY ARE POINTERS, AND `omitempty` IS WHY. `(0, 0)` IS THE TOP-LEFT PIXEL and a walkthrough may
+	// name it; as `int` with `omitempty` it was DROPPED from the wire, so the daemon could not tell
+	// "click the corner" from "the caller sent nothing". `*int` makes those two facts different
+	// values - `&0` and `nil` - which is what lets the missing one be refused by name.
+	X    *int   `json:"x,omitempty"`
+	Y    *int   `json:"y,omitempty"`
 	Key  string `json:"key,omitempty"`
 	Text string `json:"text,omitempty"`
 }

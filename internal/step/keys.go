@@ -52,6 +52,15 @@ const (
 	// KindScript is a multi-line body handed to a shell ON THE GUEST. Not our code: the disk
 	// under test is what runs it, which is why it stays text.
 	KindScript
+	// KindAny is a key with MORE THAN ONE ACCEPTED SHAPE, and it exists because several of them
+	// genuinely do: `boot: true` is a flag and `boot: {os: linux}` is the same key with options;
+	// `disk: disk.qcow2` is a name and the mapping form was removed but old files still parse it.
+	//
+	// IT IS NOT A HOLE. A key lands here only after its own executor is read and found to take more
+	// than one shape, and the shapes it takes are still checked by that executor when it runs. The
+	// alternative - declaring one Kind and refusing the other form - would refuse files this
+	// repository has been running for months.
+	KindAny
 )
 
 func (k Kind) String() string {
@@ -78,6 +87,8 @@ func (k Kind) String() string {
 		return "[mapping, ...]"
 	case KindScript:
 		return "script"
+	case KindAny:
+		return "any"
 	}
 	return "?"
 }
@@ -117,7 +128,9 @@ var Keys = map[string]Key{
 		Summary: "in a panes epilogue: run only if the walk finished"},
 
 	// --- the machine's own lifecycle ----------------------------------------------------
-	"boot": {Name: "boot", Kind: KindMapping,
+	// `boot: true` IS A FLAG AND `boot: {os: linux}` IS THE SAME KEY WITH OPTIONS - both are in the
+	// tree, so the Kind here is `any` and `doBoot` is what reads the two shapes.
+	"boot": {Name: "boot", Kind: KindAny,
 		Summary: "start a machine this file owns; its options include os, cpu, mem_mb, cpus, " +
 			"share, iso, disk, tpm"},
 	"os": {Name: "os", Kind: KindString,
@@ -175,7 +188,7 @@ var Keys = map[string]Key{
 			"between them"},
 	"graceful": {Name: "graceful", Kind: KindBool,
 		Summary: "ask the guest to shut down rather than killing it"},
-	"record": {Name: "record", Kind: KindString,
+	"record": {Name: "record", Kind: KindAny,
 		Summary: "start recording to this path (a string) or stop with `false`; the step starts " +
 			"its own sampler, because an encoder with no frames writes nothing"},
 	"compress": {Name: "compress", Kind: KindString,
@@ -190,7 +203,22 @@ var Keys = map[string]Key{
 			"cpu, machine type and device set must match the ones the snapshot was taken with"},
 
 	// --- the disk ----------------------------------------------------------------------
-	"disk": {Name: "disk", Kind: KindMapping,
+	// `disk: disk.qcow2` IS THE FORM EVERY FILE USES; the {from, copy} mapping is the older one and is
+	// refused by name when `doDisk` sees it, which is a better error than a Kind mismatch here.
+	//
+	// THE SAME GOES FOR SIX MORE, AND EACH IS A KEY THAT GENUINELY CARRIES MORE THAN ONE SHAPE:
+	//
+	//	desktop       `linux/kde` is a name, `{os: linux, desktop: gnome}` is the same wait with options
+	//	record        `install.mp4` starts one, `false` stops it - a bool is a STATEMENT here
+	//	timeout       a number of seconds, or `'{{ boot_timeout }}'` resolved before this is reached
+	//	script        a body string, or `{body, shell, name}` - both spellings are in the tree
+	//	rect          a named rect (`middle`), a pixel list, or a list of fractions
+	//	disk_esp_mib  a number, or a `{{ }}` template
+	//
+	// THEY WERE ALL DECLARED WITH ONE SHAPE, which is what happens when the Kind is documentation
+	// rather than enforcement: nothing read it, so it drifted from what the executors accept. NOW IT IS
+	// READ, so each was reconciled against the files rather than the other way round.
+	"disk": {Name: "disk", Kind: KindAny,
 		Summary: "prepare the file `boot:` starts from a source: {from, copy, overlay}"},
 	"disk_from": {Name: "disk_from", Kind: KindString,
 		Summary: "the source image a disk: step takes"},
@@ -198,7 +226,7 @@ var Keys = map[string]Key{
 		Summary: "move or copy the source: move, copy, reflink"},
 	"disk_overlay": {Name: "disk_overlay", Kind: KindBool,
 		Summary: "run on a throwaway diff over the read-only source"},
-	"disk_gb": {Name: "disk_gb", Kind: KindInt,
+	"disk_gb": {Name: "disk_gb", Kind: KindAny,
 		Summary: "size of a disk this step creates"},
 	// THE PARTITION TABLE, FOR AN INSTALLER THAT EXPECTS ONE TO EXIST.
 	//
@@ -207,7 +235,7 @@ var Keys = map[string]Key{
 	// misaligned key silently retypes the ESP as "Linux filesystem".
 	"disk_gpt": {Name: "disk_gpt", Kind: KindBool,
 		Summary: "partition the created disk: a 260 MiB ESP typed EF00 at LBA 2048, Linux on the rest"},
-	"disk_esp_mib": {Name: "disk_esp_mib", Kind: KindInt,
+	"disk_esp_mib": {Name: "disk_esp_mib", Kind: KindAny,
 		Summary: "size of that ESP; 260 is what the installer draws as 0.25GB"},
 	"disk_settle": {Name: "disk_settle", Kind: KindFloat,
 		Summary: "wait until the target qcow2 stops growing for this many quiet seconds"},
@@ -256,7 +284,9 @@ var Keys = map[string]Key{
 	// A COLOUR IS A FACT THE COMPOSITOR DRAWS: macOS paints the green zoom control rgb(40,200,64) on
 	// every run, at every window height, in every Space. `at_color: [40, 200, 64]` is the whole
 	// instruction, and `color_tolerance:` says how far a pixel may sit from it for antialiasing.
-	"at_color": {Name: "at_color", Kind: KindRect,
+	// `at_color: [40, 200, 64]` IS AN RGB TRIPLE, NOT A RECTANGLE - the Kind said `KindRect` and nothing
+	// read it, so the documentation and the executor had disagreed since the key was written.
+	"at_color": {Name: "at_color", Kind: KindAny,
 		Summary: "[r, g, b] - click the centre of the largest blob of this colour. For a control " +
 			"the window draws in a fixed colour, which is how a macOS window button is found without " +
 			"knowing where the window is"},
@@ -316,7 +346,7 @@ var Keys = map[string]Key{
 		Summary: "wait until the screen changes rather than for particular words"},
 	"poll": {Name: "poll", Kind: KindFloat,
 		Summary: "seconds between looks in an until: loop"},
-	"timeout": {Name: "timeout", Kind: KindInt,
+	"timeout": {Name: "timeout", Kind: KindAny,
 		Summary: "seconds the step may run before it is a failure"},
 	// `keep_alive:` IS GONE. It was written `true` in all 25 places it appeared and never once
 	// `false`, so it was not a switch - it was the behaviour, spelled as an option. A screen that
@@ -326,7 +356,7 @@ var Keys = map[string]Key{
 		Summary: "enlargement for a cropped read; small text needs it"},
 	"screenshot": {Name: "screenshot", Kind: KindString,
 		Summary: "save the screen to this path, for a post-mortem nobody had to ask for"},
-	"desktop": {Name: "desktop", Kind: KindMapping,
+	"desktop": {Name: "desktop", Kind: KindAny,
 		Summary: "wait until a desktop is on screen; options include family and timeout"},
 	"ssh": {Name: "ssh", Kind: KindScript,
 		Summary: "a command run over ssh IN the guest; the exit status is the verdict"},
@@ -339,7 +369,7 @@ var Keys = map[string]Key{
 			"process that is about to die"},
 	"scp": {Name: "scp", Kind: KindList,
 		Summary: "[local-file, remote-path] - copy a script in before running it"},
-	"script": {Name: "script", Kind: KindScript,
+	"script": {Name: "script", Kind: KindAny,
 		Summary: "a body written on the host, copied in, and run by path. The guest's " +
 			"interpreter runs it, not ours"},
 	"adb": {Name: "adb", Kind: KindScript,
@@ -522,7 +552,7 @@ var Keys = map[string]Key{
 		Summary: "a comparison modifier: subtract another reading first, as " +
 			"`{minus: body.mean, greater_than: 40}`"},
 
-	"rect": {Name: "rect", Kind: KindString,
+	"rect": {Name: "rect", Kind: KindAny,
 		Summary: "with `see:` and `check:`: the region to measure, as a FRACTION of the frame " +
 			"rather than a pixel pair, so it cannot be measured at the wrong size. Forms: " +
 			"`middle`, `top 4.5%`, `bottom 40px`, or [x0, y0, x1, y1] as fractions"},
@@ -633,7 +663,7 @@ var Keys = map[string]Key{
 	// All three dispatched to `doFetch` and differed only in which WORD the file chose: take a
 	// published file, assemble one, render one. MEASURED: `asset:` 1 use, `build:` 2, `generate:` 1
 	// - the distinction was never load-bearing, because the KIND is the value.
-	"fetch": {Name: "fetch", Kind: KindList,
+	"fetch": {Name: "fetch", Kind: KindAny,
 		Summary: "produce one host-side input: an installer image, a guest agent, a firmware, an " +
 			"answer CD. The value names WHAT, not how it is obtained"},
 	"template": {Name: "template", Kind: KindString,
@@ -682,12 +712,19 @@ var actionKeys = []string{"click", "double", "at_button", "at_color", "key", "ty
 // Validate refuses a key the vocabulary does not have, and a blind pause long enough that stopping
 // the machine would not work.
 func Validate(stepName string, mapping map[string]any) error {
-	for key := range mapping {
-		if _, ok := Keys[key]; ok {
+	for name, value := range mapping {
+		key, ok := Keys[name]
+		if !ok {
+			return fmt.Errorf("step %q has unknown key %q; an unknown key used to mean a step that did nothing",
+				stepName, name)
+		}
+		// THE NAME IS WHAT THE LOG SAYS, SO IT IS A STRING AND NOTHING ELSE.
+		if name == "name" {
 			continue
 		}
-		return fmt.Errorf("step %q has unknown key %q; an unknown key used to mean a step that did nothing",
-			stepName, key)
+		if err := checkKind(key, value); err != nil {
+			return fmt.Errorf("step %q: %w", stepName, err)
+		}
 	}
 	return nil
 }

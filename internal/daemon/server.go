@@ -502,9 +502,17 @@ func (d *Daemon) handle(req Request) Response {
 	case protocol.CommandScreenshot:
 		return d.screenshot()
 	case protocol.CommandClick:
-		return d.withQMP("click", func(c *qmp.Conn) error { return c.Click(req.X, req.Y) })
+		x, y, err := xyOf("click", req)
+		if err != nil {
+			return Response{OK: false, Error: err.Error()}
+		}
+		return d.withQMP("click", func(c *qmp.Conn) error { return c.Click(x, y) })
 	case protocol.CommandDouble:
-		return d.withQMP("double-click", func(c *qmp.Conn) error { return c.DoubleClick(req.X, req.Y) })
+		x, y, err := xyOf("double-click", req)
+		if err != nil {
+			return Response{OK: false, Error: err.Error()}
+		}
+		return d.withQMP("double-click", func(c *qmp.Conn) error { return c.DoubleClick(x, y) })
 	case protocol.CommandKey:
 		if req.Key == "" {
 			return Response{OK: false, Error: "`key` needs a key, for example ret or ctrl+alt+t"}

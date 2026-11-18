@@ -197,48 +197,35 @@ func (d *Daemon) handleScreenPNG(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.bytes)
 }
 
+// THE FOUR BESPOKE ROUTES DECODE STRICTLY AND RUN THE REQUEST AS IT ARRIVED - see `handlePointer`
+// for the point-naming two, and the same rule for `key` and `type`: nothing is rebuilt, so a
+// misspelled field is refused by name instead of being dropped into a zero value.
 func (d *Daemon) handleClick(w http.ResponseWriter, r *http.Request) {
-	var req protocol.Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "the body must be JSON: {\"x\": 100, \"y\": 200}", http.StatusBadRequest)
-		return
-	}
-	writeJSON(w, http.StatusOK, d.handle(protocol.Request{
-		Command: protocol.CommandClick, X: req.X, Y: req.Y,
-	}))
+	d.handlePointer(w, r, protocol.CommandClick)
 }
 
 func (d *Daemon) handleDouble(w http.ResponseWriter, r *http.Request) {
-	var req protocol.Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "the body must be JSON: {\"x\": 100, \"y\": 200}", http.StatusBadRequest)
-		return
-	}
-	writeJSON(w, http.StatusOK, d.handle(protocol.Request{
-		Command: protocol.CommandDouble, X: req.X, Y: req.Y,
-	}))
+	d.handlePointer(w, r, protocol.CommandDouble)
 }
 
 func (d *Daemon) handleKey(w http.ResponseWriter, r *http.Request) {
-	var req protocol.Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "the body must be JSON: {\"key\": \"ret\"}", http.StatusBadRequest)
+	req, err := decodeStrict(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, d.handle(protocol.Request{
-		Command: protocol.CommandKey, Key: req.Key,
-	}))
+	req.Command = protocol.CommandKey
+	respond(w, r, d.handle(req))
 }
 
 func (d *Daemon) handleType(w http.ResponseWriter, r *http.Request) {
-	var req protocol.Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "the body must be JSON: {\"text\": \"hello\"}", http.StatusBadRequest)
+	req, err := decodeStrict(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, d.handle(protocol.Request{
-		Command: protocol.CommandType, Text: req.Text,
-	}))
+	req.Command = protocol.CommandType
+	respond(w, r, d.handle(req))
 }
 
 // handleCommand runs any request the socket would accept.
@@ -250,16 +237,16 @@ func (d *Daemon) handleCommand(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST a Request as JSON", http.StatusMethodNotAllowed)
 		return
 	}
-	var req protocol.Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, fmt.Sprintf("the body must be a Request: %v", err), http.StatusBadRequest)
+	req, err := decodeStrict(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if req.Command == "" {
 		http.Error(w, "`command` is required", http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, d.handle(req))
+	respond(w, r, d.handle(req))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
