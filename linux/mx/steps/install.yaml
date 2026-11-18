@@ -54,7 +54,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says
+      mode: text
       words:
       - terms
       - of
@@ -77,7 +77,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says
+      mode: text
       words:
       - select
       - type
@@ -101,7 +101,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says
+      mode: text
       words:
       - final
       - review
@@ -128,7 +128,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says
+      mode: text
       words:
       - create
       - a
@@ -152,7 +152,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says
+      mode: text
       words:
       - computer
       - identity
@@ -174,7 +174,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says
+      mode: text
       words:
       - localization
       - defaults
@@ -196,7 +196,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says
+      mode: text
       words:
       - default
       - user
@@ -245,7 +245,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - congratulations
       - - completed

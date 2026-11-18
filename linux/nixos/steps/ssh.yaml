@@ -60,7 +60,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - Dashboard
       - - Activities
@@ -91,7 +91,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - Console
       rect: [0, 0, 1920, 1080]

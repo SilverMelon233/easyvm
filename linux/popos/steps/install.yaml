@@ -63,7 +63,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - select
         - a
@@ -140,7 +140,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says
+      mode: text
       words:
       - Full
       - Name
@@ -175,7 +175,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - Choose
         - Account

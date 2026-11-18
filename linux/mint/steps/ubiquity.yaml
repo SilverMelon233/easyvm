@@ -34,7 +34,7 @@ steps:
   check:
     name: asserted
     from: open_the_installer
-    mode: says
+    mode: text
     words:
     - welcome
     rect: [0, 0, 1920, 1080]

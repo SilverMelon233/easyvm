@@ -48,7 +48,7 @@ steps:
   check:
     name: is_mint
     from: grub
-    mode: says_any
+    mode: text
     words:
     - - start
       - linux
@@ -83,7 +83,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - welcome
         - to
@@ -109,7 +109,7 @@ steps:
   check:
     name: asserted
     from: install_linux_mint
-    mode: says_any
+    mode: text
     words:
     - [welcome]
     - [install]
@@ -157,7 +157,7 @@ steps:
   check:
     name: ext4
     from: format
-    mode: says
+    mode: text
     words:
     - ext4
 

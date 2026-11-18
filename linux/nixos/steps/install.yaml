@@ -51,7 +51,7 @@ steps:
   check:
     name: asserted
     from: open_the_installer
-    mode: says_any
+    mode: text
     words:
     - [welcome]
     - [language]
@@ -98,7 +98,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - welcome
       - - language
