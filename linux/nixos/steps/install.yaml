@@ -91,6 +91,27 @@ steps:
       - - keyboard
     until:
       fact: done
+# THE WELCOME PAGE'S `Next` IS GREY ON THE RUNNER UNTIL THE LANGUAGE COMBO COMMITS.
+#
+# MEASURED off the failing run's own frame (extracted from its recording): the Calamares window is
+# 685x365 there - x 450..1470, y 296..852 on the 1920 frame - and `Next` at (1325, 836) is drawn in
+# `rgb(239,239,239)`: DISABLED. The language combo above it reads `American English`, so a choice is
+# shown but not committed, and Calamares will not advance until it is.
+#
+# SO THE COMBO IS OPENED AND ITS OWN ENTRY TAKEN, which is what commits it: the list opens on the
+# current entry, so `ret` selects `American English` a second time and the change handler fires.
+- name: the language combo, opened and taken
+  # MEASURED off the failing run's frame: the combo's own border spans x=680..1422, y=727..745 on the
+  # 1920 frame, so its centre is (1050, 736).
+  click:
+  - 1050
+  - 736
+  wait_after: 3
+
+- name: take the current entry
+  key: ret
+  wait_after: 3
+
 - name: welcome
   click:
   - 1329
