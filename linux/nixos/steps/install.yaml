@@ -202,40 +202,58 @@ steps:
 # THE BOX IS x=600..824, y=376..403 on that frame - centre (712, 390) - and the caret is put in it
 # before anything is typed. The verdict now reads a crop that stops ABOVE the second box's label, so
 # the only `vmuser` it can see is the one in the first field.
+# THE FIRST FIELD IS PRESSED, CLEARED AND TYPED IN ONE LOOP, BECAUSE A PRESS AND A TYPE ARE NOT ONE
+# ACTION UNLESS THEY ARE ONE STEP.
+#
+# MEASURED on run 44257075222: the first box still read `Your Full Name` - its PLACEHOLDER - after
+# `typed 6 character(s)` was logged, and `Next` stayed disabled, so the run then pressed a disabled
+# button five times. The press was at (712, 390) and the box occupies y 360..391 on the runner: 390 is
+# its BOTTOM BORDER, so the caret never entered the field and the six characters went to the window.
+#
+# THE BOX IS x 624..831, y 360..391 ON THE RUNNER - centre (727, 375) - measured off that run's own
+# frame. The old (712, 390) is 2 rows below the interior.
+#
+# AND THE VERDICT IS THE PLACEHOLDER BEING GONE. `Your Full Name` is drawn in the box only while it is
+# EMPTY; once a character is typed it is replaced by the text. So the loop presses and types, and stops
+# when the placeholder is no longer read. `clear:` is a no-op on an empty box and a correction on one
+# that already holds text, which is what makes a retry safe.
 - name: the full name field
-  click:
-  - 712
-  - 390
-  wait_after: 2
-
-- name: users - what is your name
-  clear: true
-  type: '{{ user }}'
-  wait_after: 2
-
-# THE NAME IS NOT READ BACK. A 45-ROW CROP OF A TEXT INPUT IS BELOW WHAT OCR RESOLVES.
-#
-# MEASURED, two runs of the narrowed crop:
-#
-#	name_field: 3 word(s): I immer 1
-#	name_field: 2 word(s): > cc)
-#
-# - at 45 rows neither the field's text nor its placeholder comes back, so this check can only ever
-# fail, and it fails on work that was done. The WIDER crop it replaced was worse in the other
-# direction: it included the second box, whose `vmuser` made the check pass on an empty first field.
-#
-# A CHECK THAT CANNOT READ ITS SUBJECT IS NOT A CHECK. What is kept is the press that puts the caret in
-# the box, and the proof that it took is downstream and unambiguous: Calamares keeps `Next` DISABLED
-# while the name is empty, so `the users page is drawn` on the NEXT page would never pass, and the
-# steps after this one press that Next.
-#
-# THE MISTAKE THAT MADE THIS NECESSARY WAS THE PRESS, NOT THE READING: the first box had no caret, and
-# that is fixed by clicking its own centre first.
+  loop:
+    max: 4
+    do:
+    - click:
+      - 727
+      - 375
+      wait_after: 2
+    - clear: true
+      type: '{{ user }}'
+      wait_after: 2
+    ocr:
+      name: name_field
+      # JUST THE BOX'S INTERIOR, ENLARGED. MEASURED on the runner's frames: with the border rows
+      # included (y 360..391) the placeholder survives the read even when the box is full; with the
+      # interior only (y 362..389) an empty box reads `Your Full Name |` and a filled one reads
+      # `VITIUSe!` - the typed text, no placeholder. The crop also stops at the box's own right
+      # border, so the second field's text cannot be read into this one.
+      region: [626, 362, 829, 389]
+      region_at: [1920, 1080]
+      scale: 8
+      wait: 1
+    check:
+      name: took
+      from: name_field
+      mode: says_without
+      # THE PLACEHOLDER IS THE ONE WORD THIS BOX CARRIES WHILE IT IS EMPTY.
+      words:
+      - - Your
+      without: [Full]
+    until:
+      fact: took
 
 - name: users - login name, select all
   click:
-  - 700
-  - 429
+  - 740
+  - 433
   key: ctrl+a
   wait_after: 1
 - name: users - login name, clear it
@@ -243,37 +261,37 @@ steps:
   wait_after: 1
 - name: users - login name
   click:
-  - 700
-  - 429
+  - 740
+  - 433
   type: '{{ user }}'
   wait_after: 2
 - name: users - allow a short password
   click:
-  - 630
-  - 532
+  - 645
+  - 537
   wait_after: 3
 - name: users - password
   click:
-  - 700
-  - 494
+  - 741
+  - 495
   type: '{{ password }}'
   wait_after: 2
 - name: users - repeat password
   click:
-  - 900
-  - 494
+  - 959
+  - 495
   type: '{{ password }}'
   wait_after: 2
 - name: users - administrator password
   click:
-  - 700
-  - 603
+  - 741
+  - 609
   type: '{{ password }}'
   wait_after: 2
 - name: users - administrator repeat password
   click:
-  - 900
-  - 603
+  - 959
+  - 609
   type: '{{ password }}'
   wait_after: 3
 # THE FOUR PAGES BETWEEN THE USERS FORM AND THE SUMMARY ARE PRESSED BY ONE LOOP EACH, AND THE
