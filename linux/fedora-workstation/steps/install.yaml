@@ -786,7 +786,9 @@ steps:
     - wait: 2
     ocr:
       name: type_now
-      region: [500, 540, 1300, 620]
+      # THE TYPE ROW IS AT y=396 ON THIS FRAME, so the crop has to cover it. MEASURED: the previous
+      # crop (500,540)-(1300,620) was 200 pixels BELOW the row and read only `Cancel`.
+      region: [560, 380, 1400, 420]
       region_at: [1920, 1080]
       scale: 1
       wait: 0
