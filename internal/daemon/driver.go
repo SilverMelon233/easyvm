@@ -823,6 +823,24 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		// whose resolution is qemu's own default, and the walkthrough that reads it says what it
 		// expects rather than needing 1920x1080.
 		if boot.MicroVM {
+			// `desktop` ASKS FOR A GPU, NOT A TEXT CONSOLE.
+			//
+			// `isa-vga` IS A TEXT-MODE ADAPTER: it gives the guest 80x25 with no DRM node and no
+			// `/dev/fb0`, so an X server on it cannot find a screen. MEASURED, twice:
+			//
+			//	openbox on isa-vga   (EE) no screens found - X exits before it draws
+			//	xfce on Xvfb         the desktop is in the guest's MEMORY, and a qemu screendump
+			//	                     reads the ADAPTER, so the recording shows the console instead
+			//
+			// `virtio-gpu-device` IS ON THE virtio BUS, NOT PCI, which is why a machine with no PCIe
+			// can still attach it: it is the same transport `virtio-blk-device` and
+			// `virtio-net-device` already use here. It provides DRM/KMS, so the guest gets
+			// `/dev/dri/card0`, X draws, and - the point of this whole exercise - the picture is in
+			// an adapter qemu owns, so `screendump` records it.
+			if boot.MicroVMDisplay == "desktop" {
+				args = append(args, "-device", "virtio-gpu-device")
+				break
+			}
 			// `isa-vga` IS THE ADAPTER A `microvm` CAN ACTUALLY CREATE, and `-vga std` is not:
 			//
 			//	qemu-system-x86_64: warning: A -vga option was passed but this machine type does
