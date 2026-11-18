@@ -263,9 +263,17 @@ steps:
     check:
       name: latin
       from: layout_test
-      mode: says_any
-      words:
-      - - abc
+      mode: matches
+      # THE TEST IS "DID LATIN LETTERS COME BACK", NOT "DID THE EXACT WORD COME BACK" - OCR DROPS A
+      # LETTER OF A THREE-LETTER WORD AND THAT IS NOT A FAILURE.
+      #
+      # MEASURED on run 44266698996: the field was typed `abc` and read back `abd` - LATIN, from a US
+      # layout, with tesseract reading the closed `c` as a `d`. The first version of this gate asked
+      # for `abc` exactly and failed four times on a layout that was correct all along.
+      #
+      # AN ARABIC LAYOUT GIVES ARABIC LETTERS - `ابث` - which this pattern cannot match at all, so the
+      # distinction the gate exists for is preserved: three latin letters, in any spelling OCR picks.
+      pattern: '^[a-z]{2,5}$'
     until:
       fact: latin
 
