@@ -645,6 +645,17 @@ func parseBoot(l line, rest string, step map[string]any) (map[string]any, error)
 		// microvm reads its `modloop=` squashfs out of. A kernel and an initramfs alone boot the
 		// kernel and then stop: measured, the guest reached
 		// `initramfs emergency recovery shell launched` because there was nothing to mount.
+		// `with "console=tty0 root=/dev/vda rw"` IS THE GUEST'S OWN BOOT LINE.
+		//
+		// The engine's default is Alpine's diskless one, and it mounts `modloop=/dev/vda` OVER the
+		// root disk - MEASURED: the guest mounted its ext4 root, then lost it, then dropped to
+		// `initramfs emergency recovery shell launched`. So a file with a real root filesystem has
+		// to be able to say so.
+		if i := strings.Index(rest, " with \""); i >= 0 {
+			if line, _, err := firstQuote(rest[i+len(" with "):]); err == nil {
+				step["kernel_append"] = line
+			}
+		}
 		if i := strings.Index(rest, "medium "); i >= 0 {
 			if name, _, err := firstQuote(rest[i:]); err == nil {
 				step["iso"] = name

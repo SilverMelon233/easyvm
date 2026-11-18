@@ -178,6 +178,7 @@ the measuring machine and wrong on the runner.
 | `disk_gb` | `disk` | the target's size | 16 |
 | `disk_gpt`, `disk_esp_mib` | `disk` | the target's layout | 2 |
 | `disk_settle`, `disk_min_mb` | `disk_settle` | wait for the disk to stop growing | 12 |
+| `kernel_append`, `microvm_display` | `boot` | the microvm's own kernel line, and whether it has a VGA adapter | 0 |
 | `esp_from` | `esp_fallback` | the loader directory inside the ESP | 1 |
 | `template`, `to` | `scp` | render one bootstrap file and copy it in one step | 0 |
 | `ssh_probe`, `ssh_after_reboot` | `require_ssh` | how to probe, and whether to wait out the old daemon | 11 |

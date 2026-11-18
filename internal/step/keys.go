@@ -226,6 +226,14 @@ var Keys = map[string]Key{
 			"firmware to read a boot sector"},
 	"initrd": {Name: "initrd", Kind: KindString,
 		Summary: "with `microvm:`: the initramfs beside the kernel"},
+	"kernel_append": {Name: "kernel_append", Kind: KindString,
+		Summary: "with `microvm:`: the guest's OWN kernel command line. Required for any microvm " +
+			"whose root is a real filesystem - the default is Alpine's diskless `modloop=/dev/vda`, " +
+			"which mounts OVER the root disk and drops the guest to an emergency shell"},
+	"microvm_display": {Name: "microvm_display", Kind: KindString,
+		Summary: "with `microvm:`: `serial` (no VGA, so `see:` reads nothing), `terminal` (VGA, " +
+			"and the guest draws its TTY there), or `desktop` (VGA with a window manager). The " +
+			"default is `terminal`, because a black video cannot be debugged"},
 	"microvm": {Name: "microvm", Kind: KindBool,
 		Summary: "with `boot:`: the smallest machine that can boot a modern Linux kernel - no " +
 			"firmware, no devices the guest does not need, a direct kernel hand-off. For a " +
