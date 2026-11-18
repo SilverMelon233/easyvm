@@ -79,12 +79,7 @@ steps:
   settle: 20
 
 - name: calamares is open
-  see:
-    of: [text]
-    name: cal
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 5
+  see: {name: cal}
 
 # CALAMARES' OWN FOOTER IS THE PROOF OF A PAGE, AND THE SIDEBAR IS NOT CLICKABLE.
 #
@@ -98,6 +93,8 @@ steps:
     mode: says
     words: [welcome, partitions, next]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # (1777, 1059) is `Next`, measured from the footer strip: three buttons, `Back`, `Next`, `Cancel`.
 #
 # Welcome -> Location
@@ -122,12 +119,7 @@ steps:
   settle: 8
 
 - name: the installation mode page
-  see:
-    of: [text]
-    name: mode
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 3
+  see: {name: mode}
 
 # Customize -> Partitions
 - name: next from customize
@@ -137,12 +129,7 @@ steps:
   settle: 8
 
 - name: the partitions page
-  see:
-    of: [text]
-    name: parts
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 4
+  see: {name: parts}
 
 # THE PARTITIONS PAGE OFFERS `Erase disk` AND `Manual partitioning`, AND `Erase disk` IS THE ONE
 # THAT MATTERS HERE: ITS DEFAULT FILESYSTEM IS ext4, MEASURED.
@@ -164,12 +151,7 @@ steps:
   settle: 6
 
 - name: the erase page shows ext4
-  see:
-    of: [text]
-    name: fs
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 3
+  see: {name: fs}
 
 - name: the default filesystem is ext4
   check:
@@ -178,6 +160,8 @@ steps:
     mode: says
     words: [ext4]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # Partitions -> Users
 - name: next from partitions
   click:
@@ -186,12 +170,7 @@ steps:
   settle: 8
 
 - name: the users page
-  see:
-    of: [text]
-    name: users
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 4
+  see: {name: users}
 
 # THE FIVE FIELDS, MEASURED FROM THE PAGE. Each box is wide and the click is in its left third where
 # the caret lands after existing text, so `ctrl+a` then `backspace` is a reliable clear.
@@ -226,12 +205,7 @@ steps:
   settle: 3
 
 - name: the users page is filled in
-  see:
-    of: [text]
-    name: filled
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 3
+  see: {name: filled}
 
 - name: the password was accepted
   check:
@@ -246,6 +220,8 @@ steps:
     words: [vmuser]
     without: [short]
     
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # Users -> Summary
 - name: next from users
   click:
@@ -254,12 +230,7 @@ steps:
   settle: 8
 
 - name: the summary page
-  see:
-    of: [text]
-    name: summary
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 4
+  see: {name: summary}
 
 # THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM.
 - name: the summary names ext4
@@ -269,6 +240,8 @@ steps:
     mode: says
     words: [ext4]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # Summary -> the confirmation dialog
 - name: start the install
   click:
@@ -277,12 +250,7 @@ steps:
   settle: 8
 
 - name: the confirmation dialog
-  see:
-    of: [text]
-    name: confirm
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 3
+  see: {name: confirm}
 
 # `Install Now`, MEASURED AT (1071, 535) INSIDE THE DIALOG. The dialog's own title is the check, so a
 # click that missed it is visible as a page with no dialog rather than as a silent no-op.
@@ -303,17 +271,14 @@ steps:
     max: 60
     do:
     - settle: 15
-    see:
-      of: [text]
-      name: done
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
-      wait: 0
+    see: {name: done}
     check:
       name: finished
       from: done
       mode: says
       words: [installed]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: finished
 

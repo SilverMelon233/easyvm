@@ -57,12 +57,7 @@ steps:
   settle: 30
 
 - name: calamares is up
-  see:
-    of: [text]
-    name: cal
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 5
+  see: {name: cal}
 
 - name: the welcome page is in English or needs changing
   check:
@@ -73,6 +68,8 @@ steps:
     - - welcome
     - - 歡迎
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # THE LANGUAGE COMBO IS DRIVEN BY ONE LETTER AND TWO STEPS, MEASURED AND REPRODUCIBLE.
 #
 # A PREFIX IS NOT ENOUGH. Typing `eng` or `american english` does NOT reach the row, because this
@@ -119,12 +116,7 @@ steps:
   settle: 6
 
 - name: the installer speaks English
-  see:
-    of: [text]
-    name: english
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 3
+  see: {name: english}
 
 - name: the page is in English
   check:
@@ -133,6 +125,8 @@ steps:
     mode: says
     words: [welcome]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # THE FOOTER OF THIS INSTALLER: `Next` IS AT (1410, 878), measured - one row further down than
 # Kubuntu's and CachyOS' (1356, 791), because this Calamares draws its buttons in a different strip.
 #
@@ -153,12 +147,7 @@ steps:
   settle: 9
 
 - name: the bootloader page
-  see:
-    of: [text]
-    name: boot
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 3
+  see: {name: boot}
 
 # Bootloader -> Partitions
 - name: next from bootloader
@@ -166,12 +155,7 @@ steps:
   settle: 9
 
 - name: the partitions page
-  see:
-    of: [text]
-    name: parts
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 4
+  see: {name: parts}
 
 # THIS MEDIUM PRESELECTS NOTHING HERE, so `Erase disk` has to be clicked. Measured: both radio buttons
 # are empty and the panel under them reads `Unpartitioned space or unknown partition table`.
@@ -180,12 +164,7 @@ steps:
   settle: 8
 
 - name: the partitions page with erase selected
-  see:
-    of: [text]
-    name: erase
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 4
+  see: {name: erase}
 
 # AND THIS ONE DEFAULTS TO ext4, WHICH IS A MEASUREMENT RATHER THAN AN ASSUMPTION.
 #
@@ -204,18 +183,15 @@ steps:
     mode: says
     words: [ext4]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # Partitions -> Users
 - name: next from partitions
   click: [1410, 878]
   settle: 10
 
 - name: the users page
-  see:
-    of: [text]
-    name: users
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 4
+  see: {name: users}
 
 # THE FIVE FIELDS, AND THE TWO PASSWORD BOXES ARE ON ONE ROW.
 #
@@ -265,12 +241,7 @@ steps:
   settle: 3
 
 - name: the users page is filled in
-  see:
-    of: [text]
-    name: filled
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 3
+  see: {name: filled}
 
 # THE FORM'S OWN VERDICT IS `OK!` IN A GREEN BOX, AND `Password is too short` IS NOT A REFUSAL.
 #
@@ -285,6 +256,8 @@ steps:
     words: [ok]
     without: [match]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # Users -> Summary
 - name: next from users
   click: [1410, 878]
@@ -295,12 +268,7 @@ steps:
     max: 30
     do:
     - settle: 10
-    see:
-      of: [text]
-      name: settle
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
-      wait: 3
+    see: {name: settle}
     check:
       name: here
       from: settle
@@ -308,16 +276,13 @@ steps:
       words:
       - - summary
       - - install
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: here
 
 - name: the summary page
-  see:
-    of: [text]
-    name: summary
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 4
+  see: {name: summary}
 
 # THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM.
 - name: the summary names ext4
@@ -327,6 +292,8 @@ steps:
     mode: says
     words: [ext4]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # Summary -> the confirmation dialog. `Install` IS AT (1392, 881) - the same strip as `Next` but the
 # button itself sits further right, and clicking (1456, 886) landed on its edge and did nothing.
 - name: start the install
@@ -334,12 +301,7 @@ steps:
   settle: 10
 
 - name: the confirmation dialog
-  see:
-    of: [text]
-    name: confirm
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 3
+  see: {name: confirm}
 
 # `Install Now` INSIDE THE DIALOG, AT (1067, 539).
 - name: install now
@@ -356,17 +318,14 @@ steps:
     max: 80
     do:
     - settle: 15
-    see:
-      of: [text]
-      name: done
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
-      wait: 0
+    see: {name: done}
     check:
       name: finished
       from: done
       mode: says
       words: [installed]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: finished
 

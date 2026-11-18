@@ -1,5 +1,28 @@
 package run
 
+// `see:` CAPTURES ONE FRAME AND NAMES IT. `check:` ASKS EVERY QUESTION ABOUT THAT FRAME.
+//
+// THIS FILE USED TO HOLD THE OTHER MODEL, AND IT WAS THE ONE THING THAT MADE A SCREEN INTO A SINGLE
+// QUESTION. A `see:` carried ONE `rect:` and ONE `of:`, so a file that wanted to know three things
+// about one screen - "is it the reference image", "does the bottom band say this", "is the mean
+// brightness below sixty" - had to capture THREE TIMES, and each capture was a different frame taken
+// at a different moment. Two of those questions could disagree about what the screen said.
+//
+//	see:   {name: shot}                        capture once, name it
+//	check: {name: a, from: shot, mode: like, reference: ...}
+//	check: {name: b, from: shot, mode: text, rect: middle, words: [[install]]}
+//	check: {name: c, from: shot, mode: mean_between, rect: bottom 4.5%, range: [0, 60]}
+//
+// ONE CAPTURE, THREE QUESTIONS, EACH WITH ITS OWN REGION, ALL ABOUT THE SAME INSTANT.
+//
+// AND `check:` STILL DOES NOT READ THE SCREEN. It reads the frame the `see:` captured, which is why a
+// `loop:` can re-ask the same boolean on every attempt without paying for a picture each time.
+//
+// THE OLD FORM IS GONE, NOT DEPRECATED. `see: {name, rect, of}` and `ocr:` were migrated: 83 of the
+// 83 `of: [...]` in this tree were `of: [text]`, which is `check: {mode: text}`, and the two numeric
+// `measuring` lines are `check: {mode: mean_between}`. A vocabulary with two ways to say one thing is
+// how a reader comes to write the one that is not maintained.
+
 import (
 	"fmt"
 	"image"
@@ -12,200 +35,83 @@ import (
 	"github.com/easydev-org/easyvm/internal/walk"
 )
 
-// `see:` MEASURES, `check:` DECIDES, AND NEITHER KNOWS ABOUT THE OTHER.
+// doSee captures one frame and binds it under the step's name.
 //
-// THIS FILE REPLACES THE PATTERN THAT MADE EVERY NEW SCREEN SHAPE A REBUILD. Today a question about a
-// picture is a Go function reached through a dispatch table - `desktop: linux/cinnamon` and eight
-// siblings in `internal/screen` - because the MEASUREMENT and the COMPARISON live in the same
-// function. So changing a threshold recompiles the binary and rebuilds the image, which is the thing
-// this design exists to stop.
-//
-// THE SPLIT IS THE WHOLE DESIGN:
-//
-//	see:  reads the frame and binds NUMBERS   -> internal/screen.Measure, which decides nothing
-//	want: compares those numbers, binds a BOOL -> this file, which never reads the frame
-//
-// MEASURED ON THE FRAMES ALREADY IN internal/screen/testdata - which is why this is a design rather
-// than a hope: one rule written in `want:` form answers mint, zorin and a BIOS menu, and reaches the
-// same three verdicts the Go reaches today.
-//
-//	mint   bottom spread=8.5  flat_rows=11/49  -> true   (its panel IS its wallpaper's colour)
-//	zorin  top    spread=25.7 diff=61.8        -> true   (a panel that differs in brightness)
-//	mx     bottom spread=40.7 flat_rows=0/49   -> false  (a BIOS menu is not a desktop)
-//
-// THE `IsCinnamonDesktop` THIS MAKES UNNECESSARY was 80 lines of Go and a new image.
-
-// doSee measures one rect and binds its numbers as named readings.
-//
-// THE NAMES IT BINDS ARE `name.mean`, `name.spread`, `name.sat`, `name.flat_rows`, `name.rows`, and
-// for a text rect, `name.words`. A `want:` step refers to them by those names, so a file can say
-// `bottom.flat_rows` and a reader can find where it came from.
+// THE FRAME ITSELF IS THE VALUE. Not the numbers measured from it, not the words read out of it -
+// those are questions, and questions belong to `check:`. What `see:` establishes is the fact that a
+// picture was taken, at a moment, and that is what every later question is about.
 func (e *Executor) doSee(s walk.Step) error {
-	raw, name, rectRaw, ofRaw, err := parseSeeStep(s)
-	if err != nil {
+	name := seeName(s)
+	if name == "" {
+		return fail(s.Name, "`see:` must name the frame: `see: {name: shot}`. A picture nobody "+
+			"named cannot be asked about, and an unnamed capture costs a screendump for nothing")
+	}
+	if err := refuseLegacySee(s); err != nil {
 		return err
 	}
-	_ = raw
 
-	// `rect_at:` IS READ HERE, ONCE, AND HANDED DOWN. The step is `see: {name, of, rect, rect_at}` -
-	// the size is INSIDE the mapping, not beside the key - so reading it from `s.Spec` finds nothing
-	// and leaves the rect scaled by the frame. That mistake survived one dispatch: the macos recovery
-	// frame is 640x480 and its rect was written at 1920x1080, and the failure was identical to the one
-	// this whole change exists to fix.
-	at, _ := pairOfMapping(raw, "rect_at")
-	if at == ([2]int{}) {
-		at, _ = pairOfMapping(raw, "region_at")
-	}
-
-	// A TEXT rect is read with the OCR path rather than measured, because its result is words.
-	for _, want := range ofRaw {
-		if fmt.Sprint(want) == "text" {
-			return e.seeText(s, name, rectRaw, at)
-		}
-	}
-
-	rect, err := parseRectAt(rectRaw, at)
-	if err != nil {
-		return fail(s.Name, "%v", err)
-	}
-	// A PIXEL RECT FROM A `.walk` IS `[]any` OF `int`, AND A YAML ONE IS `[]any` OF `int` TOO - but
-	// the converter can also produce `[]int` when it builds the full-frame default. Both are
-	// normalised by `parseRect`; this line is here so a future third shape is caught rather than
-	// silently read as a fraction.
 	f, err := e.Driver.Frame()
 	if err != nil {
-		return fail(s.Name, "reading the frame: %v", err)
+		return fail(s.Name, "capturing the frame: %v", err)
 	}
-	img, err := screen.Load(f.Path())
-	if err != nil {
-		return fail(s.Name, "loading the frame: %v", err)
+	if e.shots == nil {
+		e.shots = map[string]string{}
 	}
-	r := screen.Measure(img, rect)
-
-	if e.numbers == nil {
-		e.numbers = map[string]float64{}
-	}
-	// ONLY WHAT `of:` ASKED FOR IS BOUND, AND THAT IS A CORRECTION.
-	//
-	// It used to bind all seven unconditionally, with the reasoning "a `want:` that names `spread`
-	// should not depend on whether `of:` listed it". MEASURED what that cost: a `see: {reference:}`
-	// binds one number and asks one question, and its reading carried EIGHT - so
-	// `check: {from: shot}` was ambiguous and refused:
-	//
-	//	`check: from: shot` names a reading with 8 numbers (shot.min, shot.max, shot.similarity,
-	//	shot.mean, shot.spread, shot.sat, shot.flat_rows, shot.rows)
-	//
-	// A file says `of: [mean, spread]` because those are the two it means. Binding the other five
-	// answered questions nobody asked and made the name of the reading mean nothing in particular.
-	set := func(k string, v float64) { e.numbers[name+"."+k] = v }
-	wanted := map[string]bool{}
-	for _, w := range ofRaw {
-		wanted[fmt.Sprint(w)] = true
-	}
-	bind := func(k string, v float64) {
-		if wanted[k] {
-			set(k, v)
-		}
-	}
-	bind("mean", r.Mean)
-	bind("spread", r.Spread)
-	bind("sat", r.Sat)
-	bind("flat_rows", float64(r.FlatRows))
-	bind("rows", float64(r.Rows))
-	bind("min", r.Min)
-	bind("max", r.Max)
-
-	// `similarity` IS A MEASUREMENT, NOT A VERDICT, AND THAT IS WHERE IT BELONGS.
-	//
-	// A REFERENCE IMAGE IS A QUESTION ABOUT PIXELS, so it cannot go through `check:` - which compares
-	// a reading that an earlier step already made and never touches the screen. Putting it there
-	// would break the one rule that makes `check:` free to re-ask.
-	//
-	// INSTEAD THE COMPARISON PRODUCES A NUMBER, exactly like `mean` and `spread`: how much of the
-	// screen is unchanged, 0..1. A `check: {mode: number_between, range: [0.97, 1.0]}` then decides
-	// it, which is the same shape every other measurement in the vocabulary has.
-	//
-	// MEASURED over four real CI recordings from this repository - ubuntu, windows, macos, freebsd:
-	//
-	//	the same image against itself                  1.0000
-	//	one second later, same screen              0.9910 - 0.9947
-	//	five seconds later, same screen            0.9912 - 0.9931
-	//	TWO DIFFERENT SCREENS                      0.0002 - 0.0166
-	//
-	// So 0.97 is a floor with room on both sides; the gap is three orders of magnitude wide.
-	if ref, _ := raw["reference"].(string); ref != "" {
-		sim, err := e.similarityTo(s, ref, img)
-		if err != nil {
-			return err
-		}
-		set("similarity", sim)
-	}
-
-	e.Driver.Log(fmt.Sprintf("  measured %s: %s", name, r.Explain()))
+	e.shots[name] = f.Path()
+	e.Driver.Log(fmt.Sprintf("  see %s: %s (%s)", name, filepath.Base(f.Path()), sizeOf(f)))
 	return nil
 }
 
-// seeText reads a rect with OCR. It exists so a `see:` step can produce WORDS as well as numbers,
-// which is what makes `see:` a generalisation of `ocr:` rather than a second mechanism beside it.
-func (e *Executor) seeText(s walk.Step, name string, rectRaw any, at [2]int) error {
-	rect, err := parseRectAt(rectRaw, at)
-	if err != nil {
-		return fail(s.Name, "%v", err)
+// seeName reads the name a `see:` binds, accepting both `see: {name: x}` and `see: x`.
+func seeName(s walk.Step) string {
+	switch v := s.Spec["see"].(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case map[string]any:
+		name, _ := v["name"].(string)
+		return strings.TrimSpace(name)
 	}
-	// A PIXEL RECT FROM A `.walk` IS `[]any` OF `int`, AND A YAML ONE IS `[]any` OF `int` TOO - but
-	// the converter can also produce `[]int` when it builds the full-frame default. Both are
-	// normalised by `parseRect`; this line is here so a future third shape is caught rather than
-	// silently read as a fraction.
-	f, err := e.Driver.Frame()
-	if err != nil {
-		return fail(s.Name, "reading the frame: %v", err)
+	return ""
+}
+
+// refuseLegacySee reports the shape a file must stop writing, WITH the shape to write instead.
+//
+// A SILENT ACCEPTANCE WOULD BE WORSE THAN AN ERROR: a file that still writes `of: [text]` would
+// capture a frame and bind a name, its `check:` would find no words, and the failure would point at
+// the check rather than at the step that was written in the old language.
+func refuseLegacySee(s walk.Step) error {
+	raw, ok := s.Spec["see"].(map[string]any)
+	if !ok {
+		return nil
 	}
-	img, err := screen.Load(f.Path())
-	if err != nil {
-		return fail(s.Name, "loading the frame: %v", err)
+	if _, has := raw["of"]; has {
+		return fail(s.Name, "`see:` no longer measures anything - it captures a frame and names it. "+
+			"Move `of:` to the `check:` that asks the question: "+
+			"`see: {name: shot}` then `check: {name: ok, from: shot, mode: text, rect: ..., words: ...}`")
 	}
-	// THE ENLARGEMENT COMES OFF THE STEP, because a reading of small text that finds nothing is
-	// indistinguishable from a pane that is not up.
-	scale := 3
-	if v, ok := toFloat(s.Spec["scale"]); ok && v > 0 {
-		scale = int(v)
+	if _, has := raw["rect"]; has {
+		return fail(s.Name, "`see:` no longer takes `rect:` - a region belongs to the QUESTION, not "+
+			"the capture. `see: {name: shot}` then `check: {..., from: shot, rect: ...}`")
 	}
-	// THE RECT ALREADY CARRIES `rect_at:`, so the crop is placed on the screen the file measured it
-	// on rather than on whatever size this frame arrived at - a macos recovery frame is 640x480 and
-	// its rects were written at 1920x1080.
-	words, err := e.readWords(img, rect, scale)
-	if err != nil {
-		return fail(s.Name, "%v", err)
+	if _, has := raw["reference"]; has {
+		return fail(s.Name, "`see:` no longer compares to a reference - that is a question. "+
+			"`see: {name: shot}` then `check: {name: same, from: shot, mode: like, reference: ...}`")
 	}
-	if e.seen == nil {
-		e.seen = map[string][]string{}
-	}
-	e.seen[name+".words"] = words
-	// AND A `words:` ALIAS, so a `want:` written against the OLD `ocr:` name still resolves while
-	// both vocabularies are in the tree.
-	e.seen[name] = words
-	e.Driver.Log(fmt.Sprintf("  read %s: %d word(s): %s", name, len(words),
-		truncateWords(words, 10)))
 	return nil
 }
 
-// `want:` WAS HERE, AND IT WAS DELETED WITH NOBODY HAVING USED IT.
-//
-// It was the "better" decision primitive: `{name, all|any|not}` over the numbers `see:` bound, with
-// nested groups and a relation per comparison. The documentation called it "**new**", which was
-// honest - MEASURED: zero walkthroughs used it, and `check:` was used 29 times.
-//
-// IT WAS INTRODUCED BY THE SAME IMPULSE THAT PRODUCED `requires:`, `share_mount:` and `until_console:`
-// - a generalisation written before anything needed it - and it cost 265 lines of recursive
-// evaluation across five functions (evalGroup, evalNot, parseOp, evalOp, lookupNumber) that nothing
-// called. A vocabulary is not made better by primitives nobody reaches for.
-//
-// A `check:` DOES THE JOB: it compares one reading and binds one boolean, and the three modes in use
-// are says, says_any and says_without.
+// sizeOf formats a frame's dimensions for a log line.
+func sizeOf(f Frame) string {
+	w, h := f.Size()
+	return fmt.Sprintf("%dx%d", w, h)
+}
 
 func parseRect(raw any) (screen.Rect, error) {
 	return parseRectAt(raw, [2]int{})
 }
+
+// parseRectAt is `parseRect` for a step that also says `rect_at:` - the screen its pixels were
+// written for. Without it a pixel rect is scaled by the frame, which is wrong whenever the two differ.
 
 // parseRectAt is `parseRect` for a step that also says `rect_at:` - the screen its pixels were
 // written for. Without it a pixel rect is scaled by the frame, which is wrong whenever the two differ.
@@ -259,6 +165,12 @@ var rectWords = regexp.MustCompile(`^(middle|top|bottom)(?:\s+(\d+(?:\.\d+)?)\s*
 // `px` IS ACCEPTED AND CONVERTED, because a panel's height is a pixel measurement everywhere in the
 // files (`panel 48 rows`, `panel 8 rows`) and pretending otherwise would make those numbers
 // unquotable. The conversion divides by the frame height, which the caller passes.
+
+// parseRectWords reads the named forms: `middle`, `top`, `top 4.5%`, `bottom 40px`.
+//
+// `px` IS ACCEPTED AND CONVERTED, because a panel's height is a pixel measurement everywhere in the
+// files (`panel 48 rows`, `panel 8 rows`) and pretending otherwise would make those numbers
+// unquotable. The conversion divides by the frame height, which the caller passes.
 func parseRectWords(s string) (screen.Rect, error) {
 	m := rectWords.FindStringSubmatch(strings.TrimSpace(s))
 	if m == nil {
@@ -304,69 +216,62 @@ func parseRectWords(s string) (screen.Rect, error) {
 // only from `want:` - which no walkthrough ever wrote. A `check:` compares one reading and binds one
 // boolean, and that is the whole of what the files use.
 
-func parseSeeStep(s walk.Step) (raw map[string]any, name string, rectRaw any, ofRaw []any, err error) {
-	raw, ok := s.Spec["see"].(map[string]any)
-	if !ok {
-		return nil, "", nil, nil, fail(s.Name, "`see:` must be a mapping: {name, rect, of}")
+// Crop takes a region out of a frame, given the parsed rect.
+//
+// IT IS THE ONE PIECE OF ARITHMETIC THIS FILE OWES `check:`, and it lives here because the rect is
+// parsed here: `screen.Rect` knows fractions, pixels and the screen the pixels were written for, and
+// turning that into a rectangle of an actual image is the same work wherever it is asked for.
+func Crop(img image.Image, rect screen.Rect) (image.Image, error) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w == 0 || h == 0 {
+		return nil, fmt.Errorf("the frame has no pixels")
 	}
-	name, _ = raw["name"].(string)
-	if name == "" {
-		return nil, "", nil, nil, fail(s.Name, "`see:` must say `name:` - the readings are bound "+
-			"under it, and a measurement nobody named cannot be compared")
+	from, to, xf, xt := rect.From, rect.To, rect.XFrom, rect.XTo
+	if rect.Pixels {
+		aw, ah := rect.AtW, rect.AtH
+		if aw <= 0 || ah <= 0 {
+			aw, ah = w, h
+		}
+		from, to = rect.From/float64(ah), rect.To/float64(ah)
+		xf, xt = rect.XFrom/float64(aw), rect.XTo/float64(aw)
 	}
-	rectRaw, ok = raw["rect"]
-	if !ok {
-		return nil, "", nil, nil, fail(s.Name, "`see:` must say `rect:` - the region to measure. It "+
-			"is a fraction of the frame (`top 4.5%%`, `bottom 40px`, `middle`) so it cannot be "+
-			"measured at the wrong size")
+	y0 := b.Min.Y + int(float64(h)*from)
+	y1 := b.Min.Y + int(float64(h)*to)
+	x0 := b.Min.X + int(float64(w)*xf)
+	x1 := b.Min.X + int(float64(w)*xt)
+	if x1 <= x0 {
+		x1 = x0 + 1
 	}
-	ofRaw, _ = raw["of"].([]any)
-	// `reference:` BINDS `similarity`, SO IT IS AN `of:` THAT NAMES ITS OWN MEASUREMENT.
-	//
-	//	see: {name: shot, rect: [...], reference: reference/desktop.png}
-	//
-	// A file that writes `reference:` is asking for one number - how much of the screen matched - and
-	// making it also write `of: [similarity]` would be two ways to say it. A file that writes NEITHER
-	// is still refused: a `see:` with nothing to bind is a reading nobody asked for.
-	if len(ofRaw) == 0 {
-		if ref, _ := raw["reference"].(string); ref != "" {
-			ofRaw = []any{"similarity"}
+	if y1 <= y0 {
+		y1 = y0 + 1
+	}
+	if x0 < b.Min.X {
+		x0 = b.Min.X
+	}
+	if y0 < b.Min.Y {
+		y0 = b.Min.Y
+	}
+	if x1 > b.Max.X {
+		x1 = b.Max.X
+	}
+	if y1 > b.Max.Y {
+		y1 = b.Max.Y
+	}
+	if x1 <= x0 || y1 <= y0 {
+		return nil, fmt.Errorf("the rect is empty on a %dx%d frame", w, h)
+	}
+	type subImager interface {
+		SubImage(r image.Rectangle) image.Image
+	}
+	if si, ok := img.(subImager); ok {
+		return si.SubImage(image.Rect(x0, y0, x1, y1)), nil
+	}
+	out := image.NewRGBA(image.Rect(0, 0, x1-x0, y1-y0))
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			out.Set(x-x0, y-y0, img.At(x, y))
 		}
 	}
-	if len(ofRaw) == 0 {
-		return nil, "", nil, nil, fail(s.Name, "`see:` must say `of:` - which numbers to bind. "+
-			"`of: [mean, spread]` binds %s.mean and %s.spread", name, name)
-	}
-	return raw, name, rectRaw, ofRaw, nil
-}
-
-// similarityTo compares a frame to a reference image and returns the share of pixels that MATCH.
-//
-// THE REFERENCE IS FOUND THE WAY A SCRIPT IS: beside the walkthrough. `disk:` and `scp:` both look in
-// the work directory first and the file's own directory second, and a reference is the same kind of
-// thing - a file that belongs to the walkthrough rather than to a run.
-//
-// A SIZE MISMATCH IS AN ERROR RATHER THAN A CROP: two screens of different sizes are not two views of
-// one screen, and comparing the shared corner would report a wrong reference as a perfect match.
-func (e *Executor) similarityTo(s walk.Step, ref string, frame image.Image) (float64, error) {
-	path := ref
-	if !filepath.IsAbs(path) {
-		beside := filepath.Join(filepath.Dir(e.File.Path), ref)
-		if fileExists(beside) {
-			path = beside
-		}
-	}
-	reference, err := screen.Load(path)
-	if err != nil {
-		return 0, fail(s.Name, "reading the reference %q: %v. A `reference:` is a path relative "+
-			"to the walkthrough, as in `reference: reference/desktop.png`", ref, err)
-	}
-	diff, err := screen.Compare(frame, reference, 8)
-	if err != nil {
-		return 0, fail(s.Name, "%v", err)
-	}
-	// THE SHARE THAT MATCHED, SO A BIGGER NUMBER IS BETTER - the same direction as every other
-	// measurement here, where `mean` and `spread` are what they are and a check says which way is
-	// good.
-	return 1 - diff.Changed, nil
+	return out, nil
 }

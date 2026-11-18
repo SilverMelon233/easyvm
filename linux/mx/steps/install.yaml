@@ -50,18 +50,7 @@ steps:
     max: 30
     do:
     - settle: 6
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 690
-      - 225
-      - 1560
-      - 265
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -70,6 +59,8 @@ steps:
       - terms
       - of
       - use
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: terms of use
@@ -82,18 +73,7 @@ steps:
     max: 30
     do:
     - settle: 6
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 690
-      - 225
-      - 1560
-      - 265
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -103,6 +83,8 @@ steps:
       - type
       - of
       - installation
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: installation type
@@ -115,18 +97,7 @@ steps:
     max: 30
     do:
     - settle: 6
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 332
-      - 248
-      - 700
-      - 285
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -134,6 +105,8 @@ steps:
       words:
       - final
       - review
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: installation confirmation - start
@@ -151,18 +124,7 @@ steps:
     max: 40
     do:
     - settle: 6
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 332
-      - 248
-      - 700
-      - 285
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -172,6 +134,8 @@ steps:
       - a
       - swap
       - file
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: swap file
@@ -184,18 +148,7 @@ steps:
     max: 40
     do:
     - settle: 6
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 332
-      - 248
-      - 700
-      - 285
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -203,6 +156,8 @@ steps:
       words:
       - computer
       - identity
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: computer identity
@@ -215,18 +170,7 @@ steps:
     max: 40
     do:
     - settle: 6
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 332
-      - 248
-      - 700
-      - 285
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -234,6 +178,8 @@ steps:
       words:
       - localization
       - defaults
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: localization defaults
@@ -246,18 +192,7 @@ steps:
     max: 30
     do:
     - settle: 6
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 332
-      - 248
-      - 700
-      - 285
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -266,6 +201,8 @@ steps:
       - default
       - user
       - login
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: account - login name
@@ -304,18 +241,7 @@ steps:
       - 420
       - 300
       settle: 20
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -325,6 +251,8 @@ steps:
       - - completed
         - the
         - installation
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: stop the machine

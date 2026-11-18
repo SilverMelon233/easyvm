@@ -64,18 +64,7 @@ steps:
       max: 60
       do:
       - settle: 5
-      see:
-        of: [text]
-        name: boot
-        rect:
-        - 0
-        - 0
-        - 1920
-        - 1080
-        rect_at:
-        - 1920
-        - 1080
-        wait: 0
+      see: {name: boot}
       check:
         name: reached
         from: boot
@@ -86,6 +75,8 @@ steps:
         - - blissos
         - - android
         - - grub
+        rect: [0, 0, 1920, 1080]
+        rect_at: [1920, 1080]
       until:
         fact: reached
 
@@ -148,18 +139,7 @@ steps:
       max: 20
       do:
       - settle: 5
-      see:
-        of: [text]
-        name: chooser
-        rect:
-        - 600
-        - 580
-        - 1320
-        - 740
-        rect_at:
-        - 1920
-        - 1080
-        wait: 0
+      see: {name: chooser}
       # THE DIALOG'S OWN TITLE. `home app` is the line the sheet is named after, and it is the one
       # string on this frame that a boot splash, a lock screen and a launcher all lack.
       check:
@@ -169,6 +149,8 @@ steps:
         words:
         - home
         - app
+        rect: [0, 0, 1920, 1080]
+        rect_at: [1920, 1080]
       until:
         fact: asked
 

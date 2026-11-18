@@ -24,13 +24,10 @@ walkthrough "the measurement primitives, on the smallest guest"
   wait for the console to say "Welcome to Alpine", waiting up to 180s
 
   # AND NOW THE SCREEN. One capture, two questions about it: the words, and the colour.
-  read the screen as "page"
-  read the whole screen as "frame"
-    measuring mean spread
-
+  see the whole screen as "page"
   # `want:` COMBINED THREE COMPARISONS INTO ONE BOOLEAN AND WAS USED NOWHERE. A `check:` binds one
   # boolean from one reading, so this is three steps - each one says which measurement it is about.
   step "the screen says Alpine"
-    check == {name: page_says_alpine, from: page, mode: contains, text: Alpine}
+    check == {name: page_says_alpine, from: page, mode: text, rect: [0, 0, 720, 400], rect_at: [720, 400], words: [[Alpine]]}
 
   stop the machine by killing it, waiting up to 60s

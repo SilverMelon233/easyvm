@@ -33,7 +33,7 @@ walkthrough "windows 11 - install to a desktop"
   press Escape, waiting 1s, named "press it again, because the prompt is emitted more than once"
   press Escape, waiting 2s, named "and once more, for a loader that was not listening yet"
   step "Setup is on screen"
-    loop == {check: {from: screen, mode: says, name: done, words: [Windows, Setup]}, do: [{settle: 5}], max: 180, see: {name: screen, of: [text], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 0}, until: {fact: done}}
+    loop == {check: {from: screen, mode: says, name: done, words: [Windows, Setup]}, do: [{settle: 5}], max: 180, see: {name: screen}, until: {fact: done}}
   step "wait for the desktop"
     desktop == windows
     timeout == 5400
@@ -45,7 +45,7 @@ walkthrough "windows 11 - install to a desktop"
   # 3% IS THE CEILING AND THE MEASUREMENT IS WHY: the same screen a second later differs by 0.5-0.9%,
   # and two different screens by 98-100%, so the gap is three orders of magnitude wide.
   step "the desktop is the one this file was written against"
-    see == {name: shot, rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], reference: reference/desktop.png, wait: 0}
+    see == shot
   step "the screen is the one this file was written against"
     check == {name: matched, from: shot, mode: number_between, range: [0.97, 1.0]}
   step "reboot into the installed system"

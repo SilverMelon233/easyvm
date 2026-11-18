@@ -40,12 +40,7 @@ steps:
   - 34
   settle: 40
 - name: open yast2 - what is on screen
-  see:
-    of: [text]
-    name: open_yast2
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 0
+  see: {name: open_yast2}
 - name: open yast2 - the screen says so
   check:
     name: asserted
@@ -55,6 +50,8 @@ steps:
     - [installation]
     - [upgrade]
     - [language]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: open yast2 (once more, if it did not)
   when_not_any:
   - - installation

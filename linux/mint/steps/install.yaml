@@ -43,12 +43,7 @@ steps:
 # works at this point - GRUB draws it - so one `ret` is the whole fix, and it is a step of its own
 # so the transcript says the menu was answered rather than that a wait merely succeeded.
 - name: the medium's GRUB menu is up
-  see:
-    of: [text]
-    name: grub
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 5
+  see: {name: grub}
 - name: that menu names mint
   check:
     name: is_mint
@@ -60,6 +55,8 @@ steps:
       - mint
     - - linux
       - mint
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: answer the menu, which does not count down
   key: ret
   settle: 20
@@ -82,18 +79,7 @@ steps:
       - 420
       - 300
       settle: 5
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -108,6 +94,8 @@ steps:
         - language
       - - installation
         - type
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: install linux mint
@@ -116,12 +104,7 @@ steps:
   - 47
   settle: 25
 - name: install linux mint - what is on screen
-  see:
-    of: [text]
-    name: install_linux_mint
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 0
+  see: {name: install_linux_mint}
 - name: install linux mint - the screen says so
   check:
     name: asserted
@@ -130,6 +113,8 @@ steps:
     words:
     - [welcome]
     - [install]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: welcome
   click:
   - 1306
@@ -166,18 +151,7 @@ steps:
 # THE RESULTING DISK WAS VERIFIED INDEPENDENTLY: s_magic=0xef53, incompat=0x000002c6,
 # EXTENTS=True, 64BIT=True - the same signature zorin produces, which is the same installer.
 - name: the dialog names the filesystem it will create
-  see:
-    of: [text]
-    name: format
-    rect:
-    - 0
-    - 0
-    - 1920
-    - 1080
-    rect_at:
-    - 1920
-    - 1080
-    wait: 0
+  see: {name: format}
 
 - name: the root partition will be ext4
   check:
@@ -187,6 +161,8 @@ steps:
     words:
     - ext4
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: write the changes to disks
   click:
   - 1266

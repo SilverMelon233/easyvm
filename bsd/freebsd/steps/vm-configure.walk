@@ -23,9 +23,9 @@ walkthrough "freebsd 15.1 - the desktop is up"
     ssh == sh -c 'pgrep -x lightdm >/dev/null && echo LIGHTDM_UP'
     timeout == 180
   step "wait for the desktop"
-    loop == {check: {from: desk, mode: says_any, name: ready, words: [[applications], [desktop], [xfce]]}, do: [{settle: 10}], max: 40, see: {name: desk, of: [text], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 0}, until: {fact: ready}}
+    loop == {check: {from: desk, mode: says_any, name: ready, words: [[applications], [desktop], [xfce]]}, do: [{settle: 10}], max: 40, see: {name: desk}, until: {fact: ready}}
   step "the desktop is not a login prompt"
-    see == {name: greeter, of: [text], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 0}
+    see == greeter
   step "check there is no login prompt"
     check == {from: greeter, mode: says_without, name: no_prompt, without: [login, password], words: [applications]}
   step "the guest agent answers, which is what makes a graceful shutdown possible"

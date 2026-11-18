@@ -189,42 +189,37 @@ func TestALoopAssemblesItsPartsWithTheirKeys(t *testing.T) {
 	}
 }
 
-// A LOOP'S `see:` IS A `see:`, AND IT MUST BE READ BY THAT VOCABULARY.
+// A LOOP'S `see:` IS A CAPTURE, AND THE LOOP MUST NOT DEMAND PARAMETERS IT NO LONGER HAS.
 //
-// THE TWO SPELLINGS ARE TWO VOCABULARIES, not two names for one: `see:` takes `of: [text]` and binds a
-// word list, while `ocr:` takes a region and no `of:` at all. A loop that canonicalised the key to
-// `ocr:` therefore refused every converted file with
+// `see:` USED TO CARRY `of:` AND A `rect:`, and a loop canonicalised the key to `ocr:` - a different
+// vocabulary with different parameters - so every converted file was refused with
 //
 //	wait for the installer window [ocr]: `ocr:` has unknown key "of"
 //
-// - MEASURED on run 44083524097, on `linux/ubuntu/steps/install.walk`, whose `see:` was correct. This
-// test builds the mapping from that file and requires the loop to accept it under either spelling.
-func TestALoopReadsSeeAsSeeAndOCRAsOCR(t *testing.T) {
+// MEASURED on run 44083524097. The two vocabularies are one now: `see: {name: shot}` captures, and the
+// questions live in the loop's `check:`. This test builds the mapping a converted file writes and
+// requires the loop to accept it.
+func TestALoopReadsSeeAsACapture(t *testing.T) {
 	ex, _ := newExec(&fakeDriver{})
 	gate := walk.Step{Index: 1, Name: "gate"}
 
-	// THE SHAPE EVERY CONVERTED FILE WRITES, taken from install.walk's step 6.
-	see := map[string]any{
-		"name": "screen", "of": []any{"text"},
-		"rect": []any{0, 0, 1920, 1080}, "rect_at": []any{1920, 1080},
-		"wait": float64(0),
-	}
+	// THE SHAPE EVERY CONVERTED FILE WRITES.
+	see := map[string]any{"name": "screen"}
 	reading, _, _ := loopParts(gate, "see", see, nil, nil)
 	if _, ok := reading.Spec["see"]; !ok {
-		t.Fatal("the reading was not handed over under `see`, so the wrong parser will run")
+		t.Fatal("the reading was not handed over under `see`")
 	}
 	if err := ex.checkReading(reading); err != nil {
-		t.Fatalf("a loop's `see:` mapping was refused: %v", err)
+		t.Fatalf("a loop's `see: {name: screen}` was refused: %v", err)
 	}
 
-	// AND THE PRE-MERGE SPELLING STILL WORKS, because a file that has not been migrated must run.
-	ocr := map[string]any{"name": "pane", "rect": []any{0, 0, 100, 100},
-		"rect_at": []any{1920, 1080}, "wait": float64(0)}
-	old, _, _ := loopParts(gate, "ocr", ocr, nil, nil)
-	if _, ok := old.Spec["ocr"]; !ok {
-		t.Fatal("an `ocr:` reading was not handed over under `ocr`")
-	}
-	if err := ex.checkReading(old); err != nil {
-		t.Fatalf("a loop's `ocr:` mapping was refused: %v", err)
+	// AND THE OLD SHAPE IS REFUSED WITH A SENTENCE THAT NAMES WHERE `of:` BELONGS.
+	legacy := map[string]any{"name": "screen", "of": []any{"text"},
+		"rect": []any{0, 0, 1920, 1080}, "rect_at": []any{1920, 1080}}
+	old, _, _ := loopParts(gate, "see", legacy, nil, nil)
+	err := ex.checkReading(old)
+	if err == nil {
+		t.Fatal("a loop's `see:` still carrying `of:` was accepted; its `check:` would then find no " +
+			"words and fail pointing at the wrong step")
 	}
 }

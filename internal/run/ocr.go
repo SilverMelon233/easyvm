@@ -2,6 +2,7 @@ package run
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -244,6 +245,18 @@ func (e *Executor) doCheck(s walk.Step) error {
 	if strings.TrimSpace(from) == "" {
 		return fail(s.Name, "`check:` must say `from:` - the reading an `ocr:` step produced")
 	}
+	// `from:` MAY NAME A FRAME, AND THIS IS THE SHAPE THE VOCABULARY IS MOVING TO.
+	//
+	//	see:   {name: shot}                       capture once
+	//	check: {name: dark, from: shot, mode: mean_between, range: [0, 60], rect: bottom 4.5%}
+	//
+	// THE FRAME WAS CAPTURED BY THE `see:`, so this reads a picture rather than the screen - which is
+	// what keeps `check:` free to re-ask. Every question about one screen is answered from the same
+	// capture, each with its own `rect`.
+	if path, isShot := e.shots[from]; isShot && hasRect(raw) {
+		return e.checkFrame(s.Name, raw, from, path)
+	}
+
 	// A `from:` MAY NAME A NUMBER RATHER THAN WORDS, AND THAT IS WHAT MAKES `mode: number_between`
 	// USEFUL. `see:` binds seven numbers per reading - `<name>.mean`, `<name>.similarity` and so on -
 	// and until now nothing read them: `number_between` parsed digits out of a WORD LIST, so a file
@@ -753,4 +766,220 @@ func (e *Executor) runNumberCheck(step string, raw map[string]any, from string, 
 func finishNumberCheck(step string, raw map[string]any, okNow bool, detail string) error {
 	_ = finishNumberCheck
 	return nil
+}
+
+// hasRect reports whether a `check:` names a region of its own.
+func hasRect(raw map[string]any) bool {
+	_, ok := raw["rect"]
+	if ok {
+		return true
+	}
+	_, ok = raw["region"]
+	return ok
+}
+
+// checkFrame measures a REGION of a frame the walk already captured, then decides on it.
+//
+// THE MODES ARE THE MEASUREMENTS, because a frame offers numbers rather than words:
+//
+//	mode: like            share of pixels matching `reference:`, 0..1   (needs `reference:`)
+//	mode: mean_between    mean brightness in `range:`
+//	mode: sat_between     mean saturation in `range:`, 0..1
+//	mode: spread_between  mean absolute deviation in `range:`
+//	mode: text            the words an OCR read of the region found; judged by `words:`/`without:`
+//
+// A FILE THAT WANTS SEVERAL ANSWERS ABOUT ONE SCREEN WRITES SEVERAL `check:` STEPS, each with its own
+// `rect`. That is the point of the frame being named: the capture is paid once.
+func (e *Executor) checkFrame(step string, raw map[string]any, from, path string) error {
+	name, _ := raw["name"].(string)
+	if strings.TrimSpace(name) == "" {
+		return fail(step, "`check:` must name the boolean it produces")
+	}
+	mode, _ := raw["mode"].(string)
+	if mode == "" {
+		return fail(step, "`check:` must say `mode:` - one of like, mean_between, sat_between, "+
+			"spread_between, text")
+	}
+	rect, err := rectOfCheck(raw)
+	if err != nil {
+		return fail(step, "%v", err)
+	}
+	img, err := screen.Load(path)
+	if err != nil {
+		return fail(step, "loading the frame `%s`: %v", from, err)
+	}
+
+	okNow := false
+	var detail string
+	switch mode {
+	case "like":
+		ref, _ := raw["reference"].(string)
+		if strings.TrimSpace(ref) == "" {
+			return fail(step, "`mode: like` needs `reference:` - the image to compare against")
+		}
+		lo, hi, err := modeRange(raw)
+		if err != nil {
+			return fail(step, "%v", err)
+		}
+		sim, err := e.similarityInRect(step, ref, img, rect)
+		if err != nil {
+			return err
+		}
+		okNow = sim >= lo && sim <= hi
+		detail = fmt.Sprintf("%.4f similar, wanted %.4f..%.4f", sim, lo, hi)
+	case "text":
+		// `scale:` IS THE ENLARGEMENT FOR SMALL TEXT, and it belongs to the READ rather than to the
+		// capture. MEASURED on the real 640x480 recovery frame: at scale 6 four rows read, at scale 2
+		// only two - so a file that needs a small row to be legible says so where it reads it.
+		scale := 3
+		if v, ok := toFloat(raw["scale"]); ok && v > 0 {
+			scale = int(v)
+		}
+		words, err := e.readWords(img, rect, scale)
+		if err != nil {
+			return fail(step, "%v", err)
+		}
+		okNow, detail, err = e.judgeWords(step, raw, words)
+		if err != nil {
+			return err
+		}
+	default:
+		r := screen.Measure(img, rect)
+		got, what := 0.0, ""
+		switch mode {
+		case "mean_between":
+			got, what = r.Mean, "mean brightness"
+		case "sat_between":
+			got, what = r.Sat, "saturation"
+		case "spread_between":
+			got, what = r.Spread, "spread"
+		default:
+			return fail(step, "`mode: %s` is not a measurement of a frame; the ones this build "+
+				"has are like, mean_between, sat_between, spread_between and text", mode)
+		}
+		lo, hi, err := modeRange(raw)
+		if err != nil {
+			return fail(step, "%v", err)
+		}
+		okNow = got >= lo && got <= hi
+		detail = fmt.Sprintf("%s %.4f, wanted %.4f..%.4f", what, got, lo, hi)
+	}
+
+	if e.facts == nil {
+		e.facts = make(map[string]bool)
+	}
+	e.facts[name] = okNow
+	e.Driver.Log(fmt.Sprintf("  %s: %s = %v (%s)", step, name, okNow, detail))
+	return nil
+}
+
+// rectOfCheck reads a `check:`'s own region.
+func rectOfCheck(raw map[string]any) (screen.Rect, error) {
+	rectRaw, ok := raw["rect"]
+	if !ok {
+		rectRaw, ok = raw["region"]
+	}
+	if !ok {
+		return screen.Rect{}, fmt.Errorf("a `check:` of a frame needs `rect:` - the region to " +
+			"measure, as a fraction (`bottom 4.5%%`, `middle`) or `[x0, y0, x1, y1]` with `rect_at:`")
+	}
+	at, _ := pairOfMapping(raw, "rect_at")
+	if at == ([2]int{}) {
+		at, _ = pairOfMapping(raw, "region_at")
+	}
+	rect, err := parseRectAt(rectRaw, at)
+	if err != nil {
+		return screen.Rect{}, err
+	}
+	return rect, nil
+}
+
+// similarityInRect compares one region of a frame to a reference image.
+//
+// THE REGION IS CROPPED FROM BOTH, so a reference may be a full screen and the question about a band
+// of it - which is the case a single `rect:` could not express before.
+func (e *Executor) similarityInRect(step, ref string, frame image.Image, rect screen.Rect) (float64, error) {
+	path := ref
+	if !filepath.IsAbs(path) {
+		beside := filepath.Join(filepath.Dir(e.File.Path), ref)
+		if fileExists(beside) {
+			path = beside
+		}
+	}
+	reference, err := screen.Load(path)
+	if err != nil {
+		return 0, fail(step, "reading the reference %q: %v", ref, err)
+	}
+	fc, err := Crop(frame, rect)
+	if err != nil {
+		return 0, fail(step, "%v", err)
+	}
+	rc, err := Crop(reference, rect)
+	if err != nil {
+		return 0, fail(step, "%v", err)
+	}
+	diff, err := screen.Compare(fc, rc, 8)
+	if err != nil {
+		return 0, fail(step, "%v", err)
+	}
+	return 1 - diff.Changed, nil
+}
+
+// judgeWords applies `words:`/`without:` to a word list, the same rules `check:` uses on a reading.
+func (e *Executor) judgeWords(step string, raw map[string]any, words []string) (bool, string, error) {
+	if sets, ok := raw["words"]; ok {
+		alts, err := wordSetsOfValue(sets)
+		if err != nil {
+			return false, "", fail(step, "%v", err)
+		}
+		for _, set := range alts {
+			if says(words, set) {
+				return true, fmt.Sprintf("read %q", strings.Join(set, " ")), nil
+			}
+		}
+		return false, fmt.Sprintf("none of %s in %q", describeSets(alts), truncateWords(words, 10)), nil
+	}
+	if without, ok := raw["without"]; ok {
+		want := stringsToSlice(without)
+		for _, w := range want {
+			for _, have := range words {
+				if strings.EqualFold(have, w) {
+					return false, fmt.Sprintf("%q is on screen and the check said it would not be", w), nil
+				}
+			}
+		}
+		return true, "none of the excluded words are present", nil
+	}
+	return false, "", fail(step, "`mode: text` needs `words:` (any of these word-sets) or `without:`")
+}
+
+// wordSetsOfValue reads `[[a, b], [c]]` or `[a, b]` as a list of word-sets.
+func wordSetsOfValue(v any) ([][]string, error) {
+	list, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("`words:` must be a list")
+	}
+	var out [][]string
+	for _, item := range list {
+		switch t := item.(type) {
+		case string:
+			out = append(out, []string{t})
+		case []any:
+			out = append(out, stringsToSlice(t))
+		default:
+			return nil, fmt.Errorf("`words:` items must be strings or lists of strings")
+		}
+	}
+	return out, nil
+}
+
+func stringsToSlice(v any) []string {
+	list, _ := v.([]any)
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		if str, ok := item.(string); ok {
+			out = append(out, str)
+		}
+	}
+	return out
 }

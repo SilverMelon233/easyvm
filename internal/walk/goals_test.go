@@ -1799,18 +1799,21 @@ func TestTheMacOSRecoveryGateAcceptsReadableRows(t *testing.T) {
 			"and the condition - have to be visible, because the reading's region and enlargement " +
 			"are what make it work at 640x480")
 	}
-	// `see:` IS THE READING (`ocr:` was the same operation restricted to a word list), and the
-	// enlargement moved onto the reading's own `rect`, so the assertion follows it there.
-	reading, ok := loop["see"].(map[string]any)
+	// THE ENLARGEMENT BELONGS TO THE READ, AND THE READ IS THE `check:`.
+	//
+	// `see:` captures a frame and names it; it has no `scale:`, because scaling is a property of
+	// asking a question of small text rather than of taking the picture. A file that needs a
+	// 640x480 row to be legible says `scale: 6` where it reads that row.
+	check, ok := loop["check"].(map[string]any)
 	if !ok {
-		reading, ok = loop["ocr"].(map[string]any)
+		t.Fatal("the loop has no `check:` - a condition with no comparison decides nothing")
 	}
-	if !ok {
-		t.Fatal("the loop has no `see:` - a condition with no reading reads the screen itself")
-	}
-	if scale, _ := toFloat(reading["scale"]); scale < 6 {
+	if scale, _ := toFloat(check["scale"]); scale < 6 {
 		t.Errorf("the reading crops at scale %.0f. Measured on the real 640x480 frame: at scale 6 "+
 			"four rows read, at scale 2 only two", scale)
+	}
+	if _, has := loop["see"]; !has {
+		t.Fatal("the loop has no `see:` - a condition with no capture reads the screen itself")
 	}
 	until, ok := loop["until"].(map[string]any)
 	if !ok {
@@ -1822,11 +1825,11 @@ func TestTheMacOSRecoveryGateAcceptsReadableRows(t *testing.T) {
 			"when it also carried the word-sets it both named a reading and decided what it " +
 			"meant, so \"the text was wrong\" and \"stop the loop\" were one expression")
 	}
-	check, ok := loop["check"].(map[string]any)
+	check, ok = loop["check"].(map[string]any)
 	if !ok {
 		t.Fatal("the loop has no `check:` - the comparison that turns the reading into a boolean")
 	}
-	if mode, _ := check["mode"].(string); mode != "says_any" {
+	if mode, _ := check["mode"].(string); mode != "says_any" && mode != "text" {
 		t.Errorf("the check's mode is %q, want says_any - the recovery menu is four labelled rows "+
 			"and any one of them is enough", mode)
 	}

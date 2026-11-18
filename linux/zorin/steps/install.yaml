@@ -39,18 +39,7 @@ steps:
     max: 120
     do:
     - settle: 5
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -63,6 +52,8 @@ steps:
       - - welcome
       - - false
         - localization
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: install zorin os
@@ -123,18 +114,7 @@ steps:
     max: 60
     do:
     - settle: 3
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -142,6 +122,8 @@ steps:
       words:
       - - installation
         - type
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: the keyboard pane is done
@@ -149,18 +131,7 @@ steps:
     max: 80
     do:
     - settle: 3
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -172,6 +143,8 @@ steps:
         - and
         - other
         - software
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: installation type - install now
@@ -184,18 +157,7 @@ steps:
     max: 60
     do:
     - settle: 2
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -208,6 +170,8 @@ steps:
         - disks
       - - partition
         - tables
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 # THE DIALOG THAT ASKS FOR PERMISSION ALSO NAMES THE FILESYSTEM, AND THAT IS THE ONLY PLACE Ubiquity
@@ -222,18 +186,7 @@ steps:
 # ext4. A walk that accepted the default without reading this could publish a btrfs disk and nothing
 # above would have noticed - the pages before this one do not mention a filesystem.
 - name: the dialog names the filesystem it will create
-  see:
-    of: [text]
-    name: format
-    rect:
-    - 0
-    - 0
-    - 1920
-    - 1080
-    rect_at:
-    - 1920
-    - 1080
-    wait: 0
+  see: {name: format}
 
 - name: the root partition will be ext4
   check:
@@ -243,6 +196,8 @@ steps:
     words:
     - ext4
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: write the changes to disks
   click:
   - 1293
@@ -253,18 +208,7 @@ steps:
     max: 60
     do:
     - settle: 3
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -275,6 +219,8 @@ steps:
         - you
       - - time
         - zone
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: where are you
@@ -287,18 +233,7 @@ steps:
     max: 60
     do:
     - settle: 3
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -309,6 +244,8 @@ steps:
         - you
       - - your
         - name
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: who are you - your name

@@ -59,18 +59,7 @@ steps:
       - 420
       - 300
       settle: 3
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -86,6 +75,8 @@ steps:
         - install
       - - full
         - name
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: select a language
@@ -145,18 +136,7 @@ steps:
     max: 45
     do:
     - settle: 2
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -165,6 +145,8 @@ steps:
       - Full
       - Name
       - User
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: type the display name
@@ -189,18 +171,7 @@ steps:
     max: 45
     do:
     - settle: 2
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -211,6 +182,8 @@ steps:
         - Password
       - - Account
         - Password
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: dismiss anything a stray click opened

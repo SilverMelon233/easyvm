@@ -42,18 +42,7 @@ steps:
       - 420
       - 300
       settle: 5
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -65,6 +54,8 @@ steps:
         - summary
       - - let's
         - install
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: install fedora linux
@@ -114,18 +105,7 @@ steps:
       - 420
       - 300
       settle: 10
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -135,6 +115,8 @@ steps:
         - method
       - - let's
         - install
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: welcome
@@ -143,12 +125,7 @@ steps:
   - 1002
   settle: 15
 - name: welcome - what is on screen
-  see:
-    of: [text]
-    name: welcome
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 0
+  see: {name: welcome}
 - name: welcome - the screen says so
   check:
     name: asserted
@@ -156,18 +133,15 @@ steps:
     mode: says_any
     words:
     - [installation, method]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: installation method
   click:
   - 729
   - 1002
   settle: 12
 - name: installation method - what is on screen
-  see:
-    of: [text]
-    name: installation_method
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 0
+  see: {name: installation_method}
 - name: installation method - the screen says so
   check:
     name: asserted
@@ -176,18 +150,15 @@ steps:
     words:
     - [storage, configuration]
     - [configuracion, de, almacenamiento]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: storage configuration
   click:
   - 729
   - 1002
   settle: 12
 - name: storage configuration - what is on screen
-  see:
-    of: [text]
-    name: storage_configuration
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 0
+  see: {name: storage_configuration}
 - name: storage configuration - the screen says so
   check:
     name: asserted
@@ -196,6 +167,8 @@ steps:
     words:
     - [review, and, install]
     - [revisar, e, instalar]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: erase data and install
   click:
   - 780
@@ -215,18 +188,7 @@ steps:
     max: 90
     do:
     - settle: 10
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -241,6 +203,8 @@ steps:
       - - start
         - using
         - fedora
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: language - search for the United States
@@ -296,12 +260,7 @@ steps:
   type: '{{ user }}'
   settle: 2
 - name: about you - full name - what is on screen
-  see:
-    of: [text]
-    name: about_you_full_name
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 0
+  see: {name: about_you_full_name}
 - name: about you - full name - the screen says so
   check:
     name: asserted
@@ -309,6 +268,8 @@ steps:
     mode: says
     words:
     - '{{ user }}'
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: about you
   click:
   - 1432

@@ -254,24 +254,21 @@ func TestTheTwoConversionsThatWereWrong(t *testing.T) {
 	if read == nil {
 		t.Fatalf("no `see:` step came out of `read the screen as \"screen\"`: %v", steps)
 	}
+	// `read` CAPTURES A FRAME AND NAMES IT, AND CARRIES NOTHING ELSE.
+	//
+	// It used to emit `see: {name, rect, rect_at, of: [text]}`, because a `see:` measured one region
+	// and answered one question. The region is now the `check:`'s business, so a `read` line produces
+	// a name and no geometry - and `rect: [0, 0, w, h]` at the header's size would be a rectangle
+	// nobody asked about, copied onto every reading in the file.
 	see, _ := read["see"].(map[string]any)
-	rect, _ := see["rect"].([]any)
-	if len(rect) != 4 {
-		t.Fatalf("`read the screen` produced rect %v; it must be [x0, y0, x1, y1]", see["rect"])
+	if len(see) != 1 || see["name"] != "screen" {
+		t.Fatalf("`read ... as \"screen\"` produced %v; a capture is a name and nothing else", see)
 	}
-	if rect[2] != 1024 || rect[3] != 768 {
-		t.Fatalf("`read the screen` produced rect %v; the whole frame at this file's own "+
-			"resolution is [0, 0, 1024, 768]", rect)
-	}
-	if at, _ := see["rect_at"].([]any); len(at) != 2 || at[0] != 1024 || at[1] != 768 {
-		t.Fatalf("the reading does not say what size it was measured at: %v", see["rect_at"])
-	}
-
-	// AND THE MEASUREMENT IS `see:` WITH `of: [text]`, because `ocr:` is gone: one question, "what
-	// does the screen say", answered by one key.
-	of, _ := see["of"].([]any)
-	if len(of) != 1 || of[0] != "text" {
-		t.Fatalf("a text reading must say `of: [text]`, got %v", see["of"])
+	for _, gone := range []string{"rect", "rect_at", "of", "region", "region_at"} {
+		if _, wrong := see[gone]; wrong {
+			t.Fatalf("the capture still carries %q; that is a QUESTION and belongs on the `check:` "+
+				"that asks it", gone)
+		}
 	}
 	if _, wrong := read["ocr"]; wrong {
 		t.Fatal("`ocr:` is emitted, and it is no longer in the vocabulary")
