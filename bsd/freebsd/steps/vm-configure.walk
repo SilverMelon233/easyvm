@@ -23,7 +23,7 @@ walkthrough "freebsd 15.1 - the desktop is up"
     ssh == sh -c 'pgrep -x lightdm >/dev/null && echo LIGHTDM_UP'
     timeout == 180
   step "wait for the desktop"
-    loop == {check: {from: desk, mode: text, name: ready, words: [[applications], [desktop], [xfce]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 10}], max: 40, see: {name: desk}, until: {fact: ready}}
+    loop == {check: {from: desk, mode: text, name: ready, words: [[applications], [desktop], [xfce]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 10}], max: 40, see: {name: desk}, until: {fact: ready}}
   step "the desktop is not a login prompt"
     see == greeter
   step "check there is no login prompt"

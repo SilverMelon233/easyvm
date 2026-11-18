@@ -35,7 +35,7 @@ walkthrough "macos 15 setup (recovery image to setup assistant)"
     else == [{loop: {check: {from: details, mode: contains, name: uninitialised, text: Uninitialized}, do: [{key: down}, {settle: 1}], max: 4, see: {name: details}, until: {fact: uninitialised}}}]
     if == uninitialised
   step "erase - open the sheet"
-    loop == {check: {from: sheet, mode: text, name: sheet_up, words: [[erase, deleted], [free, space], [security, option], [cancel, erase]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{click: [1681, 57]}, {settle: 3}], max: 6, see: {name: sheet}, until: {fact: sheet_up}}
+    loop == {check: {from: sheet, mode: text, name: sheet_up, words: [[erase, deleted], [free, space], [security, option], [cancel, erase]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{click: [1681, 57]}, {settle: 3}], max: 6, see: {name: sheet}, until: {fact: sheet_up}}
     settle == 4
   press backspace, waiting 3s, named "erase - clear the name field"
   step "erase - name the volume"
@@ -44,26 +44,26 @@ walkthrough "macos 15 setup (recovery image to setup assistant)"
     type == '{{ disk_name }}'
   click "erase - confirm" at 1150 647, waiting 5s, named "erase - confirm"
   step "erase - wait for the report"
-    loop == {check: {from: screen, mode: text, name: done, words: [[erase, complete], [erase, process]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 5}], max: 60, see: {name: screen}, until: {fact: done}}
+    loop == {check: {from: screen, mode: text, name: done, words: [[erase, complete], [erase, process]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 5}], max: 60, see: {name: screen}, until: {fact: done}}
   click "erase - done" at 1143 601, waiting 5s, named "erase - done"
   press meta_l+q, waiting 12s, named "close disk utility"
   step "the recovery menu is back"
-    loop == {check: {from: screen, mode: text, name: done, words: [reinstall, macos], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 5}], max: 60, see: {name: screen}, until: {fact: done}}
+    loop == {check: {from: screen, mode: text, name: done, words: [reinstall, macos], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 5}], max: 60, see: {name: screen}, until: {fact: done}}
   click "select reinstall macos" at 837 333, waiting 3s, named "select reinstall macos"
   click "open the installer" at 1142 586, waiting 20s, named "open the installer"
   step "wait for the installer to load"
-    loop == {check: {from: instaload, mode: text, name: loaded, words: [[agree, to, the, terms], [english, apple], [select, the, disk], [macos, sequoia]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 10}], max: 24, see: {name: instaload}, until: {fact: loaded}}
+    loop == {check: {from: instaload, mode: text, name: loaded, words: [[agree, to, the, terms], [english, apple], [select, the, disk], [macos, sequoia]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 10}], max: 24, see: {name: instaload}, until: {fact: loaded}}
   click welcome at 960 712, waiting 5s, named "welcome continue"
   step "wait for the licence pane"
-    loop == {check: {from: licence, mode: text, name: licence_up, words: [[software, license, agreement], [please, read, this]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 10}], max: 24, see: {name: licence}, until: {fact: licence_up}}
+    loop == {check: {from: licence, mode: text, name: licence_up, words: [[software, license, agreement], [please, read, this]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 10}], max: 24, see: {name: licence}, until: {fact: licence_up}}
   click "agree to the licence" at 1005 713, waiting 5s, named "agree to the licence"
   step "wait for the licence sheet"
-    loop == {check: {from: sheet, mode: text, name: sheet_up, words: [[read, and, agree], [disagree, agree]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 5}], max: 12, see: {name: sheet}, until: {fact: sheet_up}}
+    loop == {check: {from: sheet, mode: text, name: sheet_up, words: [[read, and, agree], [disagree, agree]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 5}], max: 12, see: {name: sheet}, until: {fact: sheet_up}}
   click "agree in the sheet" at 1018 520, waiting 10s, named "agree in the sheet"
   click "select the destination card" at 850 550, waiting 5s, named "select the destination card"
   click destination at 1005 712, waiting 10s, named "destination continue"
   step "the copy runs until the Setup Assistant appears"
-    loop == {check: {from: screen, mode: text, name: done, words: [[select, your, country, or, region], [how, do, you, want, to, connect, to, the, internet], [transfer, your, information, to, this, mac], [choose, a, wireless, network], [sign, in, with, your, apple, id]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 20}], max: 1080, see: {name: screen}, until: {fact: done}}
+    loop == {check: {from: screen, mode: text, name: done, words: [[select, your, country, or, region], [how, do, you, want, to, connect, to, the, internet], [transfer, your, information, to, this, mac], [choose, a, wireless, network], [sign, in, with, your, apple, id]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 20}], max: 1080, see: {name: screen}, until: {fact: done}}
   step "stop the machine"
     shutdown == '{{ shutdown }}'
     timeout == 300

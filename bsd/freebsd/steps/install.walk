@@ -17,7 +17,7 @@ walkthrough "freebsd 15.1 - bsdinstall, to an installed system"
     os == bsd
     timeout == 1800
   step "wait for the installer menu"
-    loop == {check: {from: pane, mode: text, name: menu_up, words: [[install], [live, system]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 10}], max: 60, see: {name: pane}, until: {fact: menu_up}}
+    loop == {check: {from: pane, mode: text, name: menu_up, words: [[install], [live, system]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 10}], max: 60, see: {name: pane}, until: {fact: menu_up}}
   press Return, waiting 10s, named "welcome - Install is preselected"
   press Return, waiting 8s, named "keymap - continue with the default"
   step hostname
@@ -29,19 +29,19 @@ walkthrough "freebsd 15.1 - bsdinstall, to an installed system"
     do == [{key: right, settle: 1}, {key: ret, settle: 10}]
   settle 12s, named "partitioning - automatic ufs"
   step "wait for the partitioning menu before choosing on it"
-    loop == {check: {from: partmenu, mode: text, name: part_showing, words: [guided, manual], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 6}], max: 25, see: {name: partmenu}, until: {fact: part_showing}}
+    loop == {check: {from: partmenu, mode: text, name: part_showing, words: [guided, manual], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 6}], max: 25, see: {name: partmenu}, until: {fact: part_showing}}
   step "choose auto ufs"
     do == [{key: down, settle: 1}, {key: ret, settle: 10}]
   press Return, waiting 10s, named "entire disk, not a shared partition"
   press Return, waiting 10s, named "partition scheme - GPT, which is what makes this disk UEFI bootable"
   step "wait for the partition editor"
-    loop == {check: {from: parted, mode: text, name: parted_showing, words: [finish, delete], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 6}], max: 25, see: {name: parted}, until: {fact: parted_showing}}
+    loop == {check: {from: parted, mode: text, name: parted_showing, words: [finish, delete], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 6}], max: 25, see: {name: parted}, until: {fact: parted_showing}}
   step "accept the partitioning"
     do == [{key: tab, settle: 1}, {key: tab, settle: 1}, {key: tab, settle: 1}, {key: tab, settle: 1}, {key: tab, settle: 1}, {key: tab, settle: 1}, {key: ret, settle: 10}]
   press Return, waiting 15s, named "commit the layout"
   press Return, waiting 15s, named "distribution select - accept the default set"
   step "wait for the install to finish"
-    loop == {check: {from: done, mode: text, name: finished, words: [[console], [installation, completed], [account, root], [system, management, account], [repeat, password], [add, user], [manual, configuration]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 15}], max: 180, see: {name: done}, until: {fact: finished}}
+    loop == {check: {from: done, mode: text, name: finished, words: [[console], [installation, completed], [account, root], [system, management, account], [repeat, password], [add, user], [manual, configuration]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 15}], max: 180, see: {name: done}, until: {fact: finished}}
   step "the root password - first field"
     settle == 2
     type == '{{ password }}'
@@ -64,7 +64,7 @@ walkthrough "freebsd 15.1 - bsdinstall, to an installed system"
   step "open a shell in the new system"
     do == [{key: left, settle: 1}, {key: ret, settle: 12}]
   step "prove the chroot shell is actually up before typing into it"
-    loop == {check: {from: chroot, mode: text, name: shell_up, words: [chroot], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}}, do: [{settle: 5}], max: 20, see: {name: chroot}, until: {fact: shell_up}}
+    loop == {check: {from: chroot, mode: text, name: shell_up, words: [chroot], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{settle: 5}], max: 20, see: {name: chroot}, until: {fact: shell_up}}
   step "set the root password"
     do == [{settle: 10, type: "printf '%s' '{{ password }}' | pw usermod root -h0 && echo ROOT_PW_SET"}, {key: ret}]
   step "create the account"
