@@ -211,11 +211,63 @@ steps:
 # entry reads `A user-defined custom Layout`, then alphabetical names, and `Default` sits at the top of
 # the INPUT-LANGUAGE list behind the first entry. Choosing `Default` is what the hand run did before
 # `VM User` typed correctly.
-- name: the keyboard layout's Default, which is US
+# THE KEYBOARD LIST SCROLLS, AND (1192, 285) IS NOT `Default` ON THE RUNNER - IT IS `Dari...`.
+#
+# MEASURED off run 44264518478's recording, its keyboard page at t=160s: the list is SCROLLED PAST
+# the top, its visible entries read
+#
+#	Danish... / Dari... / Dhivehi / Dutch... / Dzongkha / English (Australia) / ...
+#	English (UK)... / English (US)...        <- the last one, highlighted
+#
+# - and `Dari...` sits at y=286, which is exactly where this step pressed. DARI IS WRITTEN IN ARABIC
+# LETTERS, so the layout became an Arabic one: the account page then received `VM User` as `سنتق`,
+# which is the same corruption this file's own header describes from an earlier run. `English (US)...`
+# was highlighted the whole time - the highlight shows what the list is scrolled TO, not what the
+# keyboard is set to.
+#
+# SO THE ENTRY IS PICKED BY NAME, AT ITS OWN ROW: `English (US)...` is the LAST row of the list, at
+# y=696 on the 1920 frame (x 966..1413, the full width of the list). A press anywhere on that row
+# selects it, and the row is already highlighted, so the press cannot miss by highlighting something
+# else first.
+- name: the keyboard layout, which is US
   click:
-  - 1192
-  - 285
+  - 1190
+  - 696
   wait_after: 3
+
+# THE LAYOUT IS PROVEN BEFORE THE WIZARD LEAVES THE PAGE, BECAUSE ARABIC LETTERS FAIL SILENTLY.
+#
+# MEASURED: the corruption showed up four pages later, as `سنتق` in the account page's Full Name box -
+# by which time the run had accepted a whole language and a whole keyboard and could not go back. The
+# keyboard page carries its own test field, `Type to test your layout`, so the check belongs here.
+#
+# THE FIELD IS AT (1190, 757) on the 1920 frame - x 966..1353, y 741..772 - and the loop types `abc`
+# into it and reads it back. LATIN LETTERS COME BACK AS LATIN LETTERS; an Arabic layout gives `ابث`.
+- name: the layout types latin letters
+  loop:
+    max: 4
+    do:
+    - click:
+      - 1190
+      - 757
+      clear: true
+      type: abc
+      type_gap: 0.12
+      wait_after: 1
+    ocr:
+      name: layout_test
+      region: [968, 743, 1351, 770]
+      region_at: [1920, 1080]
+      scale: 6
+      wait: 1
+    check:
+      name: latin
+      from: layout_test
+      mode: says_any
+      words:
+      - - abc
+    until:
+      fact: latin
 
 - name: take the keyboard layout
   at_color:
