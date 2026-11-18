@@ -914,11 +914,50 @@ steps:
 #
 # AND THE PAGE SHOWS WHY THIS STEP EXISTS: `Installation type  Use configured storage` with
 # `vda1 136 GB mount /` and `vda2 1.44 GB mount /boot/efi` - the layout the storage editor built.
+# THE `Install` PRESS IS RETRIED, BECAUSE A PRESS THAT DOES NOTHING LOOKS LIKE A PAGE THAT DID.
+#
+# MEASURED: the button's blue box spans x=689..772, y=981..1017 on that page - centre (730, 999) - and
+# the file's (731, 999) is one pixel from it. A run pressed it and the page stayed on `Review and
+# install` for twenty-five minutes with the disk at 18 MiB.
+#
+# The button is found BY ITS COLOUR instead, which is true wherever the page has scrolled to, and the
+# press is repeated until the wizard leaves the review page.
+#
+# `begin` IS THE WORD THE PROGRESS PAGE USES (`Installing Fedora Linux`, `Beginning installation`),
+# and `Review` is what this page carries - so the verdict distinguishes the two.
 - name: begin the installation
-  click:
-  - 731
-  - 999
+  at_color:
+  - 60
+  - 110
+  - 180
+  color_region:
+  - 600
+  - 960
+  - 900
+  - 1040
   wait_after: 20
+
+- name: the wizard left the review page
+  loop:
+    max: 20
+    do:
+    - wait: 6
+    ocr:
+      name: after_install
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: gone
+      from: after_install
+      # `Review` IS THE PAGE THAT MUST BE GONE; `Installing` / `install` are what replaces it.
+      mode: says_without
+      words:
+      - - Installing
+      without: [Review]
+    until:
+      fact: gone
 
 - name: the install is written
   disk_settle: 180
