@@ -276,45 +276,111 @@ steps:
   - 603
   type: '{{ password }}'
   wait_after: 3
-- name: users
-  click:
-  - 1335
-  - 821
-  wait_after: 18
+# THE FOUR PAGES BETWEEN THE USERS FORM AND THE SUMMARY ARE PRESSED BY ONE LOOP EACH, AND THE
+# COORDINATE IS THE SAME 828 THE EARLIER PRESSES USE.
+#
+# THE FILE USED (1335, 821) HERE - 5 ROWS ABOVE THE RUNNER'S BUTTON (826..845) - and the consequence
+# is in run 44255435468's own recording: the sidebar walked `Users -> Desktop -> Partitions -> Summary`
+# while the PAGE NEVER LEFT `What is your name?`. Each press was logged as `clicked (1335, 821)` and
+# each one landed on the page background. The reading after `summary - install` is the proof:
+
+#	summary_after: 75 word(s): = Nov 18 07:06 ao) NixOS Installer x What is your name? ...
+
+# - the Users page, six presses into a step that believed it was pressing `Install` on the summary.
+#
+# SO EVERY PRESS IS 828 (inside 826..845 on the runner and 810..831 here) AND EVERY STEP IS A LOOP
+# THAT READS THE PAGE IT EXPECTS NEXT. A press that misses now costs one attempt instead of the run.
+- name: users -> desktop
+  loop:
+    max: 5
+    do:
+    - click:
+      - 1330
+      - 828
+      wait_after: 6
+    ocr:
+      name: at_desktop
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 3
+      wait: 2
+    check:
+      name: here
+      from: at_desktop
+      mode: says_any
+      # `GNOME` IS THE DESKTOP PAGE'S OWN CHOICE LIST; the Users page carries none of it.
+      words:
+      - - GNOME
+      - - Plasma
+    until:
+      fact: here
+
+# THE DESKTOP PAGE'S CHOICE IS PRESSED BEFORE ITS `Next`, because a page with nothing selected keeps
+# that button disabled. MEASURED on the runner's frame: the choice list's first row is at y=400.
 - name: choose gnome
   click:
   - 1000
   - 400
   wait_after: 4
-- name: packagechooser
-  click:
-  - 1335
-  - 821
-  wait_after: 15
-- name: unfree notes
-  click:
-  - 1335
-  - 821
-  wait_after: 12
+
+- name: desktop -> partitions
+  loop:
+    max: 5
+    do:
+    - click:
+      - 1330
+      - 828
+      wait_after: 6
+    ocr:
+      name: at_partitions
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 3
+      wait: 2
+    check:
+      name: here
+      from: at_partitions
+      mode: says_any
+      # `Erase disk` IS THIS PAGE'S FIRST CHOICE - and `Unfree software`, the page between them, is
+      # skipped by pressing `Next` on it, which is what its notes pane asks for.
+      words:
+      - - Erase
+      - - Manual
+    until:
+      fact: here
+
+# ERASE THE WHOLE DISK, WHICH IS THE FIRST RADIO AND ALREADY SELECTED; pressing it is harmless and
+# makes the state explicit. MEASURED on the runner's frame: the radio is at (633, 390).
 - name: partitions - erase the disk
   click:
   - 633
   - 390
   wait_after: 6
-- name: partitions
-  click:
-  - 1335
-  - 821
-  wait_after: 18
-# THE SUMMARY PAGE'S `Install` IS 31 PIXELS LOWER THAN THE OTHER PAGES' `Next`.
-#
-# MEASURED on this installer's own frames: the footer sits at y=557 in the 1280-wide view on every
-# page (`Next` at (1329, 836) on the 1920 frame), and on the summary page the button is at y=578 -
-# (1329, 867) - because that page's content is taller and the footer is laid out under it. This is the
-# same difference Calamares shows on cachyos and on endeavouros.
-#
-# MEASURED on the CI leg: (1329, 836) was pressed on the summary page and the install never started -
-# the press landed on the page's own progress text, which is what sits above that footer.
+
+- name: partitions -> summary
+  loop:
+    max: 5
+    do:
+    - click:
+      - 1330
+      - 828
+      wait_after: 6
+    ocr:
+      name: at_summary
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 3
+      wait: 2
+    check:
+      name: here
+      from: at_summary
+      mode: says_any
+      # `overview` IS THE SUMMARY PAGE'S OWN HEADING (`This is an overview of what will happen`).
+      words:
+      - - overview
+    until:
+      fact: here
+
 # THE SUMMARY PAGE'S `Install` IS 29 ROWS BELOW THE OTHER PAGES' `Next`, AND THE RUNNER DRAWS THE
 # WHOLE WIZARD 15 ROWS LOWER THAN THIS WORKSTATION DOES.
 #
