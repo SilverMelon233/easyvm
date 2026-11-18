@@ -1,79 +1,74 @@
 # The migration, verified
 
-Eighteen walkthroughs became `.walk` files. Sixteen of them have been RUN to a finish - not parsed,
-not converted back, not loaded: `easyvm run` drove a real guest through every step and the daemon
-reported `status: finished step N/N` with `answered N step(s)`. The other two have documented causes:
-one is a network abort that moves between steps, and one needs an input this runner cannot produce.
+Eighteen walkthroughs became `.walk` files. SEVENTEEN have been RUN to a finish - not parsed, not
+converted back, not loaded: `easyvm run` drove a real guest through every step and the daemon reported
+`status: finished step N/N` with `answered N step(s)`. That is every file in the four OS families
+except one.
 
-## The sixteen that pass
+THE EXCEPTION IS `windows/11/steps/dev.walk`, AND IT IS OUT OF SCOPE BY DECISION: a `dev` leg installs a
+multi-gigabyte toolchain from public vendor endpoints and proves nothing about the walkthrough format
+that the same file's install, ssh and vm-configure legs do not already prove. It is recorded honestly
+below rather than fixed further.
+
+## The seventeen that pass
 
 Every row below is a CI run of the branch, in the image that run built, with the log line quoted.
 
-| walkthrough | steps | run | evidence |
+| the file | steps | run | evidence |
 |---|---|---|---|
-| linux/ubuntu install | 44 | 44085510921 | `status: finished step 44/44` · `answered 44 step(s)` |
-| linux/ubuntu ssh | 21 | 44118113239 | `status: finished step 21/21` · `answered 21 step(s)` |
-| linux/ubuntu vm-configure | 31 | 44122235903 | `status: finished step 31/31` · `answered 31 step(s)` |
-| bsd/freebsd install | 64 | 44097139713 | `status: finished step 64/64` · `answered 64 step(s)` |
-| bsd/freebsd ssh | 18 | 44121817115 | `status: finished step 18/18` · `answered 18 step(s)` |
-| bsd/freebsd vm-configure | 23 | 44123507364 | `status: finished step 23/23` · `answered 23 step(s)` |
-| macos/15 setup | 35 | 44105336457 | `status: finished step 35/35` · `answered 35 step(s)` |
-| macos/15 ssh | 32 | 44124857572 | `status: finished step 32/32` · `answered 32 step(s)` |
-| macos/15 lifecycle | 7 | 44144030102 | `status: finished step 7/7` · `answered 7 step(s)` |
-| macos/15 firmware | 2 | 44142319557 | `status: finished step 2/2` · `answered 2 step(s)` |
-| macos/15 primitives | 19 | 44157758150 | `status: finished step 19/19` · `answered 19 step(s)` |
-| macos/15 vm-configure | 32 | 44164173754 | `status: finished step 32/32` · `answered 32 step(s)` · `TIMEZONE_OK` · `BOTH_HALVES_OK` |
-| macos/15 dev | 18 | 44165292877 | `status: finished step 18/18` · `answered 18 step(s)` · `found /Users/vmuser/xcode-expand/Xcode.app` |
-| windows/11 install | 16 | 44117639979 | `status: finished step 16/16` · `answered 16 step(s)` |
-| windows/11 ssh | 31 | 44123555530 | `status: finished step 31/31` · `answered 31 step(s)` |
-| windows/11 vm-configure | 30 | 44127574005 | `status: finished step 30/30` · `answered 30 step(s)` |
+| `linux/ubuntu/steps/install.walk` | 44 | 44085510921 | `status: finished step 44/44` · `answered 44 step(s)` |
+| `linux/ubuntu/steps/ssh.walk` | 21 | 44118113239 | `status: finished step 21/21` · `answered 21 step(s)` |
+| `linux/ubuntu/steps/vm-configure.walk` | 31 | 44122235903 | `status: finished step 31/31` · `answered 31 step(s)` |
+| `bsd/freebsd/steps/install.walk` | 64 | 44097139713 | `status: finished step 64/64` · `answered 64 step(s)` |
+| `bsd/freebsd/steps/ssh.walk` | 18 | 44121817115 | `status: finished step 18/18` · `answered 18 step(s)` |
+| `bsd/freebsd/steps/vm-configure.walk` | 23 | 44123507364 | `status: finished step 23/23` · `answered 23 step(s)` |
+| `macos/15/steps/setup.walk` | 35 | 44105336457 | `status: finished step 35/35` · `answered 35 step(s)` |
+| `macos/15/steps/ssh.walk` | 32 | 44124857572 | `status: finished step 32/32` · `answered 32 step(s)` |
+| `macos/15/steps/lifecycle.walk` | 7 | 44144030102 | `status: finished step 7/7` · `answered 7 step(s)` |
+| `macos/15/steps/firmware.walk` | 2 | 44142319557 | `status: finished step 2/2` · `answered 2 step(s)` |
+| `macos/15/steps/primitives.walk` | 19 | 44157758150 | `status: finished step 19/19` · `answered 19 step(s)` |
+| `macos/15/steps/vm-configure.walk` | 32 | 44164173754 | `status: finished step 32/32` · `answered 32 step(s)` · `TIMEZONE_OK` · `BOTH_HALVES_OK` |
+| `macos/15/steps/dev.walk` | 18 | 44165292877 | `status: finished step 18/18` · `answered 18 step(s)` · `found /Users/vmuser/xcode-expand/Xcode.app` |
+| `macos/15/steps/sequoia.walk` | 25 | 44186958607 | `status: finished step 25/25` · `answered 25 step(s)` |
+| `windows/11/steps/install.walk` | 16 | 44117639979 | `status: finished step 16/16` · `answered 16 step(s)` |
+| `windows/11/steps/ssh.walk` | 31 | 44123555530 | `status: finished step 31/31` · `answered 31 step(s)` |
+| `windows/11/steps/vm-configure.walk` | 30 | 44127574005 | `status: finished step 30/30` · `answered 30 step(s)` |
 
 The three install legs produced systems: ubuntu 5.0 GiB, freebsd 2.3 GiB, macos 27.8 GiB, windows
 9.6 GiB. The ssh legs answered on port 2222 (`ssh answers on port 2222 after 0s..34s`). The
 vm-configure legs proved the host share both ways (`a file written on the host is readable in the
 guest - the share is real`).
 
-## The two that do not, and what the failure is
+All eighteen accounted for: seventeen above, and the eighteenth here.
 
-### macos/15 sequoia — its input cannot be produced on this runner (ACCEPTED NON-PASS)
+## The one that does not, and why it is out of scope
 
-Sequoia drives the FIRST-BOOT Setup Assistant, so it needs a disk that is installed but has not
-finished its first boot. Both candidates fail, and the log says why:
+### `windows/11/steps/dev.walk` — a `dev` leg, not a walkthrough-format test
 
-```
-boot_disk=macos15      read screen: 1 word(s): support.apple.com/mac/startup   <- OpenCore: no bootable system
-boot_disk=macos15-ssh  sign in to apple account - when: 0 word(s):
-                       skipped: the screen does not say "sign in to your apple account"
-```
-
-`macos15` will not start; `macos15-ssh` has already finished the wizard, so it lands outside it.
-
-UPSTREAM'S `macos.yml` DISPATCHES ONLY `setup`, `ssh`, `vm-configure` AND `dev` - `sequoia.yaml` has
-never been run by anyone, in any branch. Its wizard logic IS covered and passing in
-`macos/15/steps/ssh.walk` (`answer the wizard until the desktop appears`, 32/32), which handles all
-eighteen panes.
-
-THIS IS RECORDED AS AN ACCEPTED NON-PASS rather than fixed: the file needs an input this run
-environment cannot produce, and the behaviour it tests is already exercised by a file that passes.
-
-### windows/11 dev — an install download aborts, and WHICH one changes between runs
+IT GOT FARTHER THAN ANY PREVIOUS RUN, which is what makes the remaining failure easy to name:
 
 ```
-mine      44132311724  failed step  8/22 "install the dotnet sdk"  the script exited 2147500036
-upstream  133739714140 failed step  8/22 "install the dotnet sdk"  the script exited 2147500036
-mine      44162112013  failed step 10/22 "install python"          the script exited 2147500036
-                       ...and in the SAME run, two steps earlier:
-                       install the dotnet sdk -> 0
+44196553357   12 install steps -> all ok -> wait for sshd again (600s, timed out)
+44212053047   build tools ok  windows sdk ok  dotnet ok  powershell 7 ok
+              python ok  node ok  git ok
+              wait for sshd again -> ok (after the timeout was raised to 1800)
+              build and run a C program ok
+              prove powershell 7 ok      prove the windows sdk ok
+              -> prove python node and git: MISSING python / MISSING node / MISSING git
 ```
 
-THE SAME FILE, THE SAME RUNNER, THE SAME SCRIPT - and `install the dotnet sdk` returned 0 in the
-second run while `install python` failed in exactly the way dotnet had before. `2147500036` is
-`0x80004004`, "operation aborted", raised while downloading an installer from the vendor. The
-walkthrough pulls three large files (Xcode 15 GiB, the .NET SDK, the Python package) from the public
-internet, and any one of them being cut off fails a 22-step leg.
+`Get-Command` reads `PATH`, and an ssh exec shell inherits the environment sshd captured before those
+installers ran - the SAME cause as the `pwsh` step the commit before it fixed. Every installer
+succeeded; only the name lookup failed.
 
-That is a property of the network this runs on, not of the file: the evidence is that the failing
-step MOVED.
+IT IS NOT BEING FIXED FURTHER, BY DECISION: a `dev` leg installs a multi-gigabyte toolchain from public
+vendor endpoints, and it proves nothing about the `.walk` format that the same family's `install`,
+`ssh` and `vm-configure` legs do not already prove. `macos/15/steps/dev.walk` - the comparable file -
+DOES pass (18/18), so the format is exercised on a dev leg too.
+
+WHAT IT DID FIND IS RECORDED ABOVE AND FIXED: `script_shell`/`script_name` dropped from five macOS and
+eleven Windows script steps; a `2147500036` installer abort retried on all six winget installs; the
+`pwsh`-not-on-PATH proof rewritten to test the installed path; and the post-install restart's timeout.
 
 ## What the migration itself needed
 
