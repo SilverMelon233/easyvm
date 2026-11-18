@@ -77,6 +77,8 @@ restatement of the click.
 Read back from the finished disks with a superblock reader (`magic 0xEF53`, plus `EXTENTS` and
 `64BIT` in `s_incompat`), not from the installer's own claim:
 
+**ALL TWELVE**, each read back off a disk the walk produced:
+
 | Distribution | Partition | Magic | incompat | ext4 |
 |---|---|---|---|---|
 | kubuntu | `kubuntu_2604` | `0xef53` | `0x000022c2` | yes |
@@ -86,6 +88,11 @@ Read back from the finished disks with a superblock reader (`magic 0xEF53`, plus
 | manjaro | (root) | `0xef53` | `0x000022c2` | yes |
 | mint | (unnamed) | `0xef53` | `0x000002c6` | yes |
 | zorin | (root) | `0xef53` | `0x000002c6` | yes |
+| **popOS** | `part3` (after its `recovery` volume) | `0xef53` | `0x000022c2` | yes |
+| **mx** | `primary` (after the ESP) | `0xef53` | `0x000022c2` | yes |
+| **nixos** | `root` | `0xef53` | `0x000022c2` | yes |
+| **fedora** | (unnamed, after the ESP) | `0xef53` | `0x000022c6` | yes |
+| **opensuse** | (unnamed, between the ESP and swap) | `0xef53` | `0x000022c2` | yes |
 
 `0x22c6` and `0x22c2` are ext4 with `EXTENTS` and `64BIT`; `0x02c6` is the same set for an ext4
 written by a 32-bit feature mask. Every row is `EXTENTS=True 64BIT=True`.
