@@ -213,34 +213,17 @@ func (d *Driver) Frame() (run.Frame, error) {
 	if cache == nil {
 		return nil, fmt.Errorf("this machine has no frame cache")
 	}
+	// THE FIRST CALLER MAY ARRIVE BEFORE THE FIRST TICK, and the recorder's does: its sampler starts
+	// at step one, when the ticker has had no chance to run. Waiting for one capture is cheaper than
+	// making every caller understand that the cache starts empty.
+	if f, ok := cache.waitForFirst(3 * time.Second); ok {
+		return f, nil
+	}
 	f, err := cache.latest()
 	if err != nil {
-		// THE FIRST CALLER MAY ARRIVE BEFORE THE FIRST TICK. Waiting once is cheaper than making
-		// every caller understand that the cache starts empty.
-		if f2, _, err2 := cache.atOrAfter(time.Time{}, 3*time.Second); err2 == nil {
-			return f2, nil
-		}
 		return nil, err
 	}
 	return f, nil
-}
-
-// FrameAt returns a capture taken at or after `since`, waiting for one if the newest is older.
-//
-// THIS IS THE ONE A STEP USES AFTER IT CHANGED THE SCREEN. `see:` that follows a click must read the
-// screen the click produced, and the frame already in the cache was taken BEFORE it - so a check
-// against that one tests a screen that no longer exists. `ok` is false when the wait expired and the
-// frame is older than asked for, which a caller reports rather than pretending.
-func (d *Driver) FrameAt(since time.Time, budget time.Duration) (run.Frame, bool, error) {
-	cache := d.frameCache()
-	if cache == nil {
-		return nil, false, fmt.Errorf("this machine has no frame cache")
-	}
-	f, ok, err := cache.atOrAfter(since, budget)
-	if err != nil {
-		return nil, false, err
-	}
-	return f, ok, nil
 }
 
 // frameCache starts the cache on first use, so a driver built by a test that never looks at the

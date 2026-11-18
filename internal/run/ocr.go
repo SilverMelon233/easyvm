@@ -84,17 +84,22 @@ func (e *Executor) doOCR(s walk.Step) error {
 		return err
 	}
 
-	// THE WAIT IS NOW A TIME ON THE FRAME RATHER THAN A SLEEP, AND THE DIFFERENCE IS REAL.
+	// THE WAIT IS A WAIT. `wait: 3` means "look three seconds from now", and the frame it looks at
+	// is whatever the one-a-second capture has by then.
 	//
-	// `wait: 5` used to sleep five seconds and then ask for a screendump. With a frame captured every
-	// second, "a frame from five seconds ago or later" is the same intent, honoured by the cache - and
-	// a sleep that long is also five seconds in which a `check:` elsewhere could have read a screen.
+	// I REWROTE THIS AS "A FRAME STAMPED AT OR AFTER NOW" AND IT MADE EVERY `wait: 0` SLOW. Measured:
+	// 151 of the 194 waits in the tree are `wait: 0`, and asking for a frame from *after* the current
+	// instant means waiting for the next tick - so a step that asked to look immediately waited up to
+	// a second, 151 times over.
 	//
-	// THE BUDGET IS THE WAIT PLUS SLACK: the frame has to be NEWER than the click, and the tick that
-	// brings it is up to a second away. A file that says `wait: 0` gets the newest frame at or after
-	// now, which is the next tick rather than the stale one in the cache.
-	since := time.Now().Add(time.Duration(spec.Wait * float64(time.Second)))
-	f, err := e.frameFrom(since, time.Duration(spec.Wait*float64(time.Second))+3*time.Second)
+	// THE TIMESTAMP WAS ANSWERING A QUESTION THE FILE ALREADY ANSWERS. A step that clicked says
+	// `wait: 3`; that is where "let the screen catch up" belongs, and it is visible in the file. A
+	// cache that guessed it from clocks would be deciding it twice.
+	if spec.Wait > 0 {
+		time.Sleep(time.Duration(spec.Wait * float64(time.Second)))
+	}
+
+	f, err := e.Driver.Frame()
 	if err != nil {
 		return fail(s.Name, "%v", err)
 	}

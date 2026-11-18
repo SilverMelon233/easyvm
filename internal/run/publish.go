@@ -443,3 +443,53 @@ func driverHasAMachine(d Driver) bool {
 	}
 	return true
 }
+
+// startAutomaticRecording opens a recording for the whole walk.
+//
+// IT REPLACED TWO STEPS. `record: out.mp4` began one and `record: false` ended it, which made a file
+// say "start the recorder now" and "stop it before you finish" - two facts the run already knows. The
+// end was never reliable either: a walk that failed before its `record: false` left no video, which
+// is why `finishRecording` exists as a defer.
+//
+// THE VIDEO IS NOT WRITTEN WHEN THE WALK HANDS THE MACHINE TO A PERSON. A run that ends in an
+// interactive session is a run somebody is about to use, and an encode of the setup is a file that
+// answers "what did the machine do before I got here" - which the person can see for themselves.
+// `ManualAfter` is what a caller sets to say the machine outlives the walk.
+func (e *Executor) startAutomaticRecording() error {
+	if e.ManualAfter {
+		e.Driver.Log("  recording: not started, because this run hands the machine to a person")
+		return nil
+	}
+	name := e.recordingName()
+	e.recVideo = name
+	return e.sampler(filepath.Join(e.Work, "shots"))
+}
+
+// recordingName is the file the recording is written as, derived from the walkthrough itself.
+//
+// IT IS `<walk>-<stage>.mp4`, WHICH IS WHAT THE HANDWRITTEN NAMES TRIED TO BE AND DISAGREED ABOUT:
+// `install.mp4`, `ubuntu-install.mp4` and `vm-configure.mp4` all existed, so a person holding a video
+// could not tell which leg it came from. Nothing reads the name - the workflow uploads `work/*.mp4` -
+// so this only has to be unique and self-describing.
+func (e *Executor) recordingName() string {
+	stage := "install"
+	if e.File != nil && e.File.Path != "" {
+		base := strings.TrimSuffix(filepath.Base(e.File.Path), filepath.Ext(e.File.Path))
+		if base != "" {
+			stage = base
+		}
+	}
+	// THE WALKTHROUGH'S OWN DIRECTORY NAMES THE GUEST: `linux/ubuntu/steps/install.walk` is
+	// `ubuntu-install.mp4`, and a file run by hand from somewhere else keeps its stage name alone.
+	guest := ""
+	if e.File != nil && e.File.Path != "" {
+		dir := filepath.Dir(filepath.Dir(e.File.Path)) // steps/ -> the guest's directory
+		if g := filepath.Base(dir); g != "" && g != "steps" && g != "." {
+			guest = g
+		}
+	}
+	if guest != "" {
+		return guest + "-" + stage + ".mp4"
+	}
+	return stage + ".mp4"
+}

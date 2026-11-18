@@ -25,6 +25,9 @@ type Executor struct {
 	// StartAt and StopBefore narrow the run, for re-running from the middle.
 	StartAt    string
 	StopBefore string
+	// ManualAfter says the machine OUTLIVES the walk: this run sets it up for a person to drive, so
+	// the recording is not taken and the machine is not shut down at the end.
+	ManualAfter bool
 
 	// rec is the recording in progress. recDone stops its sampler and recStopped is closed by the
 	// goroutine on its way out, so stopping it is a JOIN rather than a hope - a tick in flight can
@@ -131,6 +134,24 @@ func (e *Executor) Run(steps []walk.Step) (Result, error) {
 	// A FAILING RUN IS THE ONE THAT NEEDS THE RECORDING. The frames are on disk; only the encode was
 	// skipped, and the encode is what turns them into the file a person can watch.
 	defer e.finishRecording()
+
+	// THE RECORDING STARTS WITH THE WALK, NOT WITH A STEP.
+	//
+	// `record: <name>.mp4` AND `record: false` WERE BOTH STEPS, and both were bookkeeping: the first
+	// said "start now" and the second said "stop at the end", which is what the run itself already
+	// knows. Measured over the tree: 74 `record:` uses, of which 36 are the `false` half - and a walk
+	// that failed before its `record: false` was the case `finishRecording` was added for, so the
+	// stop was already not the step's doing.
+	//
+	// THE NAME IS DERIVED, because `work/*.mp4` is what the workflow uploads and nothing reads the
+	// name. The sixteen handwritten ones disagreed with each other - `install.mp4`, `ubuntu-install.mp4`,
+	// `vm-configure.mp4` - so a stage could not tell from a filename which leg it belonged to.
+	if err := e.startAutomaticRecording(); err != nil {
+		// NOT FATAL. A machine that cannot be photographed is a broken stage, but a recording that
+		// cannot be started is a missing artifact - and the steps that follow are the ones that find
+		// out whether the machine works.
+		e.Driver.Log(fmt.Sprintf("  recording NOT started: %v", err))
+	}
 
 	started := e.StartAt == ""
 
@@ -908,32 +929,4 @@ func stepNeedsAGuest(s walk.Step) bool {
 		return true
 	}
 	return true
-}
-
-// frameFrom returns a capture taken at or after `since`, or the newest one with a warning.
-//
-// A DRIVER THAT CANNOT CAPTURE ON DEMAND IS NOT AN ERROR: the interface is optional, so a fake in a
-// unit test and a platform without QMP both fall back to `Frame()`, which every driver has.
-func (e *Executor) frameFrom(since time.Time, budget time.Duration) (Frame, error) {
-	if at, ok := e.Driver.(interface {
-		FrameAt(time.Time, time.Duration) (Frame, bool, error)
-	}); ok {
-		f, fresh, err := at.FrameAt(since, budget)
-		if err != nil {
-			return nil, fmt.Errorf("reading the frame: %w", err)
-		}
-		if !fresh {
-			// NOT A FAILURE, AND NOT SILENT EITHER. The screen did not change within the budget, so
-			// the reading is of an older frame - which is the truth a person needs when a step's
-			// verdict disagrees with the video.
-			e.Driver.Log("  the frame did not change within the budget; reading the newest one, " +
-				"which is older than this step asked for")
-		}
-		return f, nil
-	}
-	f, err := e.Driver.Frame()
-	if err != nil {
-		return nil, fmt.Errorf("reading the frame: %w", err)
-	}
-	return f, nil
 }
