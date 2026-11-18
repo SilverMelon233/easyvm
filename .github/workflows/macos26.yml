@@ -62,7 +62,12 @@ jobs:
           set -eu
           # THE NUMBER COMES FROM THE FILE THE STAGE RUNS, so raising it there is caught here instead
           # of turning into a broken pipe nobody can attribute.
-          need_mib=$(awk '/^[[:space:]]*memory_mb:/{gsub(/[^0-9]/,"",$0); print; exit}' macos/26/steps/setup.yaml)
+          # THE VALUE IS READ WITH grep AND cut RATHER THAN AN awk CHARACTER CLASS. This
+          # repository refuses bash-only constructs in a workflow - a container job's steps run under
+          # dash, where they are syntax errors - and its check is a plain text match, so an awk
+          # character class for whitespace trips it. MEASURED: internal/oci's
+          # TestNoWorkflowUsesABashOnlyConstruct failed on the awk version of this line.
+          need_mib=$(grep -m1 'memory_mb:' macos/26/steps/setup.yaml | cut -d: -f2 | tr -cd '0-9')
           if [ -z "$need_mib" ]; then
             echo "::error::macos/26/steps/setup.yaml declares no memory_mb, so this check cannot say whether the guest fits"
             exit 1
