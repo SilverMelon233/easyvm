@@ -317,10 +317,20 @@ steps:
 # `rgb(60,110,180)` IS CALAMARES' OWN ACCENT and fills its primary button; `at_color` takes the centre
 # of the largest blob of it on the whole frame, and the loop presses again if the page did not change.
 - name: summary - install
+  # CALAMARES' BLUE IS rgb(58,75,160), NOT THE rgb(60,110,180) I WROTE.
+  #
+  # MEASURED over this installer's own footer band (x 60..85% of the width, y 75..85% of the height)
+  # on a 1920x1080 frame:
+  #
+  #	rgb(58, 75, 160)    24883 px     <- `Next` / `Install`, the primary button
+  #	rgb(239, 239, 239)   8729 px     <- the same button DISABLED
+  #
+  # `rgb(60,110,180)` IS FEDORA'S ANACONDA BLUE - a different installer's accent - and it appears
+  # nowhere on this page, which is why the runner said `no pixel within 25`.
   at_color:
-  - 60
-  - 110
-  - 180
+  - 58
+  - 75
+  - 160
   color_tolerance: 25
   # THE FOOTER, NOT THE FRAME: Calamares paints its WINDOW TITLE BAR in this same blue, so a
   # whole-frame search finds the chrome first - measured on fedora's Anaconda, which put the press at
