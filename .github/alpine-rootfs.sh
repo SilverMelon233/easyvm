@@ -39,6 +39,18 @@ WORK="${OUT}/alpine-build"
 
 log() { printf '  %s\n' "$*"; }
 
+# THE RUNNER IS ALREADY ROOT AND HAS NO `sudo`. MEASURED: the first CI run of this script died with
+# `/__w/easyvm/easyvm/.github/alpine-rootfs.sh: 62: sudo: not found`. A developer machine may need it,
+# so it is used only when it is there - and never for a command that is not chroot/NEWROOT.
+if [ "$(id -u)" -eq 0 ]; then
+	as_root() { "$@"; }
+elif command -v sudo >/dev/null 2>&1; then
+	as_root() { sudo "$@"; }
+else
+	log "not root and no sudo: apk/mkinitfs/mke2fs will fail"
+	as_root() { "$@"; }
+fi
+
 mkdir -p "$WORK" "$OUT"
 
 # --- 1. fetch -----------------------------------------------------------------------------
@@ -59,12 +71,12 @@ if [ ! -d "$WORK/root/usr" ]; then
 	# THE MIRROR IS WRITTEN EXPLICITLY so a pinned `ALPINE_VERSION` cannot silently fall back to
 	# whatever the minirootfs shipped configured.
 	printf '%s/main\n%s/community\n' "$BASE" "$BASE" > "$WORK/root/etc/apk/repositories"
-	sudo cp /etc/resolv.conf "$WORK/root/etc/resolv.conf"
+	as_root cp /etc/resolv.conf "$WORK/root/etc/resolv.conf"
 
 	# linux-virt BRINGS THE KERNEL AND /lib/modules, which is what `mkinitfs` reads. The X packages
 	# are what make this a DESKTOP rather than a serial console: openbox is the window manager, and
 	# xf86-video-vesa is the driver a microvm's ISA VGA adapter answers to.
-	sudo chroot "$WORK/root" /sbin/apk add --no-cache \
+	as_root chroot "$WORK/root" /sbin/apk add --no-cache \
 		alpine-base linux-virt mkinitfs \
 		openbox xorg-server xf86-input-libinput xf86-video-vesa \
 		xinit xterm font-misc-misc
@@ -80,11 +92,11 @@ KVER=$(ls "$ROOT/lib/modules" | head -1)
 if [ ! -f "$WORK/initramfs-ext4" ]; then
 	log "rebuilding the initramfs with ext4 (kernel $KVER)"
 	grep -q 'ext4' "$ROOT/etc/mkinitfs/mkinitfs.conf" 2>/dev/null || {
-		sudo sed -i 's/^features="\(.*\)"/features="\1 ext4 virtio_blk virtio_pci ata_piix sd_mod"/' \
+		as_root sed -i 's/^features="\(.*\)"/features="\1 ext4 virtio_blk virtio_pci ata_piix sd_mod"/' \
 			"$ROOT/etc/mkinitfs/mkinitfs.conf"
 	}
-	sudo chroot "$ROOT" /sbin/mkinitfs -o /boot/initramfs-ext4 "$KVER"
-	sudo cp "$ROOT/boot/initramfs-ext4" "$WORK/initramfs-ext4"
+	as_root chroot "$ROOT" /sbin/mkinitfs -o /boot/initramfs-ext4 "$KVER"
+	as_root cp "$ROOT/boot/initramfs-ext4" "$WORK/initramfs-ext4"
 fi
 
 # --- 4. make the guest draw on the VGA adapter --------------------------------------------
@@ -92,7 +104,7 @@ fi
 # getty on BOTH means the walkthrough can assert on the console (which is reliable) while the
 # recording has something to show (which is the artifact).
 log "writing inittab: a getty on tty1 and ttyS0"
-sudo tee "$ROOT/etc/inittab" >/dev/null <<'EOF'
+as_root tee "$ROOT/etc/inittab" >/dev/null <<'EOF'
 ::sysinit:/sbin/openrc sysinit
 ::sysinit:/sbin/openrc boot
 ::wait:/sbin/openrc default
@@ -106,11 +118,11 @@ EOF
 # `mke2fs -d` WRITES A DIRECTORY INTO AN IMAGE WITHOUT A LOOP DEVICE, which is what a container
 # allows. This is the same step Firecracker's getting-started guide uses (`mkfs.ext4 -d`).
 if [ ! -f "$WORK/rootfs.raw" ]; then
-	SIZE=$(( $(sudo du -sm "$ROOT" | cut -f1) + 120 ))
+	SIZE=$(( $(as_root du -sm "$ROOT" | cut -f1) + 120 ))
 	log "writing a ${SIZE} MiB ext4 image"
 	rm -f "$WORK/rootfs.raw"
 	truncate -s "${SIZE}M" "$WORK/rootfs.raw"
-	sudo mke2fs -q -F -t ext4 -d "$ROOT" "$WORK/rootfs.raw"
+	as_root mke2fs -q -F -t ext4 -d "$ROOT" "$WORK/rootfs.raw"
 fi
 
 log "converting to qcow2 (the engine boots every machine on an overlay, which needs qcow2)"
