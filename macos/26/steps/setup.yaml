@@ -508,41 +508,31 @@ steps:
       - 1080
       scale: 1
       wait: 0
+    # THE TEST IS "THE SETUP ASSISTANT, OR A BLACK SCREEN".
+    #
+    # MEASURED ON RUN 44190274785: with the cancel sheet answered the install ran to its end - reads
+    # 63..65 said "About 17 / 16 minutes remaining" - and every read from attempt 66 to attempt 270
+    # said `0 word(s)`. The video agrees: t=1700s is the installer's own Apple-logo restart, and
+    # every frame after it is identical black. `broken pipe` was 0, so the machine was alive and
+    # simply never drew again; this loop then spent its whole ceiling waiting for words that were
+    # never coming, and the run failed on a disk that was already written.
+    #
+    # `says_any` CANNOT SAY "OR NOTHING WAS DRAWN" - it needs a word list and an empty reading
+    # matches none of them. `matches` runs a regex over the normalised reading, so `^$` expresses a
+    # black frame exactly: measured, an empty reading matches `^$` and a reading with any letter or
+    # digit does not.
+    #
+    # WHAT HAPPENS NEXT IS THE STEP THAT ALREADY FOLLOWS THIS LOOP - `reset the guest after look 1`,
+    # which was written for the installer's stall. MEASURED LOCALLY ON A COPY OF THIS RUN'S OWN
+    # UNFINISHED DISK AT 12 GiB: boot, 120 s of black (the reading is "e"), `reboot: true`, and the
+    # pane reads "Select Your Country or Region". Control: a COMPLETED disk (FINAL.qcow2, 38.40 GiB)
+    # boots straight to the Setup Assistant at 12288 with no reset - so the reset is not covering a
+    # broken install, it is what makes a finished one draw.
     check:
       name: done
       from: screen
-      mode: says_any
-      words: &id001
-      - - select
-        - your
-        - country
-        - or
-        - region
-      - - how
-        - do
-        - you
-        - want
-        - to
-        - connect
-        - to
-        - the
-        - internet
-      - - transfer
-        - your
-        - information
-        - to
-        - this
-        - mac
-      - - choose
-        - a
-        - wireless
-        - network
-      - - sign
-        - in
-        - with
-        - your
-        - apple
-        - id
+      mode: matches
+      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 1, because this installer stalls and a reset is what moves it
@@ -592,8 +582,9 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
-      words: *id001
+      mode: matches
+      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
+
     until:
       fact: done
 - name: reset the guest after look 2, because this installer stalls and a reset is what moves it
@@ -643,8 +634,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
-      words: *id001
+      mode: matches
+      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 3, because this installer stalls and a reset is what moves it
@@ -694,8 +685,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
-      words: *id001
+      mode: matches
+      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 4, because this installer stalls and a reset is what moves it
@@ -745,8 +736,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
-      words: *id001
+      mode: matches
+      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 5, because this installer stalls and a reset is what moves it
@@ -796,8 +787,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
-      words: *id001
+      mode: matches
+      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 6, because this installer stalls and a reset is what moves it
@@ -847,8 +838,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
-      words: *id001
+      mode: matches
+      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 7, because this installer stalls and a reset is what moves it
@@ -898,8 +889,8 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
-      words: *id001
+      mode: matches
+      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: the Setup Assistant is on screen, which is what this stage exists to reach
