@@ -1019,130 +1019,37 @@ steps:
   timeout: 3600
   poll: 20
   keep_alive: true
-- name: exit to the live desktop
-  click:
-  - 963
-  - 364
-  wait_after: 10
-- name: first boot
-  loop:
-    max: 90
-    do:
-    - wait: 10
-    ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
-      scale: 1
-      wait: 0
-    check:
-      name: done
-      from: screen
-      mode: says_any
-      words:
-      - - welcome
-        - to
-        - fedora
-      - - type
-        - to
-        - search
-      - - start
-        - using
-        - fedora
-    until:
-      fact: done
-- name: language - search for the United States
-  click:
-  - 960
-  - 492
-  type: united states
-  wait_after: 5
-- name: language - pick English (United States)
-  click:
-  - 960
-  - 550
-  wait_after: 6
-- name: language
-  click:
-  - 1432
-  - 181
-  wait_after: 10
-- name: typing
-  click:
-  - 1432
-  - 181
-  wait_after: 10
-- name: location services off
-  click:
-  - 1209
-  - 485
-  wait_after: 2
-- name: automatic problem reporting off
-  click:
-  - 1209
-  - 601
-  wait_after: 2
-- name: privacy
-  click:
-  - 1432
-  - 181
-  wait_after: 10
-- name: time zone
-  click:
-  - 1432
-  - 181
-  wait_after: 12
-- name: third party repositories
-  click:
-  - 1432
-  - 181
-  wait_after: 10
-- name: about you - full name
-  click:
-  - 1000
-  - 528
-  type: '{{ user }}'
-  expect:
-  - '{{ user }}'
-  wait_after: 2
-- name: about you
-  click:
-  - 1432
-  - 181
-  wait_after: 10
-- name: password - password
-  click:
-  - 960
-  - 493
-  type: '{{ password }}'
-  wait_after: 2
-- name: password - confirm
-  click:
-  - 960
-  - 630
-  type: '{{ password }}'
-  wait_after: 3
-- name: password
-  click:
-  - 1432
-  - 181
-  wait_after: 20
-- name: start using fedora linux
-  click:
-  - 959
-  - 709
-  wait_after: 25
-- name: skip the tour
-  click:
-  - 852
-  - 756
-  wait_after: 12
+# THE INSTALL IS OVER WHEN THE DISK STOPS GROWING, AND WHAT FOLLOWED THIS STEP WAS A SECOND
+# INSTALLATION THAT COULD NEVER RUN.
+#
+# MEASURED on run 44274246924, which is the first run that wrote the disk: `the install is written`
+# reported
+#
+#	8121 MiB, unchanged for 180s after 11m11s - the write is finished
+#
+# and then the file pressed (963, 364) to close the installer, waited for a `first boot`, and spent
+# ninety ten-second attempts reading a BLACK SCREEN - 0 words, every time.
+#
+# THE CONSOLE LOG SAYS WHERE THE MACHINE WENT:
+#
+#	BdsDxe: loading Boot0002 "UEFI QEMU DVD-ROM QM00011"
+#	Booting `Test this media & start Fedora-Workstation-Live'
+#
+# - THE FIRMWARE BOOTED THE DVD AGAIN. The medium is still attached and its boot entry sorts first,
+# so the reboot goes back into the LIVE INSTALLER, not into the system that was just written. A black
+# frame is that firmware hand-off, and a `first boot` gate can never see a desktop it was never
+# booted into.
+#
+# AND THE NINETEEN STEPS AFTER IT WERE INSTALLER PAGES - `language - search for the United States`,
+# `location services off`, `time zone`, `about you - full name`, `start using fedora linux`,
+# `skip the tour`. Those are Anaconda's pages, so the run that "passed" them would have walked a
+# SECOND install, on a disk that already had one. They cannot run on an installed system's first
+# boot, and they were never the point of this stage.
+#
+# SO THIS STAGE ENDS THE WAY EVERY OTHER INSTALL STAGE IN THIS REPOSITORY ENDS: the disk is finished,
+# the machine is stopped, and the disk is published. The first boot of the installed system is the
+# NEXT stage - `ssh.yaml` - which boots the published disk with no medium attached, which is the only
+# way a first boot can be about the system rather than about the ISO.
 - name: stop the machine
   shutdown: kill
   timeout: 120
