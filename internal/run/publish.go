@@ -2,6 +2,7 @@ package run
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,11 +24,31 @@ import (
 // nothing - while the log said "recording: ...install.mp4". The step that says "record this" is the
 // one that has to take the pictures.
 type recorder struct {
-	mu     sync.Mutex
+	mu sync.Mutex
+	// frames is what was captured, kept for the "how many" line and for a driver that cannot stream.
 	frames []string
 	// missed counts ticks whose `Frame()` failed, so a video that is short says why.
 	missed int
 	ready  bool
+
+	// --- THE LIVE ENCODER ---------------------------------------------------------------
+	//
+	// THE FRAMES GO INTO FFMPEG AS THEY ARRIVE, so the disk holds a few seconds of pictures rather
+	// than the whole run. MEASURED, the old way: a 40-minute install accumulated about 240 MB of
+	// 1920x1080 PNGs and encoded them at the end, which meant a failed encode or a killed process
+	// lost every frame it had.
+	//
+	// TWO PROCESSES, NOT ONE, AND THAT IS THE POINT. qemu writes whatever size the guest is drawing -
+	// 640x480 at the firmware, 1920x1080 at the desktop - and ffmpeg's image2 demuxer fixes the
+	// stream size at the FIRST frame. MEASURED TWICE: a 640x480 boot menu followed by 1920x1080
+	// frames produced a 640x480 video. So a normaliser scales and pads every frame to 1920x1080, and
+	// the encoder reads a stream whose size never changes.
+	stageCmd *exec.Cmd // normaliser: stdin is frames, stdout is uniform PNGs
+	encCmd   *exec.Cmd // encoder: reads the normalised stream, writes the mp4
+	stageIn  io.WriteCloser
+	encDone  chan error
+	// encoded is how many frames reached the encoder.
+	encoded int
 }
 
 func (e *Executor) pendingRecorder() *recorder {
@@ -43,16 +64,20 @@ func (e *Executor) pendingRecorder() *recorder {
 // frames that are padded are the ones qemu drew smaller - the boot menu at 640x480. Without a fixed
 // size the encoder takes whatever the FIRST frame happens to be, which is how a 424-second recording
 // of a 1920x1080 desktop came out 640x480.
-const (
-	RecordWidth  = 1920
-	RecordHeight = 1080
-)
+// The recording's size comes from the FILE, not from a constant here.
+//
+// IT USED TO BE 1920x1080 FOR EVERY GUEST, which is right for most of them and wrong in a way nobody
+// would notice: `resolution 1024x768` and `resolution 720x400` are real files in this tree, and a
+// 720x400 microvm recorded into a 1920x1080 frame is a small picture in a large black field. The
+// size is a fact about the artifact, so the file says it.
+//
+// A FILE WITHOUT `recording_resolution:` IS REFUSED rather than defaulted - see `walk.Load`.
 
 // encode writes the frames as a video.
 //
 // IT REFUSES WITH A SENTENCE WHEN THERE IS NOTHING TO ENCODE. Returning silently is what made the
 // Python implementation's first version upload a 303-byte screenshot instead of a recording.
-func (r *recorder) encode(video string, log func(string)) error {
+func (r *recorder) encode(video string, w, h int, log func(string)) error {
 	r.mu.Lock()
 	frames := append([]string(nil), r.frames...)
 	r.mu.Unlock()
@@ -116,7 +141,7 @@ func (r *recorder) encode(video string, log func(string)) error {
 		cmd := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
 			"-i", src,
 			"-vf", fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,"+
-				"pad=%d:%d:(ow-iw)/2:(oh-ih)/2", RecordWidth, RecordHeight, RecordWidth, RecordHeight),
+				"pad=%d:%d:(ow-iw)/2:(oh-ih)/2", w, h, w, h),
 			"-q:v", "4", dst)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			log(fmt.Sprintf("  recording: could not convert %s: %s", filepath.Base(src),
@@ -199,6 +224,15 @@ func (e *Executor) sampler(dir string) error {
 	// and dropped it - and the race detector reported the read/write pair as well. One pointer,
 	// taken once, is the whole fix.
 	rec := e.pendingRecorder()
+	// THE LIVE ENCODER IS OPENED HERE, WHERE THE NAME IS KNOWN. A failure is logged rather than
+	// returned: a run without a video is still a run, and the steps that follow are the ones that
+	// find out whether the machine works.
+	if e.recVideo != "" && rec.stageIn == nil {
+		if err := rec.startLiveEncoder(filepath.Join(e.Work, e.recVideo), e.recordWidth(), e.recordHeight()); err != nil {
+			e.Driver.Log(fmt.Sprintf("  recording: no live encoder (%v); frames are kept and "+
+				"encoded at the end", err))
+		}
+	}
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
@@ -239,7 +273,15 @@ func (e *Executor) sampler(dir string) error {
 				}
 				rec.mu.Lock()
 				rec.frames = append(rec.frames, f.Path())
+				live := rec.stageIn != nil
 				rec.mu.Unlock()
+				// THE FRAME GOES STRAIGHT INTO THE ENCODER, so the disk holds a second of pictures
+				// rather than the whole run. A recorder without a live encoder - a machine with no
+				// ffmpeg - keeps the paths and encodes at the end, which is what this used to do
+				// always.
+				if live {
+					rec.feedLive(f.Path())
+				}
 			}
 		}
 	}()
@@ -421,7 +463,17 @@ func (e *Executor) finishRecording() {
 		e.Driver.Log(fmt.Sprintf("  recording: %d frame(s) captured, %d tick(s) lost to a failed "+
 			"screendump - the video is that much shorter than the run", len(rec.frames), rec.missed))
 	}
-	if err := rec.encode(video, e.Driver.Log); err != nil {
+	// THE LIVE ENCODER ALREADY HAS THE PICTURES: closing it writes the index and the file is done.
+	// A recorder that never opened one - no ffmpeg at start - falls back to the end-of-run encode.
+	if rec.stageIn != nil || rec.encDone != nil {
+		if err := rec.closeLiveEncoder(); err != nil {
+			e.Driver.Log(fmt.Sprintf("  recording NOT written: %v", err))
+		} else {
+			e.Driver.Log(fmt.Sprintf("  recording: %d frame(s) written to %s", rec.encoded, video))
+		}
+		return
+	}
+	if err := rec.encode(video, e.recordWidth(), e.recordHeight(), e.Driver.Log); err != nil {
 		e.Driver.Log(fmt.Sprintf("  recording NOT written: %v", err))
 	}
 }
@@ -442,4 +494,209 @@ func driverHasAMachine(d Driver) bool {
 		return alive.IsRunning()
 	}
 	return true
+}
+
+// startAutomaticRecording opens a recording for the whole walk.
+//
+// IT REPLACED TWO STEPS. `record: out.mp4` began one and `record: false` ended it, which made a file
+// say "start the recorder now" and "stop it before you finish" - two facts the run already knows. The
+// end was never reliable either: a walk that failed before its `record: false` left no video, which
+// is why `finishRecording` exists as a defer.
+//
+// THE VIDEO IS NOT WRITTEN WHEN THE WALK HANDS THE MACHINE TO A PERSON. A run that ends in an
+// interactive session is a run somebody is about to use, and an encode of the setup is a file that
+// answers "what did the machine do before I got here" - which the person can see for themselves.
+// `ManualAfter` is what a caller sets to say the machine outlives the walk.
+func (e *Executor) startAutomaticRecording() error {
+	if e.ManualAfter {
+		e.Driver.Log("  recording: not started, because this run hands the machine to a person")
+		return nil
+	}
+	name := e.recordingName()
+	e.recVideo = name
+	return e.sampler(filepath.Join(e.Work, "shots"))
+}
+
+// recordingName is the file the recording is written as, derived from the walkthrough itself.
+//
+// IT IS `<walk>-<stage>.mp4`, WHICH IS WHAT THE HANDWRITTEN NAMES TRIED TO BE AND DISAGREED ABOUT:
+// `install.mp4`, `ubuntu-install.mp4` and `vm-configure.mp4` all existed, so a person holding a video
+// could not tell which leg it came from. Nothing reads the name - the workflow uploads `work/*.mp4` -
+// so this only has to be unique and self-describing.
+func (e *Executor) recordingName() string {
+	stage := "install"
+	if e.File != nil && e.File.Path != "" {
+		base := strings.TrimSuffix(filepath.Base(e.File.Path), filepath.Ext(e.File.Path))
+		if base != "" {
+			stage = base
+		}
+	}
+	// THE WALKTHROUGH'S OWN DIRECTORY NAMES THE GUEST: `linux/ubuntu/steps/install.walk` is
+	// `ubuntu-install.mp4`, and a file run by hand from somewhere else keeps its stage name alone.
+	guest := ""
+	if e.File != nil && e.File.Path != "" {
+		dir := filepath.Dir(filepath.Dir(e.File.Path)) // steps/ -> the guest's directory
+		if g := filepath.Base(dir); g != "" && g != "steps" && g != "." {
+			guest = g
+		}
+	}
+	if guest != "" {
+		return guest + "-" + stage + ".mp4"
+	}
+	return stage + ".mp4"
+}
+
+// startLiveEncoder opens the two processes that turn frames into a video as the run goes.
+//
+// IT FAILS SOFT, AND THE CALLER SAYS SO. A machine with no ffmpeg still runs walkthroughs; what it
+// loses is the video, and that is a sentence in the log rather than a failed stage.
+func (r *recorder) startLiveEncoder(video string, w, h int) error {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return fmt.Errorf("ffmpeg is not installed, so no video can be written: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(video), 0o755); err != nil {
+		return err
+	}
+
+	// THE NORMALISER. Every frame is scaled and padded to the recording size, and its output is
+	// PNG - harmless re-encoding, because the encoder is about to decode it again and the size is
+	// what this process exists to fix.
+	stage := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+		"-f", "image2pipe", "-framerate", "1", "-i", "-",
+		"-vf", fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,"+
+			"pad=%d:%d:(ow-iw)/2:(oh-ih)/2", w, h, w, h),
+		"-f", "image2pipe", "-vcodec", "png", "-")
+	enc := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin", "-y",
+		"-f", "image2pipe", "-framerate", "1", "-i", "-",
+		"-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+		"-movflags", "+faststart", video)
+
+	stageIn, err := stage.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stageOut, err := stage.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	encIn, err := enc.StdinPipe()
+	if err != nil {
+		return err
+	}
+	if err := stage.Start(); err != nil {
+		return fmt.Errorf("starting the frame normaliser: %w", err)
+	}
+	if err := enc.Start(); err != nil {
+		_ = stage.Process.Kill()
+		return fmt.Errorf("starting the encoder: %w", err)
+	}
+
+	// THE PIPE BETWEEN THEM IS COPIED BY A GOROUTINE, and its end is what closes the encoder's input
+	// so ffmpeg writes the moov atom instead of being killed. Without the join the mp4 has frames and
+	// no index, which plays in nothing.
+	done := make(chan error, 1)
+	go func() {
+		_, copyErr := io.Copy(encIn, stageOut)
+		// CLOSING THE ENCODER'S INPUT IS WHAT ENDS ITS INPUT STREAM. A copy error is reported, but
+		// the close happens either way - a truncated video beats no file.
+		closeErr := encIn.Close()
+		waitErr := enc.Wait()
+		_ = stage.Wait()
+		switch {
+		case waitErr != nil:
+			done <- fmt.Errorf("the encoder: %w", waitErr)
+		case copyErr != nil:
+			done <- fmt.Errorf("feeding the encoder: %w", copyErr)
+		case closeErr != nil:
+			done <- closeErr
+		default:
+			done <- nil
+		}
+	}()
+
+	r.mu.Lock()
+	r.stageCmd, r.encCmd = stage, enc
+	r.stageIn = stageIn
+	r.encDone = done
+	r.mu.Unlock()
+	return nil
+}
+
+// feedLive hands one captured frame to the normaliser.
+//
+// A WRITE THAT FAILS IS COUNTED, NOT RAISED. The ticker is a background goroutine with no caller to
+// return an error to, and a video missing one frame is still the artifact a post-mortem needs.
+func (r *recorder) feedLive(path string) {
+	r.mu.Lock()
+	in := r.stageIn
+	r.mu.Unlock()
+	if in == nil {
+		return
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		r.countMiss()
+		return
+	}
+	if _, err := in.Write(body); err != nil {
+		r.countMiss()
+		return
+	}
+	r.mu.Lock()
+	r.encoded++
+	r.mu.Unlock()
+}
+
+func (r *recorder) countMiss() {
+	r.mu.Lock()
+	r.missed++
+	r.mu.Unlock()
+}
+
+// closeLiveEncoder ends the input, waits for the encode, and reports what was written.
+//
+// IT IS IDEMPOTENT: `finishRecording` may run after a failure that already closed it, and a second
+// close of a closed pipe is an error nobody can act on.
+func (r *recorder) closeLiveEncoder() error {
+	r.mu.Lock()
+	in := r.stageIn
+	done := r.encDone
+	r.stageIn = nil
+	r.mu.Unlock()
+	if in == nil {
+		return nil
+	}
+	// CLOSING THE NORMALISER'S INPUT IS THE ONLY THING THAT ENDS THE CHAIN: it finishes its output,
+	// the copy goroutine sees EOF, and the encoder writes its index.
+	closeErr := in.Close()
+	waitErr := <-done
+	if waitErr != nil {
+		return waitErr
+	}
+	return closeErr
+}
+
+// recordWidth and recordHeight are the size the FILE named for the video.
+//
+// THEY FALL BACK TO THE GUEST'S OWN RESOLUTION rather than to a constant, and only a file loaded
+// without `recording_resolution:` can reach the fallback - `walk.Load` refuses such a file. The
+// fallback exists for the tests and for a caller that builds a File by hand.
+func (e *Executor) recordWidth() int {
+	if e.File != nil && e.File.RecordingResolution[0] > 0 {
+		return e.File.RecordingResolution[0]
+	}
+	if e.File != nil && e.File.Resolution[0] > 0 {
+		return e.File.Resolution[0]
+	}
+	return 1920
+}
+
+func (e *Executor) recordHeight() int {
+	if e.File != nil && e.File.RecordingResolution[1] > 0 {
+		return e.File.RecordingResolution[1]
+	}
+	if e.File != nil && e.File.Resolution[1] > 0 {
+		return e.File.Resolution[1]
+	}
+	return 1080
 }

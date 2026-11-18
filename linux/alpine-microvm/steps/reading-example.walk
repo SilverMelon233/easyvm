@@ -1,5 +1,6 @@
 walkthrough "what a reading looks like"
   resolution 1920x1080
+  recording_resolution 1920x1080
 
   # ONE CAPTURE, TWO QUESTIONS ABOUT IT: the words in one place, the colour in another.
   read the middle of the screen as "label"

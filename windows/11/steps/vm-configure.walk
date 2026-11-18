@@ -1,5 +1,6 @@
 walkthrough "windows 11 - configure the vm (share, logon hook)"
   resolution 1920x1080
+  recording_resolution 1920x1080
   user vmuser
   password admin
   var host == {default: "172.30.0.1", from: args.host}

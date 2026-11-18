@@ -1,4 +1,7 @@
 name: android 13 (blissos 16.9.7) - configure the vm
+recording_resolution:
+- 1920
+- 1080
 resolution:
 - 1920
 - 1080
@@ -42,7 +45,6 @@ vars:
 
 steps:
   - name: start recording
-    record: blissos16-vm-configure.mp4
 
   - name: boot the installed disk
     boot: true
@@ -236,4 +238,3 @@ steps:
     compress: '{{ out }}'
 
   - name: stop recording
-    record: false

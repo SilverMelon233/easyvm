@@ -1,11 +1,10 @@
 walkthrough "linux-ubuntu - sshd"
   resolution 1920x1080
+  recording_resolution 1920x1080
   password admin
   var out == {default: out/distro.qcow2, from: args.out}
   var user == {default: vmuser, from: args.user}
 
-  step "start recording"
-    record == ubuntu-ssh.mp4
   step "boot the disk"
     boot == true
     os == linux
@@ -57,5 +56,3 @@ walkthrough "linux-ubuntu - sshd"
     timeout == 300
   step "publish the disk"
     compress == '{{ out }}'
-  step "stop recording"
-    record == false

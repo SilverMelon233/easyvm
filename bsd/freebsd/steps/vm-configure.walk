@@ -1,5 +1,6 @@
 walkthrough "freebsd 15.1 - the desktop is up"
   resolution 1920x1080
+  recording_resolution 1920x1080
   user vmuser
   password admin
   var hostname == {default: easyvm-freebsd, from: args.hostname}
@@ -10,8 +11,6 @@ walkthrough "freebsd 15.1 - the desktop is up"
   var user == {default: vmuser, from: args.user}
   header ssh_port == 2222
 
-  step "start recording"
-    record == freebsd-vm-configure.mp4
   step "boot the disk"
     boot == true
     memory_mb == 8192
@@ -70,5 +69,3 @@ walkthrough "freebsd 15.1 - the desktop is up"
     timeout == 600
   step "publish the disk"
     compress == '{{ out }}'
-  step "stop recording"
-    record == false

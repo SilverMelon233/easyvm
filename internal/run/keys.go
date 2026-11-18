@@ -11,7 +11,7 @@ func ExecutableKeys() []string {
 		// acted on by runOne's switch
 		"boot", "boot_from", "shutdown", "acpi", "qga", "wait_until",
 		"disk",
-		"record", "compress",
+		"compress",
 		"needs", "require", "require_ssh", "ssh", "scp", "write", "fetch", "asset", "build", "generate",
 		"desktop",
 		"type", "key", "double", "click",

@@ -35,7 +35,6 @@ func TestTheMachineHalfIsThePreparationAndTheBoot(t *testing.T) {
 	doc, err := loadFixture(t, map[string]any{
 		"name": "probe",
 		"steps": []any{
-			map[string]any{"name": "start recording", "record": "x.mp4"},
 			map[string]any{"name": "create the empty disk", "disk": "disk.qcow2", "disk_gb": 128},
 			map[string]any{"name": "the installer image", "fetch": "linux_iso", "release": "ubuntu"},
 			map[string]any{"name": "boot the installer", "boot": true, "os": "linux", "iso": "installer_iso"},
@@ -174,6 +173,11 @@ func TestAFileWithNoMachineIsRefused(t *testing.T) {
 // describe something the parser would refuse.
 func loadFixture(t *testing.T, doc map[string]any) (*walk.File, error) {
 	t.Helper()
+	// EVERY WALKTHROUGH MUST NAME ITS VIDEO'S SIZE, and these fixtures are walkthroughs. It is added
+	// here rather than in each test because the header is background, not the subject of any of them.
+	if _, ok := doc["recording_resolution"]; !ok {
+		doc["recording_resolution"] = []any{1920, 1080}
+	}
 	body, err := yaml.Marshal(doc)
 	if err != nil {
 		t.Fatal(err)

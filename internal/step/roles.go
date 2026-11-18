@@ -125,7 +125,6 @@ var Roles = map[string]Role{
 	"argv":       RoleArgument,
 	"body":       RoleArgument,
 	"graceful":   RoleModifier, // how the shutdown asks
-	"record":     RoleAction,   // start with a name, or `false` to stop
 	"compress":   RoleAction,
 	"boot_from":  RoleAction,
 
@@ -344,7 +343,7 @@ func plural(n int) string {
 // and fails if this list and the source disagree. Without that check this table would be a second
 // place to be wrong.
 var dispatchOrder = []string{
-	"boot", "boot_from", "shutdown", "disk", "record", "compress",
+	"boot", "boot_from", "shutdown", "disk", "compress",
 	"see", "want", "check", "loop", "if", "needs", "require", "require_ssh", "ssh",
 	"when", "do", "when_not", "when_not_any",
 	"until", "until_any", "run", "esp_fallback", "adb_connect", "adb_privileged", "adb",

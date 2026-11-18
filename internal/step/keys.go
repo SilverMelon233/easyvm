@@ -55,12 +55,12 @@ const (
 	// KindColor is [r, g, b] - a colour, not a rectangle. `at_color: [40, 200, 64]` was declared
 	// `KindRect` and nothing read the declaration, so the two disagreed since the key was written.
 	KindColor
-	// KindRecord is a FILE NAME to start a recording, or `false` to stop it.
+	// `KindRecord` WAS HERE, FOR `record:` - a file name to start a recording or `false` to stop it.
+	// It went with the key: the recording is a property of the run now, so no key's value means
+	// "start" or "stop" and no kind is needed to describe one.
 	//
-	// IT IS ONE KEY AND TWO STATEMENTS ON PURPOSE, and `record: false` is the reason `Has` is not
-	// used for it: stopping a recording is an ACTION, not the absence of one. So the shape is
-	// "string or bool" and nothing else - a `record: 12345` is refused.
-	KindRecord
+	// THE ENUM IS NOT NUMBERED, so removing a member renumbers the rest and nothing depends on the
+	// numbers. A `Kind` is only ever compared to another `Kind`, never to an integer or stored.
 	// KindTemplated is a number OR a `{{ name }}` placeholder, and the placeholder wins because the
 	// loader substitutes variables after this map is read. `timeout: '{{ boot_timeout }}'` is what
 	// ubuntu and windows ssh legs write.
@@ -112,8 +112,6 @@ func (k Kind) String() string {
 		return "script"
 	case KindColor:
 		return "[r, g, b]"
-	case KindRecord:
-		return "a file name or false"
 	case KindTemplated:
 		return "a number or a {{ template }}"
 	case KindAny:
@@ -259,9 +257,10 @@ var Keys = map[string]Key{
 		Summary: "with `qga: file-write`: the bytes to put in the guest's file"},
 	"graceful": {Name: "graceful", Kind: KindBool,
 		Summary: "ask the guest to shut down rather than killing it"},
-	"record": {Name: "record", Kind: KindRecord,
-		Summary: "start recording to this path (a string) or stop with `false`; the step starts " +
-			"its own sampler, because an encoder with no frames writes nothing"},
+	// `record:` WAS HERE. The recording is now a property of the RUN: it starts when the walk does
+	// and `finishRecording` encodes it whichever way the walk ended. MEASURED: 74 uses, of which 36
+	// were the `record: false` half - a step whose only job was to stop a recorder that the run's own
+	// defer already stops, and which was unreachable when a step before it failed.
 	"compress": {Name: "compress", Kind: KindString,
 		Summary: "flatten the overlay into this artifact; the path is relative to the repository " +
 			"root, not to the work directory"},

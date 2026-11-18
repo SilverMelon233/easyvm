@@ -59,61 +59,52 @@ func TestManyReadersShareOneCapturePerSecond(t *testing.T) {
 	}
 }
 
-// TestAFrameIsNewEnoughForTheStepThatAsked is the property that makes a CACHE safe for a check.
+// TestTheFirstCallerWaitsForTheFirstTick is the recorder's own case.
 //
-// A step that clicked asks for a frame at or after the click. The frame already in the cache is from
-// BEFORE it, and a check against that one tests a screen that has already changed - which is how a
-// step fails while the video shows it working.
-func TestAFrameIsNewEnoughForTheStepThatAsked(t *testing.T) {
+// ITS SAMPLER STARTS AT STEP ONE, before the cache's ticker has run once, and a nil frame there is
+// reported as "the steps never looked at the screen" - true of the timing and false about the run.
+func TestTheFirstCallerWaitsForTheFirstTick(t *testing.T) {
 	c := newFrameCache(func() (cachedFrame, error) {
 		return cachedFrame{path: "f.png", w: 100, h: 100, at: time.Now()}, nil
 	})
 	defer close(c.stop)
 
-	// Seed one capture, then ask for a frame from AFTER it.
-	c.captureOnce()
-	old, err := c.latest()
-	if err != nil {
-		t.Fatal(err)
+	// NOT SEEDED: waitForFirst has to wait for the ticker.
+	f, ok := c.waitForFirst(3 * time.Second)
+	if !ok {
+		t.Fatal("no frame arrived within three seconds; the ticker is not running")
 	}
-
-	asked := time.Now()
-	f, fresh, err := c.atOrAfter(asked, 3*time.Second)
-	if err != nil {
-		t.Fatalf("waiting for a newer frame: %v", err)
-	}
-	if !fresh {
-		t.Fatal("the frame returned is older than the one asked for, and the caller was not told. " +
-			"A stale reading is the failure this whole design is about")
-	}
-	if f.at.Before(asked) {
-		t.Fatalf("returned a frame from %v, asked for one at or after %v", f.at, asked)
-	}
-	if f.at.Equal(old.at) {
-		t.Fatal("returned the frame that was already in the cache")
+	if f.path == "" {
+		t.Fatal("a frame with no path")
 	}
 }
 
-// TestAStaleFrameIsReturnedWithAWarningRatherThanNothing covers the timeout: a screen that does not
-// change must not turn into a step that hangs.
-func TestAStaleFrameIsReturnedWithAWarningRatherThanNothing(t *testing.T) {
+// TestTheNewestFrameIsTheOneAReaderGets is the whole contract now that `wait:` is the file's job.
+//
+// THE TIMESTAMP DOES NOT PICK THE FRAME ANY MORE. `wait: 3` means "look three seconds from now", and
+// the frame it looks at is whatever the one-a-second capture has by then. An earlier version asked
+// for a frame stamped at or after the current instant, which made every `wait: 0` wait for the next
+// tick - 151 of the tree's 194 waits are `wait: 0`.
+func TestTheNewestFrameIsTheOneAReaderGets(t *testing.T) {
 	c := newFrameCache(func() (cachedFrame, error) {
 		return cachedFrame{path: "f.png", at: time.Now()}, nil
 	})
 	defer close(c.stop)
 	c.captureOnce()
-	first, _ := c.latest()
-
-	// ASK FOR A FRAME FROM AFTER THE CAPTURE, WITH A BUDGET TOO SHORT FOR ANY TICK TO ARRIVE.
-	f, fresh, err := c.atOrAfter(first.at.Add(time.Hour), 150*time.Millisecond)
+	c.captureOnce()
+	f, err := c.latest()
 	if err != nil {
-		t.Fatalf("expected the newest frame with fresh=false, got an error: %v", err)
+		t.Fatal(err)
 	}
-	if fresh {
-		t.Fatal("reported a fresh frame that cannot exist")
+	c.mu.Lock()
+	count := len(c.frames)
+	newest := c.frames[count-1].at
+	c.mu.Unlock()
+	if count != 2 {
+		t.Fatalf("the cache holds %d captures after two, so the newest is not being kept", count)
 	}
-	if f.path != first.path {
-		t.Fatalf("returned %q, not the newest frame %q", f.path, first.path)
+	if !f.at.Equal(newest) {
+		t.Fatal("latest returned a capture that is not the newest one")
 	}
 }
 

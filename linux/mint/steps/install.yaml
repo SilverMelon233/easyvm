@@ -1,4 +1,7 @@
 name: mint - the ubiquity walk
+recording_resolution:
+- 1920
+- 1080
 resolution:
 - 1920
 - 1080
@@ -21,8 +24,6 @@ steps:
   # `easyvm run` is called; nothing in this file downloads.
   needs:
   - mint.iso
-- name: start recording
-  record: mint-install.mp4
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
@@ -231,5 +232,3 @@ steps:
   timeout: 120
 - name: publish the disk
   compress: '{{ out }}'
-- name: stop recording
-  record: false

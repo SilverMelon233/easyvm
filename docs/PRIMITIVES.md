@@ -43,7 +43,6 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 | `qga` | `ping` `info` `shutdown` `exec` `file-read` `file-write` `set-time` `interfaces` | one guest-agent command | 0 |
 | `wait_until` | `stopped` | wait for the machine's process to go | 0 |
 | `disk` | mapping | the file `boot:` starts from | 29 |
-| `record` | path / `false` | start or stop the screen recording | 100 |
 | `compress` | path | flatten the overlay into an artifact | 49 |
 | `esp_fallback` | disk | copy a disk's EFI loader to `\EFI\BOOT` and repair its search | 1 |
 
@@ -262,6 +261,7 @@ name, and they keep working because the executor reads both.
 | `press`, `sweep` | 0 | `at_button:`, `loop: {do: [{click: …}]}` — **DEAD** |
 | `demo_script` | 0 | `write:` — **DELETED**: zero uses and it only ever answered `notImplemented` |
 | `host_log`, `line_gap`, `adb_serial`, `share_dir`, `end`, `stuck_after`, `as`, `cpus` | 0 | — **DEAD** |
+| `record` | 0 | automatic - **DELETED**: the recording starts with the run and `finishRecording` encodes it however the walk ended |
 | `until_console` | 0 | `until: {from: console}` - **DELETED**: it was `until:` with a different source, which is a parameter |
 | `host_log` (step) | 0 | — **DELETED**: zero uses and no branch remains |
 | `share_serve`, `share_mount`, `share_family` | 0 | the share is always on - **DELETED**: `share_mount:` had not mounted since the transport became HTTP, `share_serve:` set one variable, and `share_family:`'s `macos` and `linux` took the same branch |

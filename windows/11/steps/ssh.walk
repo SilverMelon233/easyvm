@@ -1,5 +1,6 @@
 walkthrough "windows 11 - ssh"
   resolution 1920x1080
+  recording_resolution 1920x1080
   user vmuser
   password admin
   var boot_timeout == {default: "900", from: args.boot_timeout}
@@ -8,8 +9,6 @@ walkthrough "windows 11 - ssh"
   header boot_disk == from_caller
   header ssh_port == 2222
 
-  step "start recording"
-    record == install.mp4
   step "take the input disk"
     disk == disk.qcow2
   step "boot the disk"
@@ -92,5 +91,3 @@ walkthrough "windows 11 - ssh"
     timeout == 120
   step "publish the disk"
     compress == '{{ out }}'
-  step "stop recording"
-    record == false

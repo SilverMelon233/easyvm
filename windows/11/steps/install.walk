@@ -1,5 +1,6 @@
 walkthrough "windows 11 - install to a desktop"
   resolution 1920x1080
+  recording_resolution 1920x1080
   user vmuser
   password admin
   var boot_timeout == {default: "1800", from: args.boot_timeout}
@@ -10,8 +11,6 @@ walkthrough "windows 11 - install to a desktop"
   header ssh_port == 2222
 
   needs windows.iso virtio-win.iso, named "the media this stage boots from is already on disk"
-  step "start recording"
-    record == windows11-install.mp4
   step "create the empty disk"
     disk == disk.qcow2
     disk_gb == 128
@@ -53,5 +52,3 @@ walkthrough "windows 11 - install to a desktop"
     timeout == 300
   step "publish the disk"
     compress == '{{ out }}'
-  step "stop recording"
-    record == false

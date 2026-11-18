@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/easydev-org/easyvm/internal/screen"
 	"github.com/easydev-org/easyvm/internal/walk"
@@ -71,9 +70,9 @@ func (e *Executor) doSee(s walk.Step) error {
 	// the converter can also produce `[]int` when it builds the full-frame default. Both are
 	// normalised by `parseRect`; this line is here so a future third shape is caught rather than
 	// silently read as a fraction.
-	f, err := e.frameFrom(time.Now(), 3*time.Second)
+	f, err := e.Driver.Frame()
 	if err != nil {
-		return fail(s.Name, "%v", err)
+		return fail(s.Name, "reading the frame: %v", err)
 	}
 	img, err := screen.Load(f.Path())
 	if err != nil {
@@ -111,9 +110,9 @@ func (e *Executor) seeText(s walk.Step, name string, rectRaw any, at [2]int) err
 	// the converter can also produce `[]int` when it builds the full-frame default. Both are
 	// normalised by `parseRect`; this line is here so a future third shape is caught rather than
 	// silently read as a fraction.
-	f, err := e.frameFrom(time.Now(), 3*time.Second)
+	f, err := e.Driver.Frame()
 	if err != nil {
-		return fail(s.Name, "%v", err)
+		return fail(s.Name, "reading the frame: %v", err)
 	}
 	img, err := screen.Load(f.Path())
 	if err != nil {

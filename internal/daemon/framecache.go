@@ -117,50 +117,6 @@ func (c *frameCache) latest() (cachedFrame, error) {
 	return c.frames[len(c.frames)-1], nil
 }
 
-// atOrAfter returns the OLDEST capture taken at or after `since`, waiting for one to arrive.
-//
-// WAITING FOR A LATER FRAME IS THE POINT. A step that has just clicked asks for a frame from after
-// the click, because the frame already in the cache was taken BEFORE it - and a check against that
-// one fails on a screen that has already changed. If no such frame arrives within `budget`, the
-// newest one is returned with a note, so a caller can say "this reading is stale" rather than report
-// a screen that was never looked at.
-func (c *frameCache) atOrAfter(since time.Time, budget time.Duration) (cachedFrame, bool, error) {
-	deadline := time.Now().Add(budget)
-	for {
-		c.mu.Lock()
-		// THE SLICE IS OLDEST FIRST, so the first entry at or after `since` is the one wanted: the
-		// cheapest frame that is still new enough.
-		for _, f := range c.frames {
-			if !f.at.Before(since) {
-				c.mu.Unlock()
-				return f, true, nil
-			}
-		}
-		lastErr := c.lastErr
-		wake := c.wake
-		stale := cachedFrame{}
-		have := len(c.frames) > 0
-		if have {
-			stale = c.frames[len(c.frames)-1]
-		}
-		c.mu.Unlock()
-
-		if time.Now().After(deadline) {
-			if have {
-				return stale, false, nil
-			}
-			if lastErr != nil {
-				return cachedFrame{}, false, lastErr
-			}
-			return cachedFrame{}, false, os.ErrNotExist
-		}
-		select {
-		case <-wake:
-		case <-time.After(200 * time.Millisecond):
-		}
-	}
-}
-
 // age reports how old the newest capture is, for `/api/state`.
 func (c *frameCache) age() (time.Duration, bool) {
 	c.mu.Lock()
@@ -195,4 +151,30 @@ func sortedFrames(paths []string) []string {
 // writes the file and two captures inside one second must not collide.
 func frameSeqName(dir string, seq int) string {
 	return filepath.Join(dir, "frame-"+strconv.Itoa(seq)+".png")
+}
+
+// waitForFirst blocks until the cache has at least one capture, or the budget expires.
+//
+// IT IS THE STARTUP CASE ONLY. A recorder that begins at step one asks for a frame before the first
+// tick has happened, and a nil frame would be reported as "the steps never looked at the screen" -
+// which is true of the caller's timing and false about the run.
+func (c *frameCache) waitForFirst(budget time.Duration) (cachedFrame, bool) {
+	deadline := time.Now().Add(budget)
+	for {
+		c.mu.Lock()
+		if len(c.frames) > 0 {
+			f := c.frames[len(c.frames)-1]
+			c.mu.Unlock()
+			return f, true
+		}
+		wake := c.wake
+		c.mu.Unlock()
+		if time.Now().After(deadline) {
+			return cachedFrame{}, false
+		}
+		select {
+		case <-wake:
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }

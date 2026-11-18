@@ -1,4 +1,7 @@
 name: mint 22.3 cinnamon (ubiquity)
+recording_resolution:
+- 1920
+- 1080
 resolution:
 - 1920
 - 1080
