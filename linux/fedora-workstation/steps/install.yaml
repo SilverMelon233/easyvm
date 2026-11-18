@@ -796,8 +796,15 @@ steps:
       name: esp
       from: type_now
       mode: says_any
+      # `EFI` IS READ AS `eF` ON THIS ROW. MEASURED, the crop's own text:
+      #
+      #	"| eFsystemparttion system partition a |__ Partitions (ac"
+      #
+      # two readings of the same phrase, both mangled at `EFI`, both clean at `partition`. `EXT4` and
+      # `BTRFS` and `XFS` do not contain that word, so it also distinguishes this choice from the
+      # dialog's default.
       words:
-      - - EFI
+      - - partition
     until:
       fact: esp
 
