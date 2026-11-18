@@ -88,17 +88,28 @@ steps:
       name: done
       from: screen
       mode: says_any
+      # ONE WORD PER SET, BECAUSE A SET IS AN AND AND OCR DROPS SHORT WORDS.
+      #
+      # MEASURED on run 44253267558: the installer WAS open from t=100s - the recording's frame at
+      # that second reads `Select a Language` with the whole language list - and this loop still ran
+      # 100 times and then failed, because the set `[select, a, language]` requires all three as whole
+      # tokens and the runner's OCR never produced a lone `a`. The daemon's own readings say it:
+
+      #	screen: 196 word(s): Workspaces Applications M11 18 7:28 AM uo om OO i . op ...
+      #	the installer window is up [check]: done = false (none of "select a language" ...)
+
+      # - 196 words, and not the three that were asked for. `says` compares whole tokens, so a set
+      # containing a one-letter word is a set that only matches when the OCR happens to keep it.
+      #
+      # THE TITLE IS THE HONEST TEST: every page of this wizard carries `Install Pop!_OS 24.04 LTS`,
+      # which is present from the moment the window opens and gone when it closes. The other entries
+      # are the pages after it, one word each, so a retry that overshoots still passes.
       words:
-      - - select
-        - a
-        - language
-      - - clean
-        - install
-      - - erase
-        - and
-        - install
-      - - full
-        - name
+      - - Install
+      - - Language
+      - - Clean
+      - - Erase
+      - - Account
     until:
       fact: done
 # THE WIZARD, WALKED BY HAND ON THIS WORKSTATION, PAGE BY PAGE.
