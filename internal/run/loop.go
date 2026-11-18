@@ -39,9 +39,10 @@ func (e *Executor) doLoop(s walk.Step) error {
 	}
 	for k := range raw {
 		switch k {
-		case "max", "do", "ocr", "check", "until":
+		case "max", "do", "ocr", "check", "until", "every", "on":
 		default:
-			return fail(s.Name, "`loop:` has unknown key %q; it takes max, do, ocr, check and until", k)
+			return fail(s.Name, "`loop:` has unknown key %q; it takes max, do, ocr, check, until, "+
+				"every and on", k)
 		}
 	}
 
@@ -119,12 +120,70 @@ func (e *Executor) doLoop(s walk.Step) error {
 	checkStep := walk.Step{Index: s.Index, Name: s.Name + " [check]",
 		Spec: map[string]any{"check": checkRaw}}
 
+	// `every:` IS A CLOCK, NOT A READING, AND THAT IS WHY IT EXISTS.
+	//
+	// MEASURED ACROSS FOUR CI RUNS (easydev-org/easyvm 44150638949, 44190274785, 44227587443): a macOS
+	// 26 install writes its disk, then the screen goes black - or, on another host, shows OpenCore's
+	// boot picker whose labels OCR reads as `@® cos inner en poset nvFan` - and NOTHING on that screen
+	// means "the loop is over". Every screen-based test I wrote was a guess about that frame:
+	//
+	//	`says_any` on the Setup Assistant panes   -> 0 word(s) matches none of them, 270 attempts burned
+	//	`matches: '^$'`                            -> catches the 0-word frame, misses the OCR noise
+	//	`matches: '^.{0,3}$'`                      -> catches both, still a guess about a host I cannot see
+	//
+	// SO THIS LOOP CAN ALSO END BY THE CLOCK: `every: <seconds>` runs the `on:` actions once that long
+	// has passed, whatever the screen says. It is the honest shape of "this pane has had long enough",
+	// and it does not pretend to recognise a frame the walkthrough has never seen.
+	//
+	// THE ACTION RUNS ONCE, NOT ONCE PER ATTEMPT, and the clock starts when the loop does - a loop
+	// that reset every sixty seconds would boot the installer forever.
+	every := 0.0
+	var timedAction []any
+	if v, ok := raw["every"]; ok {
+		f, ok := toFloat(v)
+		if !ok || f <= 0 {
+			return fail(s.Name, "`loop: every:` must be a positive number of seconds")
+		}
+		every = f
+		var ok2 bool
+		timedAction, ok2 = raw["on"].([]any)
+		if !ok2 || len(timedAction) == 0 {
+			return fail(s.Name, "`loop: every:` needs `on:` - the action to run once when the time "+
+				"has passed. A clock with nothing to do is a loop that never ends")
+		}
+	} else if _, ok := raw["on"]; ok {
+		return fail(s.Name, "`loop: on:` needs `every:` - say how long to wait before running it")
+	}
+	started := time.Now()
+	fired := false
+
 	e.Driver.Log(fmt.Sprintf("  loop: up to %.0f attempt(s) of %d action(s), then read %q",
 		max, len(action), ocrRaw["name"]))
+
 
 	for attempt := 1; attempt <= int(max); attempt++ {
 		if e.ShouldStop != nil && e.ShouldStop() {
 			return fail(s.Name, "stopped after %d attempt(s)", attempt-1)
+		}
+
+		// 0. THE CLOCK, BEFORE THE ACTION, so a loop whose screen never changes still moves.
+		if every > 0 && !fired && time.Since(started) >= time.Duration(every*float64(time.Second)) {
+			e.Driver.Log(fmt.Sprintf("  loop: %.0fs have passed, so the `every:` actions run", every))
+			for i, item := range timedAction {
+				spec, ok := item.(map[string]any)
+				if !ok {
+					return fail(s.Name, "`loop.on[%d]` is not a mapping", i)
+				}
+				sub := walk.Step{
+					Index: s.Index,
+					Name:  fmt.Sprintf("%s [on %d.1]", s.Name, i+1),
+					Spec:  spec,
+				}
+				if err := e.runOne(sub); err != nil {
+					return err
+				}
+			}
+			fired = true
 		}
 
 		// 1. THE ACTION.

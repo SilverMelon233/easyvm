@@ -448,6 +448,41 @@ steps:
 - name: the copy runs, look 1 of at most 8
   loop:
     max: 270
+    # SIXTY MINUTES IS THE CLOCK, AND IT IS THE ONLY STOP TEST HERE THAT DOES NOT GUESS AT A FRAME.
+    #
+    # MEASURED ACROSS RUNS 44150638949, 44190274785 AND 44227587443: after the installer writes its
+    # disk the screen stops meaning anything to this walkthrough. On the CI runner it goes black and
+    # OCR reads `0 word(s)`; on another host it is OpenCore's boot picker, whose labels OCR reads as
+    # `@® cos inner en poset nvFan `. Every screen-based test written for it was a guess:
+    #
+    #	says_any on the Setup Assistant panes   0 words matches none of them -> 270 attempts burned
+    #	matches: '^$'                           catches 0 words, misses the OCR noise
+    #	matches: '^.{0,3}$'                     catches both, still guesses about an unseen frame
+    #
+    # THE INSTALL ITSELF NEEDS ABOUT 25-30 MINUTES on the runner, measured from the video of
+    # 44190274785 (40% at t+300s, 85% at t+600s, "About 16 minutes remaining" at t+1800s). Sixty
+    # minutes is twice that, so the clock cannot fire during a healthy copy.
+    #
+    # THE `on:` ACTIONS COVER BOTH SHAPES OF THE DEAD FRAME:
+    #
+    #	(731,547) IS "macOS Installer" IN OPENCORE'S PICKER, measured from this host's own frame -
+    #	the picker's four icons are at y=547 and the installer is the first. Clicking it is what
+    #	continues an install whose restart landed back in the picker.
+    #
+    #	THE RESET IS FOR THE OTHER SHAPE, the frame that draws nothing at all: measured locally, a
+    #	reboot brings the Setup Assistant up, and a COMPLETED disk needs no reset at all (control).
+    every: 3600
+    on:
+    - name: pick macOS Installer in OpenCore's picker, if that is what is up
+      click:
+      - 731
+      - 547
+      wait_after: 15
+    - name: reset the guest
+      reboot: true
+      timeout: 300
+    - name: give it time to come back
+      wait: 60
     do:
     - wait: 20
     # THE COPY'S OWN CANCEL BUTTON SITS WHERE THE PREVIOUS STEP CLICKED, AND THE INSTALLER ASKS
