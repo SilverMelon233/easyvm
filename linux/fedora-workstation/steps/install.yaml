@@ -958,29 +958,36 @@ steps:
 # THE BUTTONS ARE IN THE FOOTER: `Back / Install / Quit` sit at y=999 on this frame and the wizard's
 # content area is above them, so the search box is the bottom tenth of the frame - which excludes the
 # title bar by construction.
-# THE INSTALL PRESS IS BY THE BUTTON'S OWN COLOUR, AND THE COLOUR I HAD WAS NOT THE BUTTON'S.
+# THE INSTALL PRESS IS BY THE ACCENT, AND THE RUNNER PAINTS IT IN THE SAME BLUE AS THIS WORKSTATION
+# PAINTS A DARKER NAVY - SO THE SEARCH IS BY COLOUR, NOT BY COORDINATE.
 #
-# MEASURED on this workstation's review page: the footer reads `[Back] [Install] [Quit]` and
-# `Install` is filled `rgb(41,65,114)` - a DARK NAVY - spanning x 690..771, y 981..1015, centre
-# (730, 998). THE FILE SEARCHED FOR `rgb(60,110,180)` INSTEAD, which is the wizard's LIGHTER blue, and
-# on this page that colour is nowhere: the fallback then clicked (707, 1004), which is 23 pixels left
-# of the button's centre and inside its rounded left edge on a frame where the button starts at 690.
+# MEASURED off run 44263508135's last frame, which is the page it stopped on:
 #
-# AND NOTHING CHECKED THE RESULT. The step after it carried `optional: true`, so a press that did
-# nothing was swallowed: the run then waited an hour for a disk that never grew. Every other press in
-# this tree is followed by a verdict, and this one now is too - the review page is replaced by
-# `Installing` once the install starts.
+#	`Installation method` - step 2 of 3 in the wizard's own list - with `Use configured storage`
+#	SELECTED and the disk below it reading `vda1 136 GB mount /`, `vda2 1.44 GB mount /boot/efi`.
 #
-# THE NAVY IS MEASURED OVER THE BUTTON ITSELF, not the whole frame, so the search region is the
-# footer where the button is the only thing this dark.
+# - the storage work all succeeded; the run simply never left THIS page, because the press after
+# `Continue` was aimed at (756, 337) and the wizard had already returned to it. On this page the
+# footer reads `[Back] [Next] [Quit]` and `Next` is filled `rgb(59,110,179)` - 2393 pixels inside
+# x 600..900, y 950..1040, spanning x 600..847, centre (723, 999).
+#
+# THE NAVY I MEASURED HERE (`rgb(41,65,114)`) IS THIS WORKSTATION'S `Install` ON THE REVIEW PAGE. On
+# the runner the same button is the lighter accent, and 41,65,114 has only 93 pixels in the whole
+# footer - below what `at_color` will accept, which is why the press failed outright rather than
+# landing somewhere wrong.
+#
+# SO ONE PRESS ADVANCES THIS PAGE WITH THE WIZARD'S OWN ACCENT - which is the same button on both
+# pages: `Next` here, `Install` on the review page after it - and the loop stops when `Installing` is
+# read. The review page's own `Install` carries the same colour on the runner, so a run that needs
+# two presses takes them without knowing which page it is on.
 - name: press install
   loop:
-    max: 5
+    max: 6
     do:
     - at_color:
-      - 41
-      - 65
-      - 114
+      - 60
+      - 110
+      - 180
       color_tolerance: 30
       color_region:
       - 600
@@ -998,10 +1005,11 @@ steps:
       name: begun
       from: install_started
       mode: says_any
-      # `Installing` IS THE PROGRESS PAGE'S OWN WORD; the review page does not carry it.
+      # `Installing` IS THE PROGRESS PANE'S OWN WORD. MEASURED: the installation-method page's OCR at
+      # 3x carries `Installation method` and no `Installing`; the review page carries `Review and
+      # install`; the progress pane carries `Installing`.
       words:
       - - Installing
-      - - Software
     until:
       fact: begun
 
