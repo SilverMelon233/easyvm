@@ -9,10 +9,17 @@ done because a file exists; each claim below names its evidence.
 
 | stage | distributions |
 |---|---|
-| ext4 read back off the disk AND a green CI install leg | kubuntu, ubuntu, cachyos, endeavouros, manjaro, mint, zorin, mx, opensuse-leap-16.1 |
-| ext4 read back off the disk AFTER the 76-step walk ran to `Successfully installed` | fedora-workstation |
-| ext4 read back off the disk; its walk is being brought to a full pass | popOS |
-|  | nixos |
+| ext4 read back off the disk AND a green CI install leg | kubuntu, ubuntu, cachyos, endeavouros, manjaro, mint, zorin, mx, opensuse-leap-16.1, nixos, fedora-workstation, popOS |
+
+**ALL TWELVE INSTALL LEGS ARE GREEN.** The last three landed on the same day and each one's own log
+carries the finished write:
+
+	nixos              8800 MiB, unchanged for 180s after 7m27s - the write is finished    run 44265018787
+	fedora-workstation 8009 MiB, unchanged for 180s after 9m9s  - the write is finished    run 44281842915
+	popOS             12244 MiB, unchanged for 180s after 10m24s - the write is finished    run 44277261668
+
+- and each then reported `publish the disk  success`, i.e. a qcow2 was produced from the medium the
+installer had just written.
 
 **NINE OF TWELVE HAVE A GREEN CI INSTALL LEG.** The three that do not are all in the same place: a walk
 that works on this workstation and a runner that draws the same wizard differently. Each of those
@@ -187,7 +194,7 @@ The CI legs are `linux/<name>-install` in each `.github/workflows/<name>.yml`, a
 
 ## Where each one was proven
 
-All seven have been run to completion on a workstation AND their install leg has passed on CI:
+All twelve have been run to completion on a workstation AND their install leg has passed on CI:
 
 | Distribution | Steps | Local | CI install leg |
 |---|---|---|---|
@@ -198,6 +205,11 @@ All seven have been run to completion on a workstation AND their install leg has
 | manjaro | 32 | 32/32 | run 43991290852 `success` |
 | mint | 31 | 31/31 | run 44067988882 `success` |
 | zorin | 32 | 32/32 | run 43991222285 `success` |
+| mx | 32 | 32/32 | run 44143793175 `success` |
+| opensuse-leap-16.1 | 45 | 45/45 | run 44143877421 `success` |
+| nixos | 24 | 24/24 | run 44265018787 `success` |
+| fedora-workstation | 60 | 60/60 | run 44281842915 `success` |
+| popOS | 30 | 30/30 | run 44277261668 `success` |
 
 A whole `<name>.yml` run still shows `failure` for most of them, because the ssh and vm legs that
 follow the install leg are NOT in scope and are not passing. Read the install leg, not the run.
