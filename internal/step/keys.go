@@ -741,6 +741,15 @@ var actionKeys = []string{"click", "double", "at_button", "at_color", "key", "ty
 // Validate refuses a key the vocabulary does not have, and a blind pause long enough that stopping
 // the machine would not work.
 func Validate(stepName string, mapping map[string]any) error {
+	// ONE ACTION PER STEP, CHECKED BEFORE THE KEYS THEMSELVES.
+	//
+	// THE FAILURE THIS PREVENTS IS SILENT: a step that writes `double:` beside `check:` loads today,
+	// and the dispatcher takes the `check` branch and returns, so the double-click never happens and
+	// the step reports a verdict it was supposed to reach by clicking. Measured 63 such steps in the
+	// tree this was written against. See roles.go.
+	if err := CheckOneAction(stepName, mapping); err != nil {
+		return err
+	}
 	for name, value := range mapping {
 		key, ok := Keys[name]
 		if !ok {
