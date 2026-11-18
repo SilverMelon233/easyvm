@@ -1,0 +1,328 @@
+name: nixos-microvm
+
+# BUILD A NIXOS MICROVM, THEN CARRY THE THREE FILES BACK OUT OF CI.
+#
+# NixOS IS NOT AN IMAGE YOU DOWNLOAD. Alpine and Debian are: a tarball, an initramfs, a qcow2, all
+# assembled here by script. NixOS is a description of a whole system, and the only thing that turns
+# that description into a kernel plus a store image is Nix evaluating it. So the description lives
+# in `nixos-microvm/flake.nix` and the build lives here, and what CI returns is the artifact - a
+# kernel, an initramfs and an erofs store - which is then booted with qemu.
+#
+# IT BUILDS INSIDE THE `nixos/nix` CONTAINER.
+#
+# The alternative is `cachix/install-nix-action` on a bare `ubuntu-24.04` runner, and it works. The
+# reason not to: that path installs Nix into a machine that already has its own /nix, its own
+# package manager and a `nix.conf` written by something else, so the build runs on a store that is
+# shared with whatever the runner did before it. The container IS Nix: one image, one /nix.
+#
+# ------------------------- THE THING ABOUT THIS IMAGE THAT BREAKS ACTIONS -------------------------
+#
+# `nixos/nix` IS NOT AN FHS IMAGE. It has no /lib64, no /lib, no /usr/lib, and /usr/bin holds exactly
+# one symlink (`env`). That is normal for Nix and fatal for GitHub's JavaScript actions, which ship
+# a node binary built against an ordinary glibc layout: on this image it does not start at all -
+#
+#   node: cannot execute: required file not found
+#
+# which is not a missing file, it is a missing INTERPRETER - the ELF header asks for
+# /lib64/ld-linux-x86-64.so.2 and there is no such path. So `actions/checkout` cannot run before
+# something fixes that, and it cannot fix it itself because it is the thing that is broken. The
+# first step below builds the FHS shim by hand, out of the glibc and libstdc++ that are ALREADY IN
+# THE STORE, and every action after it works.
+#
+# MEASURED, both ways: without the shim the node binary exits 127 with the message above; with it,
+# `node --version` prints v20.19.0 and `require("fs")` works.
+#
+# ------------------------------- WHAT THIS IS SUPPOSED TO PROVE -------------------------------
+#
+# That the guest can SEE ITS DISK. qemu's `microvm` machine has no PCI bus, so the store arrives as
+# virtio-over-MMIO and its address is delivered on the kernel command line
+# (`virtio_mmio.device=512@0xfeb00e00:12`). A kernel only reads that line if it was built with
+# CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES. Void was dropped because MEASURED it is not: `virtio_mmio.ko`
+# in the Void kernel holds that string zero times, and a Void microvm boots to a prompt with no disk.
+#
+# Nixpkgs sets the symbol unconditionally (`common-config.nix`, `VIRTIO_MMIO_CMDLINE_DEVICES = yes`),
+# so `flake.nix` deliberately does NOT patch the kernel - patching would only stop the build from
+# hitting cache.nixos.org. Instead the `verify` step reads the `.config` of the kernel that is about
+# to be uploaded and fails if the symbol is missing.
+#
+# WHAT HAS BEEN SEEN, NOT INFERRED: this artifact was booted against qemu 11.1.2 on a KVM host and
+# reached `NIXOS-MICROVM-READY` and `login: root`, with the initrd reporting
+#
+#   Found device /dev/disk/by-label/nix-store
+#   Mounted /sysroot/nix/store
+#
+# so the symbol is not only set, it works.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "upload the built kernel, initramfs and store as an artifact"
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths:
+      - "nixos-microvm/**"
+      - ".github/workflows/nixos-microvm.yml"
+
+concurrency:
+  # ONE BUILD PER REF, newest wins. A NixOS evaluation is minutes of CPU and several GB of store;
+  # a superseded commit does not need to spend either.
+  group: nixos-microvm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # THE SHIM'S SECOND HALF, AND IT MUST NOT CONTAIN GLIBC.
+    #
+    # Nix's glibc is patched NOT to search /usr/lib: measured, `grep -c /usr/lib` on
+    # ld-linux-x86-64.so.2 returns 0. So symlinking libstdc++ into /usr/lib makes it visible to
+    # `ls` and invisible to the loader, and node still dies with
+    #
+    #   error while loading shared libraries: libstdc++.so.6
+    #
+    # The obvious fix - `LD_LIBRARY_PATH=/usr/lib` with glibc symlinked in beside it - BREAKS NIX
+    # ITSELF, and that was measured too:
+    #
+    #   nix: symbol lookup error: /usr/lib/libc.so.6: undefined symbol: __pointer_chk_guard,
+    #        version GLIBC_PRIVATE
+    #
+    # Nix is a set of mutually-pinned store paths; pointing the dynamic loader at a libc from
+    # outside that set makes the pinned libraries and the unpinned libc disagree. So this variable
+    # points at a directory holding ONLY libstdc++ and libgcc_s - the two C++ runtime libraries
+    # node needs and nix never loads - and never at a libc.
+    env:
+      LD_LIBRARY_PATH: /opt/actions-libs
+    container:
+      image: nixos/nix:latest
+      # NOT --privileged. The build sandbox is off instead (set below), which is the documented
+      # answer for an unprivileged container; what is needed beyond that is shm for the linker and
+      # disk for the store.
+      options: --shm-size=2g
+
+    steps:
+      - name: build an FHS shim so the actions can run
+        # FIRST, BEFORE `actions/checkout`, BECAUSE CHECKOUT IS A NODE ACTION AND NODE CANNOT START.
+        # See the header: this image has no /lib64 and no /usr/lib, so any ordinary glibc binary
+        # dies with "cannot execute: required file not found".
+        #
+        # THE SHIM ONLY CREATES SYMLINKS. Nothing is copied into /nix/store, nothing is installed,
+        # and the build itself still runs against a normal, hermetic Nix store - the shim exists so
+        # that the *runner's* tooling can execute, and is never referenced by the flake. That
+        # distinction is what keeps this from polluting the artifact.
+        #
+        # THE PATHS ARE DISCOVERED, NOT HARDCODED, because the image's glibc version moves.
+        run: |
+          set -eu
+          # FIND THE LOADER, NOT A PACKAGE NAME.
+          #
+          # A GLOB ON `*-glibc-[0-9]*` IS NOT ENOUGH AND WAS MEASURED WRONG: it matches
+          # `...-getconf-glibc-2.44-57.drv` - a DERIVATION FILE, not an output - and `sort -V | tail
+          # -1` picks it because `g` sorts above `2`. The step then fails on a missing
+          # `ld-linux-x86-64.so.2` inside a path that never had one. What is wanted is the one
+          # directory that actually holds the dynamic loader, so that is what is searched for.
+          GLIBC=$(dirname "$(dirname "$(ls /nix/store/*-glibc-[0-9]*/lib/ld-linux-x86-64.so.2 2>/dev/null | sort -V | tail -1)")")
+          GCCLIB=$(dirname "$(ls /nix/store/*-gcc-*-lib/lib/libstdc++.so.6 2>/dev/null | sort -V | tail -1)")
+          echo "glibc:    $GLIBC"
+          echo "libstdc++: $GCCLIB"
+          [ -n "$GLIBC" ] || { echo "::error::no glibc with a dynamic loader in /nix/store"; exit 1; }
+          [ -n "$GCCLIB" ] || { echo "::error::no libstdc++ in /nix/store"; exit 1; }
+
+          # TWO PATHS, TWO DIFFERENT MECHANISMS, AND THE DIFFERENCE MATTERS.
+          #
+          # 1. THE INTERPRETER. An ELF binary names its loader by absolute path and the kernel looks
+          #    there and nowhere else. node asks for /lib64/ld-linux-x86-64.so.2, so that exact path
+          #    must exist. No environment variable can substitute for this.
+          mkdir -p /lib64
+          ln -sf "$GLIBC/lib/ld-linux-x86-64.so.2" /lib64/ld-linux-x86-64.so.2
+
+          # 2. THE C++ RUNTIME. Deliberately NOT in /usr/lib and deliberately WITHOUT libc: this
+          #    directory is LD_LIBRARY_PATH (see the job's `env`), and putting a libc in it breaks
+          #    nix - measured, `undefined symbol: __pointer_chk_guard`. node needs libstdc++ and
+          #    libgcc_s; nix loads neither.
+          mkdir -p /opt/actions-libs
+          ln -sf "$GCCLIB/libstdc++.so.6" /opt/actions-libs/libstdc++.so.6
+          ln -sf "$GCCLIB/libgcc_s.so.1" /opt/actions-libs/libgcc_s.so.1
+
+          ls -l /lib64 /opt/actions-libs
+
+      - name: prove the shim works, and that git is already here
+        # THE SHIM IS THE ONLY REASON THE REST OF THIS FILE CAN RUN, so it is tested rather than
+        # assumed. If this step fails, nothing after it would have failed for a more interesting
+        # reason - and the message says which.
+        #
+        # GIT NEEDS NO INSTALL STEP. The image ships `git-minimal` (measured 2.54.0), which is why
+        # there is no `nix profile install nixpkgs#git` here: adding the full `git` package beside
+        # it collides on share/git/contrib and `nix profile` refuses with a file-conflict error.
+        run: |
+          set -eu
+          git --version
+          nix --version
+          # BOTH HALVES OF THE SHIM, PLUS THE ONE THING THAT MUST NOT REGRESS.
+          test -e /lib64/ld-linux-x86-64.so.2
+          test -e /opt/actions-libs/libstdc++.so.6
+          test -e /opt/actions-libs/libgcc_s.so.1
+          # NIX MUST STILL WORK WITH LD_LIBRARY_PATH SET. If a libc ever ends up in that directory
+          # this line fails here, with the symbol error, instead of halfway through the build.
+          nix --version
+          # AND THE C++ RUNTIME MUST RESOLVE THROUGH IT, which `ls` cannot show.
+          if [ -d /nix/store ] && ls /nix/store/*-nodejs-*/bin/node >/dev/null 2>&1; then
+            node --version
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          # THE CONTAINER RUNS AS ROOT and the mounted workspace is owned by the runner's uid, so
+          # git refuses to read it: "detected dubious ownership in repository".
+          set-safe-directory: true
+
+      - name: configure nix once
+        # EVERY SETTING THAT EVERY LATER `nix` COMMAND NEEDS, WRITTEN ONCE.
+        #
+        # `sandbox = false` because an unprivileged container cannot unshare the namespaces a
+        # sandboxed build needs; on a hosted runner this costs nothing, since the build was already
+        # confined to a VM. The substituters are stated here rather than in the flake's `nixConfig`
+        # so that a local `nix build` does not silently trust a cache because a file in a
+        # repository said to. microvm.cachix.org holds the microvm.nix pieces; cache.nixos.org
+        # holds the rest of NixOS and is trusted by default. That public key is upstream's own,
+        # published in microvm.nix's flake.
+        run: |
+          set -eu
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cat >> /etc/nix/nix.conf <<'EOF'
+          sandbox = false
+          experimental-features = nix-command flakes
+          extra-substituters = https://microvm.cachix.org
+          extra-trusted-public-keys = microvm.cachix.org-1:oXnBc6hRE3eX5rSYdRyMYXnfzcCxC7yKPTbZXALsqys=
+          EOF
+          nix config show sandbox
+
+      - name: build the three files
+        run: |
+          set -eu
+          cd nixos-microvm
+          # `.#default` IS THE ARTIFACT PACKAGE, not the NixOS system: it links kernel, initrd and
+          # store.img into one directory so the upload has a stable shape.
+          #
+          # THE STORE DISK IS BUILT BY `mkfs.erofs` UNDER `bwrap`, and inside an unprivileged
+          # container bwrap cannot make itself a mount-namespace slave. microvm.nix anticipates
+          # exactly this: it prints "Bubblewrap failed. Falling back to copying..." and carries on,
+          # which is slower and produces the same image. Not a failure, and no action needed.
+          nix build .#default --print-build-logs 2>&1 | tail -60
+          ls -l result/
+
+      - name: verify the kernel can find an MMIO disk
+        # THIS IS THE STEP THE WHOLE WORKFLOW EXISTS FOR.
+        #
+        # The symbols below are the difference between a microvm that boots and one that boots to a
+        # prompt with no root filesystem. They are read from the `.config` of the kernel being
+        # shipped - `packages.kernelConfig` is that exact derivation - so a kernel built from a
+        # different nixpkgs, or a future nixpkgs that drops the option, fails here rather than on
+        # somebody's machine.
+        #
+        # `y OR m` FOR EVERYTHING BUT THE FIRST: microvm.nix loads virtio_blk and virtio_mmio from
+        # the initramfs (`boot.initrd.kernelModules`), which is what `m` means, and erofs is loaded
+        # the same way by `boot.initrd.availableKernelModules`. Only the command-line parser has to
+        # be built in, because it has to run before any module could be loaded.
+        #
+        # THE VALUES BELOW WERE READ FROM A REAL BUILD, not guessed: VIRTIO_MMIO_CMDLINE_DEVICES=y,
+        # VIRTIO_MMIO=m, VIRTIO_BLK=m, EROFS_FS=m, TMPFS=y.
+        run: |
+          set -eu
+          cd nixos-microvm
+          CFG=$(nix build .#kernelConfig --print-out-paths)
+          echo "kernel config: $CFG"
+          echo
+
+          fail=0
+          check() {
+            symbol="$1"
+            shift
+            line=$(grep -E "^CONFIG_${symbol}=" "$CFG" || true)
+            value="${line#CONFIG_${symbol}=}"
+            ok=0
+            for want in "$@"; do
+              [ "$value" = "$want" ] && ok=1
+            done
+            if [ "$ok" = 1 ]; then
+              printf '  ok    %-32s %s\n' "$symbol" "$value"
+            else
+              printf '  FAIL  %-32s %s (wanted: %s)\n' "$symbol" "${value:-<absent>}" "$*"
+              fail=1
+            fi
+          }
+
+          # THE ONE. Without it qemu's `virtio_mmio.device=` line is ignored, there is no /dev/vda,
+          # and the store disk is never found - the Void failure, exactly.
+          check VIRTIO_MMIO_CMDLINE_DEVICES y
+          # The transport and the block driver microvm.nix attaches the store through.
+          check VIRTIO_MMIO y m
+          check VIRTIO_BLK y m
+          # The filesystem the store image is made of (`microvm.storeDiskType = "erofs"`).
+          check EROFS_FS y m
+          # And the virtual filesystem the initrd mounts before anything else exists.
+          check TMPFS y
+
+          if [ "$fail" -ne 0 ]; then
+            echo
+            echo "::error::this kernel would boot with no root filesystem; refusing to publish it" >&2
+            exit 1
+          fi
+
+      - name: say what was built
+        run: |
+          set -eu
+          cd nixos-microvm
+          echo '=== the artifact ==='
+          for f in kernel initrd store.img; do
+            printf '%-12s %12s bytes  ' "$f" "$(stat -Lc %s "result/$f")"
+            # `file` IS NOT IN THE IMAGE. Four bytes of magic are the same answer without it.
+            head -c 4 "result/$f" | od -An -tx1
+          done
+          echo
+          du -h result/kernel result/initrd result/store.img | sort -h
+
+      - name: write the command that boots it
+        # THE RUN PAGE HAS TO BE ENOUGH. Whoever downloads the artifact should not have to read this
+        # workflow to discover that the machine has no PCIe and the disk is `virtio-blk-device`.
+        #
+        # THE `-append` LINE IS THE PART THAT IS EASY TO GET WRONG, AND IT ALREADY WAS: booting the
+        # kernel with no `init=` gets to `Probing EDD... ok` and stops, because there is no init to
+        # run. `init=` points at a path INSIDE the store image, which the initrd mounts first. So
+        # the file is generated from `config.microvm.kernelParams` - the exact list microvm.nix's own
+        # runner joins - rather than typed out here.
+        run: |
+          set -eu
+          cd nixos-microvm
+          cp "$(nix build .#bootCommand --print-out-paths)" qemu-command.txt
+          cat qemu-command.txt
+
+      - name: resolve the symlinks
+        # `result/kernel` POINTS INTO /nix/store, which does not exist wherever the artifact is
+        # unpacked. `cp -L` is what turns each link into the file itself, and it has to happen here,
+        # because the store is inside this container and nowhere else.
+        run: |
+          set -eu
+          cd nixos-microvm
+          mkdir -p out
+          for f in kernel initrd store.img; do
+            cp -L "result/$f" "out/$f"
+          done
+          ls -l out/
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        with:
+          name: nixos-microvm
+          path: |
+            nixos-microvm/out/kernel
+            nixos-microvm/out/initrd
+            nixos-microvm/out/store.img
+            nixos-microvm/qemu-command.txt
+          if-no-files-found: error
+          # THE STORE IMAGE IS MOST OF A NIXOS SYSTEM - compressed, but still hundreds of MB.
+          # Fourteen days is long enough to fetch it and short enough not to pay for it forever.
+          retention-days: 14
