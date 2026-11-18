@@ -47,7 +47,7 @@ walkthrough "windows 11 - install to a desktop"
   step "the desktop is the one this file was written against"
     see == shot
   step "the screen is the one this file was written against"
-    check == {name: matched, from: shot, mode: like, rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], reference: reference/desktop.png, range: [0.97, 1.0]}
+    check == {name: matched, must: true, from: shot, mode: like, rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], reference: reference/desktop.png, range: [0.97, 1.0]}
   step "reboot into the installed system"
     boot == true
     os == windows

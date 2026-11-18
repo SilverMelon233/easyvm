@@ -186,6 +186,7 @@ the measuring machine and wrong on the runner.
 | `rect`, `rect_at`, `of` | `see`, `ocr` | where to read, the size a pixel rect was measured at, what to bind | 291 |
 | `text`, `colour`, `any_of` | `check` | the criteria | 119 |
 | `contains`, `equals`, `matches`, `like` | `check` | the modes that compare TEXT or a PICTURE | 119 |
+| `must` | `check` | a FALSE answer fails the step; without it a check only binds the boolean for an `if:` or a `loop:` | 0 |
 | `flat_rows`, `min`, `max`, `contrast`, `vs` | `see` | the numbers a measurement binds | 291 |
 | `contains_any`, `not_contains`, `ratio`, `fuzzy`, `at_least`, `at_most`, `between`, `greater_than` | — | **DEAD**: declared and read by nothing since `want:` went | 0 |
 | `reference` | `see` | an image to compare the rect against; binds `<name>.similarity` 0..1 | 0 |

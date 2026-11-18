@@ -20,7 +20,7 @@ walkthrough "ubuntu - the subiquity walk"
   step "the desktop is the one this file was written against"
     see == shot
   step "the screen is the one this file was written against"
-    check == {name: matched, from: shot, mode: like, rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], reference: reference/desktop.png, range: [0.97, 1.0]}
+    check == {name: matched, must: true, from: shot, mode: like, rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], reference: reference/desktop.png, range: [0.97, 1.0]}
   step "wait for the installer window"
     loop == {check: {from: screen, mode: text, name: done, words: [[welcome, to, ubuntu], [choose, your, language]], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080]}, do: [{click: [420, 300], settle: 5}], max: 120, see: {name: screen}, until: {fact: done}}
   click "welcome / language" at 1355 848, waiting 12s, named "welcome / language"

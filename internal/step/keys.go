@@ -739,9 +739,14 @@ var Keys = map[string]Key{
 			"did not gets a clear message instead of a disk qemu still holds open"},
 
 	"check": {Name: "check", Kind: KindMapping,
-		Summary: "compare a named reading and bind a BOOLEAN: {name, from, mode, ...}. `from:` is " +
-			"what an `ocr:` step read; `mode:` says HOW to compare. It never reads the screen, so " +
-			"it costs nothing to re-ask"},
+		Summary: "compare a named reading and bind a BOOLEAN: {name, from, mode, ...}. `mode:` says " +
+			"HOW to compare. `must: true` makes a FALSE answer fail the step, which is what a file " +
+			"means when it says the screen IS the reference"},
+	"must": {Name: "must", Kind: KindBool,
+		Summary: "with `check:`: a FALSE answer fails the step. Without it a check only BINDS the " +
+			"boolean, for an `if:` or a `loop: until:` to consume - and an assertion with no consumer " +
+			"is a step that cannot fail, which is how a run reported 44/44 with a screen matching " +
+			"0.6781 against a floor of 0.97"},
 	"mode": {Name: "mode", Kind: KindString,
 		Summary: "with `check:`: how the reading is compared - says, says_any, says_without, " +
 			"size_between, number_between, equals, contains or matches. The modes are the extension " +

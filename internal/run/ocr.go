@@ -305,7 +305,29 @@ func (e *Executor) doCheck(s walk.Step) error {
 	}
 	e.facts[name] = okNow
 	e.Driver.Log(fmt.Sprintf("  %s: %s = %v (mode %s: %s)", s.Name, name, okNow, mode, detail))
-	return nil
+	return assertIfAsked(s, raw, name, okNow, detail)
+}
+
+// assertIfAsked fails the step when the file said the answer MUST be true.
+//
+// A `check:` BINDS A BOOLEAN, and that is right for the two things it is usually for: an `if:` reads
+// it, and a `loop:` re-asks it until it holds. NEITHER OF THOSE IS AN ASSERTION, so neither fails the
+// walk when the answer is false - and a step that says "this screen is the reference" with no `if:`
+// and no `until:` is a step nobody reads.
+//
+// MEASURED on run 44280999011, which reported `status: finished step 44/44` while its own log said:
+//
+//	the screen is the one this file was written against: matched = false
+//	(0.6781 similar, wanted 0.9700..1.0000)
+//
+// THE FILE SAID WHAT THE SCREEN MUST BE AND THE SCREEN WAS NOT THAT, and the run passed. `must: true`
+// is the word that makes the binding a verdict.
+func assertIfAsked(s walk.Step, raw map[string]any, name string, okNow bool, detail string) error {
+	must, _ := raw["must"].(bool)
+	if !must || okNow {
+		return nil
+	}
+	return fail(s.Name, "%s must be true and is false: %s", name, detail)
 }
 
 // runCheckMode applies ONE named comparison and says what it found.
@@ -759,6 +781,9 @@ func (e *Executor) runNumberCheck(step string, raw map[string]any, from string, 
 	}
 	e.facts[name] = okNow
 	e.Driver.Log(fmt.Sprintf("  %s: %s = %v (%s)", step, name, okNow, detail))
+	if must, _ := raw["must"].(bool); must && !okNow {
+		return fail(step, "%s must be true and is false: %s", name, detail)
+	}
 	return nil
 }
 
@@ -870,6 +895,12 @@ func (e *Executor) checkFrame(step string, raw map[string]any, from, path string
 	}
 	e.facts[name] = okNow
 	e.Driver.Log(fmt.Sprintf("  %s: %s = %v (%s)", step, name, okNow, detail))
+	// `must: true` MAKES THE ANSWER A VERDICT. Without it a check binds a boolean for an `if:` or a
+	// `loop: until:` to read - and a file whose check nothing reads is a file whose assertion cannot
+	// fail. MEASURED on run 44280999011: `matched = false` in the log, `44/44` in the status.
+	if must, _ := raw["must"].(bool); must && !okNow {
+		return fail(step, "%s must be true and is false: %s", name, detail)
+	}
 	return nil
 }
 

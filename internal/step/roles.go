@@ -197,6 +197,7 @@ var Roles = map[string]Role{
 	// --- `check:` and the relations inside it --------------------------------------------
 	"check":           RoleAction,
 	"mode":            RoleSubkey,
+	"must":            RoleSubkey, // `check: {must: true}` - a false answer fails the step
 	"words":           RoleSubkey,
 	"without":         RoleSubkey,
 	"range":           RoleSubkey,
