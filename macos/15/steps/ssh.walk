@@ -1,5 +1,6 @@
 walkthrough "macos 15 ssh - the setup assistant, remote login, and a graceful shutdown"
   resolution 1920x1080
+  recording_resolution 1920x1080
   user vmuser
   password admin
   var out == {default: out/macos15-ssh.qcow2, from: args.out}
@@ -9,8 +10,6 @@ walkthrough "macos 15 ssh - the setup assistant, remote login, and a graceful sh
   header ssh_port == 2222
 
   needs boot.img macos.rom macos.vars, named "the media this stage boots from is already on disk"
-  step "start recording"
-    record == macos15-ssh.mp4
   step "boot the disk"
     boot == true
     os == macos
@@ -84,5 +83,3 @@ walkthrough "macos 15 ssh - the setup assistant, remote login, and a graceful sh
     timeout == 300
   step "publish the disk"
     compress == '{{ out }}'
-  step "stop recording"
-    record == false

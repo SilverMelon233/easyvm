@@ -19,9 +19,6 @@ func TestEveryKindAcceptsItsShapesAndRefusesTheOthers(t *testing.T) {
 			notOK: []any{[]any{1, 2, 3}}},
 		{key: "at_color", ok: []any{[]any{40, 200, 64}},
 			notOK: []any{[]any{1, 2}, []any{1, 2, 3, 4}}},
-		// STARTING AND STOPPING A RECORDING ARE TWO STATEMENTS OF ONE KEY.
-		{key: "record", ok: []any{"install.mp4", false, true},
-			notOK: []any{12345, []any{"a"}}},
 		// `desktop:` NAMES THE FAMILY, WHICH IS A STRING - the declaration said `mapping` and the
 		// executor has always read a string.
 		{key: "desktop", ok: []any{"linux", "linux/kde", "macos", "windows"},

@@ -12,7 +12,7 @@
 
 walkthrough "alpine microvm - the vocabulary against the smallest guest"
   resolution 1024x768
-  recording "alpine-microvm.mp4"
+  recording_resolution 1024x768
 
   needs alpine.iso alpine-vmlinuz alpine-initramfs
 

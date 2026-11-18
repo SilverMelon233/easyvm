@@ -277,15 +277,6 @@ func (e *Executor) runOne(s walk.Step) error {
 		return e.doShutdown(s)
 	case s.Has("disk"):
 		return e.doDisk(s)
-	case hasKey(s, "record"):
-		// `s.Has` IS FALSE FOR `record: false`, AND THAT IS THE POINT OF THE KEY. Stopping a
-		// recording is an ACTION, not the absence of one: run 43035390408 failed at step 29 of 29 -
-		// after the machine had shut down and the disk had been published - with
-		//
-		//     stop recording: no implementation for this step's keys
-		//
-		// because the step's only key was a boolean false and every dispatcher branch tests `Has`.
-		return e.doRecord(s)
 	case s.Has("compress"):
 		return e.doCompress(s)
 	// THE THREE-STEP MODEL, IN DISPATCH ORDER. `ocr:` reads ONE region and names it; `check:` answers

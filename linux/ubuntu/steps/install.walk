@@ -1,12 +1,11 @@
 walkthrough "ubuntu - the subiquity walk"
   resolution 1920x1080
+  recording_resolution 1920x1080
   password admin
   var out == {default: out/distro.qcow2, from: args.out}
   var user == {default: vmuser, from: args.user}
 
   needs ubuntu.iso, named "the media this stage boots from is already on disk"
-  step "start recording"
-    record == ubuntu-install.mp4
   step "create the empty disk"
     disk == disk.qcow2
     disk_gb == 128
@@ -92,5 +91,3 @@ walkthrough "ubuntu - the subiquity walk"
     timeout == 120
   step "publish the disk"
     compress == '{{ out }}'
-  step "stop recording"
-    record == false

@@ -104,6 +104,7 @@ func TestPythonStepsAreRefusedWithASentence(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.yaml")
 	body := `name: a file with a python step
+recording_resolution: [1920, 1080]
 steps:
   - name: enable remote login
     python: ssh_panes:enable_remote_login
@@ -133,6 +134,7 @@ func TestUnknownKeysAreRefused(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.yaml")
 	body := `name: a typo
+recording_resolution: [1920, 1080]
 steps:
   - name: click the button
     until_ms: 5000
@@ -171,6 +173,7 @@ func TestMissingVarIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.yaml")
 	body := `name: unresolved
+recording_resolution: [1920, 1080]
 vars:
   user:
     value: vmuser
@@ -199,6 +202,7 @@ func TestArgsOverrideVars(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.yaml")
 	body := `name: args
+recording_resolution: [1920, 1080]
 vars:
   user:
     from: args.user
@@ -233,6 +237,7 @@ func TestDuplicateKeysAreRefused(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.yaml")
 	body := `name: dup
+recording_resolution: [1920, 1080]
 ssh_port: 2222
 ssh_port: 2223
 steps:
@@ -271,6 +276,7 @@ func TestAReadingStepCannotAlsoCheck(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.yaml")
 	body := `name: probe
+recording_resolution: [1920, 1080]
 steps:
 - name: read and decide
   see: {name: screen, of: [text], rect: [0, 0, 100, 100], rect_at: [1920, 1080], wait: 0}

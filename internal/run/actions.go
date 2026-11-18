@@ -670,67 +670,6 @@ func (e *Executor) doSCP(s walk.Step) error {
 
 // --- the share ------------------------------------------------------------------------// --- recording and publishing ---------------------------------------------------------
 
-// doRecord starts or stops a recording.
-//
-// `record:` IS BOTH, because a file says `record: out/x.mp4` to start and `record: false` to stop.
-// The stop half STOPS THE SAMPLER FIRST, so the last second is on disk before the encoder reads -
-// stopping the encoder while the sampler still writes gives a video that ends one frame early, and
-// on a fast shutdown that is the frame with the work in it.
-func (e *Executor) doRecord(s walk.Step) error {
-	value := s.Get("record")
-	if value == "false" || value == "" {
-		e.stopSampler()
-		if e.rec == nil {
-			return fail(s.Name, "`record: false` but nothing was recording")
-		}
-		// THE NAME COMES FROM THE START STEP, WHICH IS A DIFFERENT `walk.Step`.
-		//
-		// `s.Get("_video")` READ THE STOP STEP'S OWN SPEC and was therefore ALWAYS EMPTY - so every
-		// recording was written to the fallback `install.mp4` whatever `record:` had said at the start.
-		// A file with two `record:` steps produced a video named for neither.
-		// THE NAME IS JOINED ONTO THE WORK DIRECTORY, WHICH IS WHAT THE FILES SAY.
-		//
-		// `record: zorin-install.mp4` IS A NAME, NOT A PATH: the artifact step uploads `work/*.mp4`, and
-		// the daemon's cwd is not the work directory. MEASURED ON zorin-install:
-		//
-		//	=== stop recording
-		//	  recording: 2643 frame(s) -> zorin-install.mp4
-		//	  path: work/*.mp4
-		//	  ##[warning]No files were found with the provided path: work/*.mp4
-		//
-		// THE ENCODE SUCCEEDED AND THE FILE WAS IN THE WRONG PLACE - 2643 frames, written to the
-		// process's own directory instead of `work/`, so the artifact step found nothing and the run
-		// reported a successful recording that does not exist.
-		video := e.recVideo
-		if video == "" {
-			video = "install.mp4"
-		}
-		if !filepath.IsAbs(video) {
-			video = filepath.Join(e.Work, video)
-		}
-		if err := e.rec.encode(video, e.Driver.Log); err != nil {
-			return fail(s.Name, "%v", err)
-		}
-		e.rec = nil
-		e.recVideo = ""
-		return nil
-	}
-	if err := e.sampler(filepath.Join(e.Work, "shots")); err != nil {
-		return fail(s.Name, "%v", err)
-	}
-	// REMEMBERED, because the `record: false` step is a DIFFERENT Step object and cannot see this one's
-	// Spec - and because `finishRecording` needs it when the walk fails before that step runs.
-	e.recVideo = value
-	e.Driver.Log(fmt.Sprintf("  recording: %s", value))
-	return nil
-}
-
-// doCompress flattens the disk this stage ran on into the artifact the workflow publishes.
-//
-// THE PATH IS RELATIVE TO THE REPOSITORY, NOT TO THE WORK DIRECTORY. A workflow writes
-// `out/windows11-ssh.qcow2` from where the job started; joining that onto `work` produced
-// `out/ssh-work/out/windows11-ssh.qcow2` and the publish step then uploaded nothing. Measured on the
-// first real run of this step in the Python implementation.
 func (e *Executor) doCompress(s walk.Step) error {
 	dest := s.Get("compress")
 	if dest == "" {

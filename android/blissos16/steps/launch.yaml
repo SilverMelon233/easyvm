@@ -1,4 +1,7 @@
 name: android 13 (blissos 16.9.7) - start the installed disk
+recording_resolution:
+- 1920
+- 1080
 resolution:
 - 1920
 - 1080
@@ -39,7 +42,6 @@ vars:
 
 steps:
   - name: start recording
-    record: blissos16-launch.mp4
 
   - name: boot the installed disk
     boot: true
@@ -211,4 +213,3 @@ steps:
     timeout: 120
 
   - name: stop recording
-    record: false

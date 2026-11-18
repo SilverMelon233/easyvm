@@ -1,4 +1,7 @@
 name: macos 26 - build the firmware once and publish it
+recording_resolution:
+- 1920
+- 1080
 # THE SAME BUILD AS `macos/15/steps/firmware.yaml`, FOR A DIFFERENT RECOVERY IMAGE, AND THAT IS THE
 # WHOLE DIFFERENCE.
 #

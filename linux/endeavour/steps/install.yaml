@@ -1,4 +1,7 @@
 name: endeavouros - install to ext4, then the power button
+recording_resolution:
+- 1920
+- 1080
 resolution:
 - 1920
 - 1080
@@ -20,8 +23,6 @@ steps:
   # `easyvm run` is called; nothing in this file downloads.
   needs:
   - endeavour.iso
-- name: start recording
-  record: endeavouros-install.mp4
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
@@ -377,5 +378,3 @@ steps:
 
 - name: publish the disk
   compress: '{{ out }}'
-- name: stop recording
-  record: false

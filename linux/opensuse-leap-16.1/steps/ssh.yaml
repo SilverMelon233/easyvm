@@ -1,4 +1,7 @@
 name: linux-opensuse-tumbleweed - sshd
+recording_resolution:
+- 1920
+- 1080
 resolution:
 - 1920
 - 1080
@@ -13,8 +16,6 @@ vars:
     from: args.out
     default: out/distro.qcow2
 steps:
-- name: start recording
-  record: opensuse-tumbleweed-ssh.mp4
 - name: boot the disk
   boot: true
   os: linux
@@ -164,5 +165,3 @@ steps:
   timeout: 300
 - name: publish the disk
   compress: '{{ out }}'
-- name: stop recording
-  record: false

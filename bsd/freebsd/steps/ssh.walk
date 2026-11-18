@@ -1,5 +1,6 @@
 walkthrough "freebsd 15.1 - sshd, XFCE, and a desktop"
   resolution 1920x1080
+  recording_resolution 1920x1080
   user vmuser
   password admin
   var out == {default: out/freebsd-ssh.qcow2, from: args.out}
@@ -7,8 +8,6 @@ walkthrough "freebsd 15.1 - sshd, XFCE, and a desktop"
   var user == {default: vmuser, from: args.user}
   header ssh_port == 2222
 
-  step "start recording"
-    record == freebsd-ssh.mp4
   step "boot the disk"
     boot == true
     memory_mb == 8192
@@ -55,5 +54,3 @@ walkthrough "freebsd 15.1 - sshd, XFCE, and a desktop"
     timeout == 600
   step "publish the disk"
     compress == '{{ out }}'
-  step "stop recording"
-    record == false

@@ -1,4 +1,7 @@
 name: macos 26 - start the disk that is already there
+recording_resolution:
+- 1920
+- 1080
 resolution:
 - 1920
 - 1080

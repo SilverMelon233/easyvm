@@ -88,13 +88,6 @@ func checkKind(key Key, value any) error {
 			return checkSCP(key, value)
 		}
 		return nil
-	case KindRecord:
-		// A FILE NAME STARTS A RECORDING AND `false` STOPS IT. A number is neither.
-		switch value.(type) {
-		case string, bool:
-			return nil
-		}
-		return expect(key, "a file name or false", value)
 	case KindTemplated:
 		// A `{{ }}` PLACEHOLDER IS RESOLVED AFTER THIS MAP IS READ, so the value here may still be
 		// the template text. Anything else must be a number.

@@ -48,7 +48,7 @@ func TestAGoneMachineIsNotCountedAsADroppedTick(t *testing.T) {
 // exist is an artifact a person has to open to discover, and the stage had already reported success.
 func TestEncodingRefusesWhenNoFrameWasCaptured(t *testing.T) {
 	r := &recorder{}
-	err := r.encode(filepath.Join(t.TempDir(), "out.mp4"), func(string) {})
+	err := r.encode(filepath.Join(t.TempDir(), "out.mp4"), 1920, 1080, func(string) {})
 	if err == nil {
 		t.Fatal("`encode` accepted an empty frame list, so a stage with no recording would upload " +
 			"whatever the artifact step found")

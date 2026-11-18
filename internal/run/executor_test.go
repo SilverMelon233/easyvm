@@ -294,39 +294,15 @@ func probeValue(key string) any {
 	return true
 }
 
-// A STEP WHOSE ONLY KEY IS A BOOLEAN FALSE STILL HAS TO DISPATCH.
+// `record: false` WAS THE CASE THIS TEST EXISTED FOR, AND THE KEY IS GONE.
 //
-// `record: false` STOPS A RECORDING, and `Step.Has` is false for it because `Has` answers "is this
-// key present AND true". Every dispatcher branch tests `Has`, so the step matched nothing and fell
-// through to "no implementation for this step's keys".
+// It was a step whose only key was a boolean false, and `Step.Has` answers "present AND true", so
+// every dispatcher branch ignored it and the step fell through to "no implementation". The fix was
+// `hasKey`, which asks only about presence - and `hasKey` stays, because a key whose `false` is a
+// statement is a shape the vocabulary still allows.
 //
-// THE COST WAS THE LAST STEP OF A STAGE THAT HAD ALREADY SUCCEEDED. Run 43035390408 passed the
-// shutdown, published the disk and then failed:
-//
-//	status: failed step 29/29 "stop recording"
-//	error:   stop recording: no implementation for this step's keys
-//
-// A run that did everything it was asked and then reported failure, one line from the end.
-func TestBooleanFalseIsAnActionRatherThanAnAbsence(t *testing.T) {
-	d := &fakeDriver{}
-	ex, steps := newExec(d, map[string]any{"name": "stop recording", "record": false})
-	ex.Work = t.TempDir()
-	_, err := ex.Run(steps)
-	if err != nil && strings.Contains(err.Error(), "no implementation") {
-		t.Fatalf("`record: false` reached no branch: %v. It is an ACTION - stopping a recording - "+
-			"and `Has` treats a false boolean as the key being absent", err)
-	}
-	// AND IT IS NOT SILENTLY COUNTED AS DONE. Nothing was recording, so the step has a real
-	// complaint - and that complaint proves the branch ran rather than the dispatcher skipping it.
-	if err == nil {
-		t.Fatal("`record: false` with nothing recording must say so; a silent success is " +
-			"indistinguishable from a dispatcher that never ran the step")
-	}
-	if strings.Contains(err.Error(), "no implementation") {
-		t.Fatalf("the branch ran but reported no implementation: %v", err)
-	}
-}
-
+// The step itself cannot exist now: the recording starts with the run and `finishRecording` encodes
+// it however the walk ended, so nothing writes a false-only step to dispatch.
 // `disk_gb:` IS A COUNT, NOT A DURATION, AND THE TWO ARE EASY TO CONFUSE.
 //
 // `seconds()` RETURNS A time.Duration. Reading `disk_gb` through it turned 128 into 128e9 and qemu-img

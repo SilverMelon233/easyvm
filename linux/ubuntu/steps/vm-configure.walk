@@ -1,5 +1,6 @@
 walkthrough "linux-ubuntu - configure the vm (name, share, guest agent)"
   resolution 1920x1080
+  recording_resolution 1920x1080
   user vmuser
   password admin
   var boot_timeout == {default: "1800", from: args.boot_timeout}
@@ -11,8 +12,6 @@ walkthrough "linux-ubuntu - configure the vm (name, share, guest agent)"
   var user == {default: vmuser, from: args.user}
   header ssh_port == 2222
 
-  step "start recording"
-    record == vm-configure.mp4
   step "take the input disk"
     disk == disk.qcow2
   step "boot the disk"
@@ -96,5 +95,3 @@ walkthrough "linux-ubuntu - configure the vm (name, share, guest agent)"
     timeout == 300
   step "publish the disk"
     compress == '{{ out }}'
-  step "stop recording"
-    record == false

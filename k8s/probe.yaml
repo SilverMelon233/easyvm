@@ -3,9 +3,6 @@ resolution:
 - 1920
 - 1080
 steps:
-- name: start recording
-  record: probe.mp4
-  poll: 3
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 64
@@ -31,5 +28,3 @@ steps:
 - name: press enter
   key: ret
   settle: 12
-- name: stop recording
-  record: probe.mp4

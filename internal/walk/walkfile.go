@@ -102,9 +102,11 @@ func WalkToYAML(src string) (map[string]any, error) {
 	// A RECORDING IS A STEP. It is written as a header because it starts before anything else and
 	// reads as a property of the run, but the YAML has it as the first step and the executor starts
 	// it there.
-	if recording != "" {
-		steps = append(steps, map[string]any{"name": "start recording", "record": recording})
-	}
+	// `recording` IS STILL ACCEPTED AND NO LONGER DOES ANYTHING: a recording starts with the run
+	// now, so a header that named the file was a step that said "begin" to a recorder already going.
+	// The name is derived from the walkthrough, which is more than the header ever managed -
+	// `install.mp4` and `ubuntu-install.mp4` both existed and nothing read either.
+	_ = recording
 
 	// ---- the steps ------------------------------------------------------------------------
 	//
@@ -172,6 +174,15 @@ func parseHeader(l line) (key string, value any, isHeader bool, err error) {
 			return "", nil, false, fmt.Errorf("resolution: %w", err)
 		}
 		return "resolution", []any{w, h}, true, nil
+	case "recording_resolution":
+		// `recording_resolution 1280x800` - THE VIDEO'S SIZE, which is a fact about the ARTIFACT
+		// rather than about the coordinates. It is a header because it describes the whole run, and
+		// it is required because a default would silently letterbox a 720x400 guest into 1920x1080.
+		w, h, err := parseSize(rest)
+		if err != nil {
+			return "", nil, false, fmt.Errorf("recording_resolution: %w", err)
+		}
+		return "recording_resolution", []any{w, h}, true, nil
 	case "user":
 		// BARE OR QUOTED: a single word needs no quotes, and `user vmuser` reads better than
 		// `user "vmuser"` for a value with no spaces.
@@ -973,7 +984,7 @@ func parseTimeoutClause(s string) (float64, error) {
 // format quietly support less than the vocabulary.
 func walkVerbFor(key string) (string, bool) {
 	verbs := map[string]string{
-		"needs": "needs", "record": "recording (header)", "disk": "make a disk",
+		"needs": "needs", "disk": "make a disk",
 		"disk_gb": "make a disk", "boot": "boot", "os": "boot ... as a", "iso": "boot",
 		"microvm": "boot ... as a microvm", "timeout": "waiting up to",
 		"click": "click", "double": "double", "key": "press", "type": "type", "run": "run",

@@ -24,6 +24,7 @@ import (
 func TestAWalkFileBecomesTheSameDocument(t *testing.T) {
 	src := `walkthrough "probe"
   resolution 1920x1080
+  recording_resolution 1920x1080
   user vmuser
   password admin
   recording "probe.mp4"
@@ -50,9 +51,11 @@ func TestAWalkFileBecomesTheSameDocument(t *testing.T) {
 		t.Fatalf("ssh_user = %v, want vmuser", got)
 	}
 	steps, _ := doc["steps"].([]any)
-	// THE RECORDING IS A STEP, so it is the first of six plus the one the header emitted.
-	if len(steps) != 7 {
-		t.Fatalf("%d steps, want 7 (the recording plus six): %v", len(steps), steps)
+	// SIX STEPS, NOT SEVEN: the `recording` header used to become a `record:` step of its own, and the
+	// recording starts with the run now. A header that still emitted a step would be a step whose only
+	// purpose is to tell a recorder that is already running to run.
+	if len(steps) != 6 {
+		t.Fatalf("%d steps, want 6: %v", len(steps), steps)
 	}
 	// EVERY STEP HAS A NAME, because a failure with no name is a failure nobody can act on.
 	for i, raw := range steps {
@@ -82,6 +85,7 @@ func TestAWalkFileAndItsYAMLAreTheSameWalk(t *testing.T) {
 
 	const body = `walkthrough "same walk"
   resolution 1920x1080
+  recording_resolution 1920x1080
 
   needs kubuntu.iso
   click "next" at 100 200
@@ -222,13 +226,15 @@ func TestTheTwoConversionsThatWereWrong(t *testing.T) {
 	}
 	steps, _ := doc["steps"].([]any)
 
-	// 1. A HEADER `recording` MUST BECOME A `record:` STEP.
+	// 1. A HEADER `recording` MUST PRODUCE NO STEP AT ALL.
 	//
-	// The first version left it as a step whose KEY was `recording:`, which the vocabulary does not
-	// have - so the document was refused at load, and before that it was silently NOT RECORDING.
+	// It used to become `record: p.mp4` as the first step. The recording starts with the run now and
+	// takes its name from the walkthrough, so a header that named a file was a step telling a recorder
+	// that is already going to start - and a name nothing reads, since the workflow uploads
+	// `work/*.mp4` without looking.
 	first, _ := steps[0].(map[string]any)
-	if first["record"] != "p.mp4" {
-		t.Fatalf("a header `recording` produced %v; it must be the step `record: p.mp4`", first)
+	if _, wrong := first["record"]; wrong {
+		t.Fatalf("the header still produced a `record:` step: %v", first)
 	}
 	if _, wrong := first["recording"]; wrong {
 		t.Fatal("the step carries a `recording:` key, which is not in the vocabulary")

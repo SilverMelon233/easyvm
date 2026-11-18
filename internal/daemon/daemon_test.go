@@ -211,7 +211,7 @@ func TestUnknownCommandIsRefused(t *testing.T) {
 func TestBadFileFailsTheRun(t *testing.T) {
 	work, d := startDaemon(t)
 	bad := filepath.Join(t.TempDir(), "bad.yaml")
-	if err := os.WriteFile(bad, []byte("name: bad\nsteps:\n  - name: x\n    nonsense: 1\n"), 0o644); err != nil {
+	if err := os.WriteFile(bad, []byte("name: bad\nrecording_resolution: [1920, 1080]\nsteps:\n  - name: x\n    nonsense: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
