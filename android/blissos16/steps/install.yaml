@@ -110,18 +110,7 @@ steps:
     settle: 20
 
   - name: read the menu
-    see:
-      of: [text]
-      name: menu
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 270
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: menu}
   - name: the menu offers Installation
     check:
       name: has_install
@@ -130,6 +119,8 @@ steps:
       words:
       - installation
 
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
   # "BlissOS-16.9.7 2024-10-11 Installation" is the fifth row under UEFI's graphical menu; the four
   # above it are the Live entries. THE ROW COUNT IS THE UEFI MENU'S, measured on that menu.
   # `key:` TAKES ONE QCODE, NOT A LIST - measured: `key: [down, down, down, down]` fails with
@@ -246,18 +237,7 @@ steps:
   # "Congratulations! BlissOS-16.9.7 is installed successfully." It is read rather than assumed,
   # because every pane above reports nothing when it fails.
   - name: read the result
-    see:
-      of: [text]
-      name: done
-      rect:
-      - 480
-      - 380
-      - 1440
-      - 460
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: done}
   - name: it says the install succeeded
     check:
       name: installed
@@ -267,6 +247,8 @@ steps:
       - - congratulations
       - - successfully
 
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
   # =======================================================================================
   # 5. THE UEFI FALLBACK PATH, WHICH THE INSTALLER CANNOT WRITE
   # =======================================================================================

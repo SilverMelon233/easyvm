@@ -216,13 +216,14 @@ func loopParts(s walk.Step, readingKey string, ocrRaw, checkRaw, untilRaw map[st
 // checkReading validates a loop's reading WITHOUT capturing a frame.
 //
 // IT ASKS THE PARSER, which is the same code the step will hit when it runs - so a mapping that passes
-// here cannot be refused a second later for a reason the loop did not mention. `see:` validates through
-// `parseSeeStep` and `ocr:` through `parseOCRStep`, because they are two vocabularies and a loop may
-// hold either.
+// here cannot be refused a second later for a reason the loop did not mention. `see:` validates by its
+// own rules and `ocr:` through `parseOCRStep`, because a loop may hold either.
 func (e *Executor) checkReading(step walk.Step) error {
 	if _, ok := step.Spec["see"]; ok {
-		_, _, _, _, err := parseSeeStep(step)
-		return err
+		if seeName(step) == "" {
+			return fail(step.Name, "`see:` must name the frame: `see: {name: shot}`")
+		}
+		return refuseLegacySee(step)
 	}
 	_, err := parseOCRStep(step)
 	return err

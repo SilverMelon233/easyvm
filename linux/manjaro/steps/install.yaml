@@ -42,12 +42,7 @@ steps:
   - 760
   settle: 35
 - name: open the installer - what is on screen
-  see:
-    of: [text]
-    name: open_the_installer
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 0
+  see: {name: open_the_installer}
 - name: open the installer - the screen says so
   check:
     name: asserted
@@ -56,6 +51,8 @@ steps:
     words:
     - [welcome]
     - [location]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: open the installer (once more, if it did not)
   when_not:
   - welcome
@@ -112,18 +109,7 @@ steps:
   settle: 6
 
 - name: the partitions page after choosing ext4
-  see:
-    of: [text]
-    name: fs
-    rect:
-    - 0
-    - 0
-    - 1920
-    - 1080
-    rect_at:
-    - 1920
-    - 1080
-    wait: 3
+  see: {name: fs}
 
 - name: the root partition is ext4
   check:
@@ -133,6 +119,8 @@ steps:
     words:
     - ext4
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: partitions
   click:
   - 1325
@@ -207,18 +195,7 @@ steps:
       - 420
       - 300
       settle: 20
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -241,6 +218,8 @@ steps:
         - completada
       - - instalacion
         - completada
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: stop the machine

@@ -1,10 +1,7 @@
 package run
 
 import (
-	"fmt"
 	"testing"
-
-	"github.com/easydev-org/easyvm/internal/walk"
 )
 
 // The macos recovery frame is 640x480 and its rects were written at 1920x1080 - the file says so with
@@ -74,43 +71,11 @@ func TestRectAtIsReadFromInsideTheSeeMapping(t *testing.T) {
 	}
 }
 
-// THE SIZE IS READ ONCE AND HANDED TO BOTH PATHS, so a text reading and a numeric one cannot disagree
-// about which screen a rect was written for. This is the assertion that would have caught the second
-// dispatch: the `see:` mapping is where `rect_at:` lives, and a reader that looks at `s.Spec` gets
-// nothing back and silently falls back to the frame.
-func TestBothSeePathsGetTheirRectAtFromTheSamePlace(t *testing.T) {
-	step := walk.Step{Name: "the recovery menu's rows", Spec: map[string]any{
-		"see": map[string]any{
-			"name": "recovery", "of": []any{"text"},
-			"rect": []any{760, 200, 1400, 560}, "rect_at": []any{1920, 1080},
-			"scale": float64(6), "wait": float64(5),
-		},
-	}}
-	raw, _, rectRaw, ofRaw, err := parseSeeStep(step)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ofRaw) != 1 || fmt.Sprint(ofRaw[0]) != "text" {
-		t.Fatalf("this test is about the TEXT path; of=%v", ofRaw)
-	}
-	at, ok := pairOfMapping(raw, "rect_at")
-	if !ok || at != [2]int{1920, 1080} {
-		t.Fatalf("`rect_at:` was not read from the mapping: %v %v", at, ok)
-	}
-	// AND THE TEXT PATH MUST PLACE THE SAME RECT THE NUMERIC PATH WOULD, which is what passing `at`
-	// down guarantees and what a second lookup could get wrong.
-	text, err := parseRectAt(rectRaw, at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	num, err := parseRectAt(rectRaw, at)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if text != num {
-		t.Fatalf("the two paths disagree: %+v vs %+v", text, num)
-	}
-	if text.AtW != 1920 || text.AtH != 1080 {
-		t.Fatalf("the size did not reach the rect: %+v", text)
-	}
-}
+// `TestBothSeePathsGetTheirRectAtFromTheSamePlace` STOOD HERE, AND THE TWO PATHS ARE GONE.
+//
+// It existed because `see:` had a TEXT path and a NUMERIC path, each resolving `rect_at:` for itself,
+// and the two could disagree - a macos recovery frame is 640x480 and its rects were written at
+// 1920x1080, so a path that missed the size asked for the rectangle scaled by the wrong frame.
+//
+// THERE IS ONE PATH NOW: `see:` captures, `check:` measures with its own `rect:` and `rect_at:`, and
+// `rectOfCheck` is the single place either is read.

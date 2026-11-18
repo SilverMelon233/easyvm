@@ -109,6 +109,17 @@ type Executor struct {
 	//
 	// THE ZERO VALUE IS USABLE, like `seen` and `facts` above.
 	numbers map[string]float64
+
+	// shots is the FRAME a `see:` step captured, by the name it was given.
+	//
+	// THIS IS WHAT MAKES `check:` ABLE TO DECIDE ON PIXELS WITHOUT READING THE SCREEN. `see:` names a
+	// frame once; every `check:` that follows measures THAT frame, with its own `rect` - so one
+	// capture serves any number of questions, and a `loop:` that re-asks a boolean pays nothing.
+	//
+	// MEASURED over the tree when this was added: 43 `see:` steps, every one of them followed by AT
+	// MOST ONE `check:` - so the vocabulary had a store for text, a store for numbers and no store
+	// for the picture, which is the thing a screen actually is.
+	shots map[string]string
 }
 
 // Result is the whole walkthrough's outcome.

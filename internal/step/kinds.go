@@ -81,6 +81,28 @@ func checkKind(key Key, value any) error {
 		}
 	case KindColor:
 		return checkNumbers(key, value, 3, "[r, g, b]")
+	case KindShot:
+		// `see: {name: shot}` OR `see: shot`. Nothing else: a mapping with parameters is the old
+		// model and the executor names each parameter it refuses.
+		switch v := value.(type) {
+		case string:
+			if strings.TrimSpace(v) == "" {
+				return expect(key, "a frame name", value)
+			}
+			return nil
+		case map[string]any:
+			for k := range v {
+				if k != "name" {
+					return fmt.Errorf("`see:` has no key %q: it captures a frame and names it. "+
+						"Every other setting is a QUESTION and belongs on the `check:` that asks it", k)
+				}
+			}
+			if name, _ := v["name"].(string); strings.TrimSpace(name) == "" {
+				return expect(key, "a frame name", value)
+			}
+			return nil
+		}
+		return expect(key, "a frame name", value)
 	case KindAny:
 		// A KEY THAT REACHES HERE OWES A CHECK OF ITS OWN, because `KindAny` means "the executor
 		// decides" and an unvalidated key is what this package exists to stop.

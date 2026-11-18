@@ -232,21 +232,13 @@ func parseStepWith(lines []line, i int, res []any) (map[string]any, int, error) 
 	if err != nil {
 		return nil, 0, err
 	}
-	// A READING OF "THE WHOLE FRAME" IS A REAL RECTANGLE AT THE FILE'S OWN SIZE, so a `read` step is
-	// given the header's resolution before it is parsed. Anything else is unchanged.
-	if ocr, ok := step["see"].(map[string]any); ok && ocr["rect"] == nil {
-		w, h := 1920, 1080
-		if len(res) == 2 {
-			if v, ok := res[0].(int); ok {
-				w = v
-			}
-			if v, ok := res[1].(int); ok {
-				h = v
-			}
-		}
-		ocr["rect"] = []any{0, 0, w, h}
-		ocr["rect_at"] = []any{w, h}
-	}
+	// `see:` CARRIES NO RECTANGLE ANY MORE, so the header's resolution is not pushed into it. A
+	// region belongs to the `check:` that asks the question, and that `check:` says its own `rect:`
+	// and `rect_at:` - which is what lets one capture answer questions about different parts of it.
+	//
+	// `res` IS STILL PASSED because the measurement lines below need it, and dropping it here would
+	// move the knowledge of the frame's size into a second place.
+	_ = res
 	return step, next, err
 }
 
@@ -744,18 +736,13 @@ func parseRead(l line, rest string, step map[string]any) (map[string]any, error)
 	// vocabulary already understands. When it names none the rect is left absent, and `parseStepWith`
 	// fills it with the header's own resolution - which is why this function does not have to know
 	// how big the frame is.
-	ocr := map[string]any{"name": name}
-	if i := strings.Index(rest, " of the "); i >= 0 {
-		// `rest` IS EVERYTHING AFTER THE VERB, so the area is its own prefix: "the middle" is
-		// `middle`, and "the bottom 4.5%" is `bottom 4.5%`.
-		area := strings.TrimSpace(rest[:i])
-		ocr["rect"] = strings.TrimPrefix(area, "the ")
-	}
-	// `see:` WITH `of: [text]` IS THE READING. `ocr:` used to be a key of its own and it was the same
-	// operation restricted to a word list - one question, "what does the screen say", answered by one
-	// key.
-	ocr["of"] = []any{"text"}
-	step["see"] = ocr
+	// `read ... as "name"` CAPTURES A FRAME AND NAMES IT. The area it names is the frame's, and a
+	// question about a smaller region belongs to the `check:` that asks it - so a `read` with an area
+	// still captures the whole frame.
+	//
+	// `measuring` IS STILL READ and is no longer emitted: the numbers it listed are measurements, and
+	// a measurement is a `check: {mode: mean_between}` now. `parseMeasured` handles that line.
+	step["see"] = map[string]any{"name": name}
 	return step, nil
 }
 

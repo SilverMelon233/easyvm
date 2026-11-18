@@ -41,12 +41,7 @@ steps:
     max: 40
     do:
     - settle: 10
-    see:
-      of: [text]
-      name: desk
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
-      wait: 0
+    see: {name: desk}
     check:
       name: up
       from: desk
@@ -55,6 +50,8 @@ steps:
       - - applications
       - - welcome
       - - kubuntu
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: up
 - name: open the terminal

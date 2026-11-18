@@ -46,12 +46,7 @@ steps:
     settle: 3
   settle: 8
 - name: open the installer - what is on screen
-  see:
-    of: [text]
-    name: open_the_installer
-    rect: [0, 0, 1920, 1080]
-    rect_at: [1920, 1080]
-    wait: 0
+  see: {name: open_the_installer}
 - name: open the installer - the screen says so
   check:
     name: asserted
@@ -61,6 +56,8 @@ steps:
     - [welcome]
     - [language]
     - [install]
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: open the installer (desktop icon, if the window was not there)
   when_not:
   - welcome
@@ -97,18 +94,7 @@ steps:
       - 420
       - 300
       settle: 10
-    see:
-      of: [text]
-      name: screen
-      rect:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      rect_at:
-      - 1920
-      - 1080
-      wait: 0
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -117,6 +103,8 @@ steps:
       - - welcome
       - - language
       - - keyboard
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 - name: welcome

@@ -55,6 +55,12 @@ const (
 	// KindColor is [r, g, b] - a colour, not a rectangle. `at_color: [40, 200, 64]` was declared
 	// `KindRect` and nothing read the declaration, so the two disagreed since the key was written.
 	KindColor
+	// KindShot is a frame bound under a name: `see: {name: shot}` or `see: shot`.
+	//
+	// IT ACCEPTS BOTH SPELLINGS because the `.walk` converter writes the short one and a YAML file
+	// may write either. What it REFUSES is anything else - a `see:` carrying parameters is the old
+	// model, and `refuseLegacySee` names each one and where it belongs.
+	KindShot
 	// `KindRecord` WAS HERE, FOR `record:` - a file name to start a recording or `false` to stop it.
 	// It went with the key: the recording is a property of the run now, so no key's value means
 	// "start" or "stop" and no kind is needed to describe one.
@@ -613,10 +619,17 @@ var Keys = map[string]Key{
 	// THE VERDICT IS DATA AND IS PROVEN FOR THE THREE MEDIA ALREADY IN testdata: `measure_test.go`
 	// evaluates this exact rule against mint, zorin and a BIOS menu, and reproduces the verdicts the
 	// Go reaches - which is what makes `IsCinnamonDesktop` deletable rather than merely redundant.
-	"see": {Name: "see", Kind: KindMapping,
-		Summary: "MEASURE one rect and bind NUMBERS: {name, rect, of}. It decides nothing - a " +
-			"`check:` step answers from the reading. `of:` names what to measure: mean, spread, " +
-			"sat, flat_rows, rows, text"},
+	// `see:` CAPTURES ONE FRAME AND NAMES IT. IT MEASURES NOTHING.
+	//
+	//	see:   {name: shot}
+	//	check: {name: dark, from: shot, mode: mean_between, rect: bottom 4.5%, range: [0, 60]}
+	//
+	// THE REGION BELONGS TO THE QUESTION, NOT THE CAPTURE. A `see:` used to carry one `rect:` and one
+	// `of:`, so three questions about one screen cost three captures - three frames at three moments,
+	// two of which could disagree about what the screen said.
+	"see": {Name: "see", Kind: KindShot,
+		Summary: "capture one frame and bind it under `name:`. Every `check:` that follows asks its " +
+			"own question about THAT frame, with its own `rect:`"},
 
 	// --- `check:`'s criteria, and the relations inside them -------------------------------
 	//
