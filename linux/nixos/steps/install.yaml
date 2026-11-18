@@ -262,10 +262,40 @@ steps:
 #
 # MEASURED on the CI leg: (1329, 836) was pressed on the summary page and the install never started -
 # the press landed on the page's own progress text, which is what sits above that footer.
+# THE PRESS IS FOLLOWED BY A VERDICT, BECAUSE A PRESS ON A BUTTON'S EDGE DOES NOTHING AND SAYS SO.
+#
+# MEASURED on the CI leg: (1329, 867) was pressed and the run then waited an hour for a disk that
+# never moved - the wizard was still on the summary page. This is the same failure fedora's review
+# page had: the coordinate names the button's edge rather than its centre.
+#
+# The verdict is the summary page being GONE: Calamares replaces it with a progress page that says
+# `Installing`.
 - name: summary - install
   click:
   - 1329
   - 867
+  wait_after: 10
+
+- name: the install has started
+  loop:
+    max: 20
+    do:
+    - wait: 6
+    ocr:
+      name: started
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: begun
+      from: started
+      mode: says_without
+      words:
+      - - Installing
+      without: [Summary]
+    until:
+      fact: begun
   wait_after: 25
 - name: the install is written
   disk_settle: 180

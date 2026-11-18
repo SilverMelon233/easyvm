@@ -270,10 +270,37 @@ steps:
   - 1366
   - 811
   wait_after: 25
+# THE PRESS IS FOLLOWED BY A VERDICT, FOR THE SAME REASON AS EVERY OTHER BUTTON IN THIS TREE.
+#
+# MEASURED on the CI leg: (1081, 808) was pressed and the run then waited an hour for a disk that never
+# moved. The pop installer's own progress page says `Extracting files` - measured by hand - so that is
+# what proves the press took, and the encryption page's `Encrypt` button is what must be gone.
 - name: drive encryption - don't encrypt
   click:
   - 1081
   - 808
+  wait_after: 10
+
+- name: the install has started
+  loop:
+    max: 20
+    do:
+    - wait: 6
+    ocr:
+      name: started
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: begun
+      from: started
+      mode: says_without
+      words:
+      - - Extracting
+      without: [Encrypt]
+    until:
+      fact: begun
   wait_after: 35
 - name: the install is written
   disk_settle: 180
