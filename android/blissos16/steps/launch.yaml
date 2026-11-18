@@ -198,8 +198,6 @@ steps:
 
   # ONE PICTURE, KEPT. It is the evidence a run passed, and it cannot be produced without the guest
   # being up.
-  - name: photograph the screen
-    screenshot: screen.png
 
   # =======================================================================================
   # STOPPED, NOT ASKED

@@ -50,9 +50,6 @@ steps:
   - 1030
   - 1235
   - 1070
-  at_fallback:
-  - 1211
-  - 1050
   settle: 20
 - name: the installer window is up
   loop:

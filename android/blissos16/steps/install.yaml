@@ -297,8 +297,7 @@ steps:
     timeout: 120
 
   - name: copy the loader to the UEFI fallback path
-    esp_fallback: disk
-    esp_from: /EFI/BLISSOS
+    esp_fallback: {disk: disk, from: /EFI/BLISSOS}
 
   # =======================================================================================
   # 6. THE VERDICT IS READ OFF THE DISK

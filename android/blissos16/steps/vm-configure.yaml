@@ -227,8 +227,6 @@ steps:
     adb: dumpsys window windows | grep -c com.farmerbb.taskbar
     timeout: 60
 
-  - name: photograph the screen
-    screenshot: screen.png
 
   - name: stop the machine
     shutdown: kill
