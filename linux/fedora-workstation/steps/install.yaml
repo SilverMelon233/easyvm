@@ -767,42 +767,40 @@ steps:
 #
 # So the combo is clicked to open the list and the item by its measured coordinate. (648, 576) - the
 # previous pair - is nine pixels down and nine left, on the list's own border.
-- name: open the type list
-  click:
-  - 882
-  - 396
-  wait_after: 3
-
-- name: choose EFI system partition from it
-  click:
-  - 657
-  - 567
-  wait_after: 4
-
-- name: the type is the ESP now
+# THE COMBO'S PRESS IS RETRIED, BECAUSE A PRESS THAT MISSES LEAVES NO LIST TO PICK FROM.
+#
+# MEASURED on consecutive runs: the same press at (882, 396) opened the list on one run and left the
+# dialog reading `EXT4` on the next, with the OCR of the strip as `Oe a |__ Partitions (ac` - the
+# right-hand panel, no list. A list that is not open cannot be picked from, and the coordinate after it
+# then lands on the dialog's own background.
+#
+# SO THE PRESS AND THE PICK ARE ONE LOOP: open, choose, and read the combo; repeat if it still says
+# something other than the ESP. Six attempts, each verified by the same word.
+- name: set the type to the ESP
   loop:
-    max: 10
+    max: 6
     do:
-    - wait: 2
+    - click:
+      - 882
+      - 396
+      wait_after: 3
+    - click:
+      - 657
+      - 567
+      wait_after: 3
     ocr:
       name: type_now
-      # THE TYPE ROW IS AT y=396 ON THIS FRAME, so the crop has to cover it. MEASURED: the previous
-      # crop (500,540)-(1300,620) was 200 pixels BELOW the row and read only `Cancel`.
       region: [560, 380, 1400, 420]
       region_at: [1920, 1080]
       scale: 1
-      wait: 0
+      wait: 1
     check:
       name: esp
       from: type_now
       mode: says_any
-      # `EFI` IS READ AS `eF` ON THIS ROW. MEASURED, the crop's own text:
-      #
-      #	"| eFsystemparttion system partition a |__ Partitions (ac"
-      #
-      # two readings of the same phrase, both mangled at `EFI`, both clean at `partition`. `EXT4` and
-      # `BTRFS` and `XFS` do not contain that word, so it also distinguishes this choice from the
-      # dialog's default.
+      # `EFI` IS READ AS `eF` ON THIS ROW - measured, the crop's own text was
+      # `| eFsystemparttion system partition a`. `partition` is read cleanly and no other entry in the
+      # list contains it (`EXT4`, `BTRFS`, `XFS`, `VFAT`, `NTFS`, `Swap`, `No filesystem`).
       words:
       - - partition
     until:
