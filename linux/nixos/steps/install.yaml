@@ -114,18 +114,18 @@ steps:
 
 - name: welcome
   click:
-  - 1329
-  - 836
+  - 1335
+  - 821
   wait_after: 15
 - name: location
   click:
-  - 1329
-  - 836
+  - 1335
+  - 821
   wait_after: 15
 - name: keyboard
   click:
-  - 1329
-  - 836
+  - 1335
+  - 821
   wait_after: 15
 # THE USERS PAGE HAS TO BE UP BEFORE ANYTHING IS TYPED INTO IT, AND ON CI IT WAS NOT.
 #
@@ -262,8 +262,8 @@ steps:
   wait_after: 3
 - name: users
   click:
-  - 1329
-  - 836
+  - 1335
+  - 821
   wait_after: 18
 - name: choose gnome
   click:
@@ -272,13 +272,13 @@ steps:
   wait_after: 4
 - name: packagechooser
   click:
-  - 1329
-  - 836
+  - 1335
+  - 821
   wait_after: 15
 - name: unfree notes
   click:
-  - 1329
-  - 836
+  - 1335
+  - 821
   wait_after: 12
 - name: partitions - erase the disk
   click:
@@ -287,8 +287,8 @@ steps:
   wait_after: 6
 - name: partitions
   click:
-  - 1329
-  - 836
+  - 1335
+  - 821
   wait_after: 18
 # THE SUMMARY PAGE'S `Install` IS 31 PIXELS LOWER THAN THE OTHER PAGES' `Next`.
 #
@@ -330,8 +330,8 @@ steps:
 # press visible - if the page does not go away, this step's next one says so.
 - name: summary - install
   click:
-  - 1329
-  - 867
+  - 1331
+  - 851
   wait_after: 15
 
 - name: the install has started
