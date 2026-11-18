@@ -54,7 +54,15 @@ steps:
   - 1030
   - 1235
   - 1070
+  # MEASURED, AND IT WAS REMOVED BY ACCIDENT: the script that replaced the seven footer presses with
+  # `at_color` deleted EVERY `at_fallback:` in the file, including this one - which belongs to the
+  # dock icon and not to a footer. MEASURED on the next run:
+  #
+  #	open the installer from the dock: no control fill in [1190,1030 1235,1070], and no
+  #	`at_fallback:` to use instead
   at_fallback:
+  - 1211
+  - 1050
   wait_after: 20
 - name: the installer window is up
   loop:
