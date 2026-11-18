@@ -221,11 +221,14 @@ steps:
   loop:
     max: 4
     do:
+    # THE PRESS, THE CLEAR AND THE TYPING ARE ONE STEP, BECAUSE `clear:` ONLY RUNS WHEN THE STEP HAS
+    # ITS OWN `click:` - it selects the box's contents and deletes them before typing. Split in two,
+    # the clear is skipped and a retry APPENDS: MEASURED on run 44258269753, four attempts left
+    # `vmuservmuservnusermuser` in the box.
     - click:
       - 727
       - 375
-      wait_after: 2
-    - clear: true
+      clear: true
       type: '{{ user }}'
       wait_after: 2
     ocr:
@@ -242,11 +245,21 @@ steps:
     check:
       name: took
       from: name_field
-      mode: says_without
-      # THE PLACEHOLDER IS THE ONE WORD THIS BOX CARRIES WHILE IT IS EMPTY.
+      # THE USERNAME IS IN THE BOX, WHICH IS THE THING BEING ASKED FOR.
+      #
+      # MY FIRST VERDICT WAS `says_without` ON THE PLACEHOLDER AND IT WAS BACKWARDS: that mode requires
+      # `words:` to be PRESENT and `without:` to be ABSENT, so `words: [Your]` + `without: [Full]` asks
+      # for the placeholder to be there and sent the loop round four times on boxes that were already
+      # filled. MEASURED, those four readings were
+      #
+      #	name_field: 3 word(s): vmuser I |
+      #	name_field: 3 word(s): vmuservmuser| L |
+      #	name_field: 2 word(s): vmuservmuservnuser |
+      #
+      # - the name, present and then doubled by the retries. So the test is the name itself.
+      mode: says
       words:
-      - - Your
-      without: [Full]
+      - - '{{ user }}'
     until:
       fact: took
 
