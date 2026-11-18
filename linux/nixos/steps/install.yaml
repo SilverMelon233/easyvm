@@ -326,42 +326,39 @@ steps:
 #
 # SO EVERY PRESS IS 828 (inside 826..845 on the runner and 810..831 here) AND EVERY STEP IS A LOOP
 # THAT READS THE PAGE IT EXPECTS NEXT. A press that misses now costs one attempt instead of the run.
-- name: users -> desktop
+# ONE PRESS ADVANCES ONE PAGE, AND A PRESS THAT IS RETRIED OVERSHOOTS. THIS IS THE MEASUREMENT THAT
+# MADE ALL THREE OF THE OLD STEPS WRONG.
+#
+# MEASURED on run 44260452757: `users -> desktop` pressed `Next` and read 73 words that were neither
+# `GNOME` nor `Plasma`, three times, and its own final frame is the PARTITIONS page with `Erase disk`
+# and `Manual partitioning` drawn. The three presses had each advanced a page -
+# `Users -> Desktop -> Unfree software -> Partitions` - because a press that lands is not undone by
+# pressing again, and the reading after each press saw the page AFTER the one it expected:
+#
+#	press 1 -> Desktop           the reading was taken as the page appeared, and by then press 2 was
+#	press 2 -> Unfree software   already queued
+#	press 3 -> Partitions        which is the frame the run ended on
+#
+# SO THE WHOLE RUN FROM THE USERS FORM TO THE SUMMARY IS ONE LOOP WITH ONE VERDICT: press `Next`, and
+# stop when the SUMMARY page is up. Every page between them takes the same single press, including
+# `Unfree software`, whose notes pane has nothing to select. The verdict is `overview` - the summary's
+# own heading, `This is an overview of what will happen` - which none of the pages before it carries.
+# THE PAGES BETWEEN THE USERS FORM AND THE PARTITIONS PAGE TAKE ONE PRESS EACH, AND ONE LOOP DOES
+# ALL OF THEM. THIS IS THE MEASUREMENT THAT MADE THE OLD THREE STEPS WRONG.
+#
+# MEASURED on run 44260452757: `users -> desktop` pressed `Next` and read 73 words that were neither
+# `GNOME` nor `Plasma`, three times - and its own final frame is the PARTITIONS page with `Erase disk`
+# and `Manual partitioning` drawn. The three presses had each advanced a page
+# (`Users -> Desktop -> Unfree software -> Partitions`), so each reading saw the page AFTER the one
+# the step was waiting for, and the step could never pass.
+#
+# THE LOOP STOPS AT THE PARTITIONS PAGE AND NOT AT THE SUMMARY, because that page needs a choice
+# before its own `Next` is enabled: its two radios - `Erase disk` and `Manual partitioning` - are both
+# drawn EMPTY, and Calamares keeps the button disabled until one is picked. A single loop to the
+# summary would press a disabled button there forever.
+- name: next to the partitions page
   loop:
-    max: 5
-    do:
-    - click:
-      - 1330
-      - 828
-      wait_after: 6
-    ocr:
-      name: at_desktop
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 3
-      wait: 2
-    check:
-      name: here
-      from: at_desktop
-      mode: says_any
-      # `GNOME` IS THE DESKTOP PAGE'S OWN CHOICE LIST; the Users page carries none of it.
-      words:
-      - - GNOME
-      - - Plasma
-    until:
-      fact: here
-
-# THE DESKTOP PAGE'S CHOICE IS PRESSED BEFORE ITS `Next`, because a page with nothing selected keeps
-# that button disabled. MEASURED on the runner's frame: the choice list's first row is at y=400.
-- name: choose gnome
-  click:
-  - 1000
-  - 400
-  wait_after: 4
-
-- name: desktop -> partitions
-  loop:
-    max: 5
+    max: 8
     do:
     - click:
       - 1330
@@ -371,22 +368,25 @@ steps:
       name: at_partitions
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
+      # ENLARGED: at `scale: 1` the runner's whole frame reads only the title bar and the sidebar.
       scale: 3
       wait: 2
     check:
       name: here
       from: at_partitions
       mode: says_any
-      # `Erase disk` IS THIS PAGE'S FIRST CHOICE - and `Unfree software`, the page between them, is
-      # skipped by pressing `Next` on it, which is what its notes pane asks for.
+      # `partitioning` IS THE PAGE'S SECOND CHOICE - `Manual partitioning` - and is one word, so it
+      # matches as a token. `erase` is there for the case where the radio's label is read first.
       words:
-      - - Erase
-      - - Manual
+      - - partitioning
+      - - erase
     until:
       fact: here
 
-# ERASE THE WHOLE DISK, WHICH IS THE FIRST RADIO AND ALREADY SELECTED; pressing it is harmless and
-# makes the state explicit. MEASURED on the runner's frame: the radio is at (633, 390).
+# ERASE THE WHOLE DISK - THE FIRST RADIO, AND THE ONE THIS STAGE WANTS. MEASURED on the runner's own
+# frame: the radio is at (633, 390), 58 pixels right of the page's left edge, and pressing it is what
+# enables `Next`. `GNOME` NEEDS NO PRESS: Calamares draws it already selected on this medium, and the
+# desktop page is passed with the same `Next` the loop presses.
 - name: partitions - erase the disk
   click:
   - 633
@@ -395,7 +395,7 @@ steps:
 
 - name: partitions -> summary
   loop:
-    max: 5
+    max: 6
     do:
     - click:
       - 1330
@@ -411,7 +411,8 @@ steps:
       name: here
       from: at_summary
       mode: says_any
-      # `overview` IS THE SUMMARY PAGE'S OWN HEADING (`This is an overview of what will happen`).
+      # `overview` IS THE SUMMARY'S OWN HEADING - `This is an overview of what will happen once you
+      # start the install procedure` - and none of the pages before it carries the word.
       words:
       - - overview
     until:
