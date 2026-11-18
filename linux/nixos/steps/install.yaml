@@ -263,21 +263,26 @@ steps:
     until:
       fact: took
 
-- name: users - login name, select all
-  click:
-  - 740
-  - 433
-  key: ctrl+a
-  wait_after: 1
-- name: users - login name, clear it
-  key: backspace
-  wait_after: 1
-- name: users - login name
-  click:
-  - 740
-  - 433
-  type: '{{ user }}'
-  wait_after: 2
+# THE LOGIN NAME IS NOT TYPED, BECAUSE CALAMARES DERIVES IT AND THIS FILE WAS ERASING THE FULL NAME.
+#
+# MEASURED on run 44259246729's recording, frame by frame, with the first box read at each second:
+#
+#	t=110  box1 `Your Full Name`   box2 `login`      <- the form as it opens
+#	t=112  box1 `vmuser`           box2 `vmuser`     <- the name went in, the login was derived
+#	t=116  box1 `Your Full Name`   box2 `login`      <- BOTH cleared
+#	t=124  box1 `Your Full Name`   box2 `vmuser`     <- the login retyped, the name gone forever
+#
+# - three steps sat here: `click (740,433)` + `ctrl+a`, `backspace`, then `click (740,433)` + type.
+# The press at (740, 433) did NOT move the focus out of the first box, so `ctrl+a` and `backspace`
+# selected and deleted THE FULL NAME - which is also why the run then pressed a disabled `Next` five
+# times: Calamares keeps it disabled while the name is empty, and the name had just been deleted.
+#
+# AND THE LOGIN BOX DID NOT NEED ANY OF IT: it already read `vmuser` with its green tick, derived from
+# the full name. That is this installer's own behaviour and the reason the fields are coupled.
+#
+# SO THE THREE STEPS ARE GONE. The name is typed once, the login follows it, and the password fields
+# below are pressed by their own centres.
+
 - name: users - allow a short password
   click:
   - 645
