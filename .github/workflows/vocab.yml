@@ -292,6 +292,15 @@ jobs:
         with:
           ref: ${{ inputs.branch }}
 
+      - name: the leg's own name, without the slashes an artifact name cannot carry
+        id: name
+        run: |
+          set -eu
+          slug=$(printf '%s' "${{ inputs.walk != '' && inputs.walk || format('linux/{0}/steps/install', inputs.distro) }}" \
+            | tr '/' '-' | sed 's/-steps-/-/; s/\.walk$//')
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+          echo "this leg is $slug"
+
       - name: the binary, as the image carries it
         run: easyvm versions
 
@@ -551,10 +560,25 @@ jobs:
       #
       # `if: always()` because a FAILING leg is the one whose video matters, and
       # `if-no-files-found: warn` because a walkthrough that draws nothing has nothing to show.
+      # THE ARTIFACT NAME CANNOT CONTAIN A `/`. MEASURED on run 44268736694, whose walkthrough had
+      # finished 6/6 and recorded 24 frames - and then the job FAILED at the upload with
+      #
+      #	The artifact name is not valid: linux/alpine-microvm/steps/desktop.walk-video
+      #
+      # because `walk:` is a PATH when a dispatch names a file. The slug is the same transformation
+      # the disk publish already uses, so a video and its disk are named alike.
+      - id: videoslug
+        if: always()
+        shell: bash
+        run: |
+          # `tr` RATHER THAN `format()`: artifact names forbid `/ : " < > | * ? \r \n \\`.
+          slug=$(printf '%s' "${{ inputs.walk }}" | tr '/' '-' | sed 's/\.walk$//')
+          echo "name=${slug}-video" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ inputs.walk }}-video
+          name: ${{ steps.name.outputs.slug || inputs.walk }}-video
           path: work/*.mp4
           if-no-files-found: warn
           retention-days: 7
