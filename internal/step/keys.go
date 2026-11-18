@@ -468,11 +468,11 @@ var Keys = map[string]Key{
 			"Optionally `every: <seconds>` with `on: [...]` - an action that runs ONCE when that " +
 			"long has passed, whatever the screen says"},
 	"every": {Name: "every", Kind: KindFloat,
-		Summary: "with `loop:`: seconds after which the `on:` actions run once, independent of the " +
+		Summary: "with `loop:`: seconds after which the `clock:` actions run once, independent of the " +
 			"reading. For a pane that cannot be recognised - a black frame, or OpenCore's boot " +
 			"picker whose labels OCR reads as noise - where the honest stop is the clock"},
-	"on": {Name: "on", Kind: KindList,
-		Summary: "with `loop: every:`: the actions to run once when the clock runs out"},
+	"clock": {Name: "clock", Kind: KindList,
+		Summary: "with `loop: every:`: the actions to run once when the clock runs out. Named `clock` and not `on`, because YAML 1.1 parses a bare `on:` as the boolean true"},
 	"max": {Name: "max", Kind: KindInt,
 		Summary: "with `loop:`: the attempt ceiling. Required, because a loop with no ceiling " +
 			"presses a key until the stage times out"},

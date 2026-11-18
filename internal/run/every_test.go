@@ -47,7 +47,7 @@ func TestOnWithoutEveryIsRefused(t *testing.T) {
 		"loop": map[string]any{
 			"max": 3,
 			"do":  []any{map[string]any{"wait": 1}},
-			"on":  []any{map[string]any{"wait": 1}},
+			"clock": []any{map[string]any{"wait": 1}},
 			"ocr": map[string]any{"name": "s", "region": []any{0, 0, 10, 10},
 				"region_at": []any{1920, 1080}, "scale": 1, "wait": 0},
 			"check": map[string]any{"name": "d", "from": "s", "mode": "says", "words": []any{"x"}},
@@ -93,7 +93,7 @@ func clockStep(every float64) walk.Step {
 		"loop": map[string]any{
 			"max":   2,
 			"every": every,
-			"on":    []any{map[string]any{"click": []any{731, 547}}},
+			"clock": []any{map[string]any{"click": []any{731, 547}}},
 			"do":    []any{map[string]any{"click": []any{1, 2}}},
 			"ocr": map[string]any{"name": "s", "region": []any{0, 0, 10, 10},
 				"region_at": []any{1920, 1080}, "scale": 1, "wait": 0},

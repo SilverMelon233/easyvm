@@ -422,29 +422,6 @@ steps:
   - 1005
   - 712
   wait_after: 10
-# THE POINTER IS MOVED OFF THE BUTTON IT JUST PRESSED, AND THAT IS THE REAL FIX.
-#
-# (1005,712) IS "Continue" ON THE PANE THAT ASKS WHERE TO INSTALL, AND IT IS "Cancel" ON THE PROGRESS
-# VIEW THAT REPLACES IT - the same pixels, one pane later. Leaving the pointer there is what put up
-#
-#	Are you sure you want to cancel the installation of macOS Tahoe?
-#	[Continue Installing]  [Quit]
-#
-# on run 44150638949, and that sheet then sat unanswered for the remaining 2.3 hours of the run while
-# the copy - 40% at t+300s, 85% at t+600s - was already healthy underneath it.
-#
-# SO THE POINTER GOES SOMEWHERE WITH NO CONTROL ON IT before the long wait. MEASURED FROM THE FAILING
-# RUN'S OWN FRAME: (960,330) is inside the macOS Tahoe artwork at the top of the progress view, a flat
-# region whose pixels span rgb 65..91 - not a button, not a checkbox, not a text field. A click there
-# does nothing, and that is the point.
-#
-# THE CANCEL SHEET IS ALSO ANSWERED IF IT APPEARS ANYWAY (see the branch inside look 1), because a
-# pointer move is a mitigation and the sheet is what actually has to be handled.
-- name: move the pointer off the cancel button
-  click:
-  - 960
-  - 330
-  wait_after: 2
 - name: the copy runs, look 1 of at most 8
   loop:
     max: 270
@@ -472,7 +449,7 @@ steps:
     #	THE RESET IS FOR THE OTHER SHAPE, the frame that draws nothing at all: measured locally, a
     #	reboot brings the Setup Assistant up, and a COMPLETED disk needs no reset at all (control).
     every: 3600
-    on:
+    clock:
     - name: pick macOS Installer in OpenCore's picker, if that is what is up
       click:
       - 731

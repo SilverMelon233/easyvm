@@ -53,3 +53,28 @@ func TestMacos26LooksEndOnABlackFrame(t *testing.T) {
 			"list would end early on the update pane and be reset for no reason")
 	}
 }
+
+// A BARE `on:` IS A BOOLEAN IN YAML 1.1, AND THIS TEST IS WHY THE KEY IS CALLED `clock:`.
+//
+// MEASURED: \`yaml.safe_load("on: [1]")\` is \`{true: [1]}\`, so a walkthrough written with \`on:\` has no
+// "on" key at all - the loop's \`every:\` would then be rejected for having no actions, or worse,
+// accepted and never fire. A walk that reset the guest sixty minutes into a healthy install is
+// exactly the kind of failure that costs a four-hour CI run.
+func TestTheClockKeySurvivesYAML(t *testing.T) {
+	raw, err := os.ReadFile("../../macos/26/steps/setup.yaml")
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	src := string(raw)
+	if strings.Contains(src, "\n    on:\n") || strings.Contains(src, "\n  on:\n") {
+		t.Error("a bare `on:` key is parsed by YAML 1.1 as the boolean true, so it never reaches " +
+			"the loop; the key is `clock:`")
+	}
+	if !strings.Contains(src, "\n    every: 3600\n") {
+		t.Error("look 1 no longer carries the sixty-minute clock")
+	}
+	if !strings.Contains(src, "\n    clock:\n") {
+		t.Error("look 1 has `every:` but no `clock:` - the loop would be refused for having a " +
+			"clock with nothing to do")
+	}
+}

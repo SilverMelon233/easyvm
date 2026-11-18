@@ -39,7 +39,7 @@ func (e *Executor) doLoop(s walk.Step) error {
 	}
 	for k := range raw {
 		switch k {
-		case "max", "do", "ocr", "check", "until", "every", "on":
+		case "max", "do", "ocr", "check", "until", "every", "clock":
 		default:
 			return fail(s.Name, "`loop:` has unknown key %q; it takes max, do, ocr, check, until, "+
 				"every and on", k)
@@ -146,13 +146,13 @@ func (e *Executor) doLoop(s walk.Step) error {
 		}
 		every = f
 		var ok2 bool
-		timedAction, ok2 = raw["on"].([]any)
+		timedAction, ok2 = raw["clock"].([]any)
 		if !ok2 || len(timedAction) == 0 {
-			return fail(s.Name, "`loop: every:` needs `on:` - the action to run once when the time "+
+			return fail(s.Name, "`loop: every:` needs `clock:` - the action to run once when the time "+
 				"has passed. A clock with nothing to do is a loop that never ends")
 		}
-	} else if _, ok := raw["on"]; ok {
-		return fail(s.Name, "`loop: on:` needs `every:` - say how long to wait before running it")
+	} else if _, ok := raw["clock"]; ok {
+		return fail(s.Name, "`loop: clock:` needs `every:` - say how long to wait before running it")
 	}
 	started := time.Now()
 	fired := false
@@ -168,11 +168,11 @@ func (e *Executor) doLoop(s walk.Step) error {
 
 		// 0. THE CLOCK, BEFORE THE ACTION, so a loop whose screen never changes still moves.
 		if every > 0 && !fired && time.Since(started) >= time.Duration(every*float64(time.Second)) {
-			e.Driver.Log(fmt.Sprintf("  loop: %.0fs have passed, so the `every:` actions run", every))
+			e.Driver.Log(fmt.Sprintf("  loop: %.0fs have passed, so the `clock:` actions run", every))
 			for i, item := range timedAction {
 				spec, ok := item.(map[string]any)
 				if !ok {
-					return fail(s.Name, "`loop.on[%d]` is not a mapping", i)
+					return fail(s.Name, "`loop.clock[%d]` is not a mapping", i)
 				}
 				sub := walk.Step{
 					Index: s.Index,
