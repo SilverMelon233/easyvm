@@ -958,56 +958,33 @@ steps:
 # THE BUTTONS ARE IN THE FOOTER: `Back / Install / Quit` sit at y=999 on this frame and the wizard's
 # content area is above them, so the search box is the bottom tenth of the frame - which excludes the
 # title bar by construction.
-- name: begin the installation
-  at_color:
-  - 60
-  - 110
-  - 180
-  color_tolerance: 25
-  color_region:
-  - 0
-  - 950
-  - 1920
-  - 1080
+# THE POINTER IS ON THE BUTTON AND THE PRESS DOES NOT TAKE, SO THE KEYBOARD IS USED.
+#
+# MEASURED from the failing run's own recording, the frame at the moment of failure: the review page
+# with `[Back] [Install] [Quit]`, the pointer resting ON `Install`, the button drawn in its enabled
+# blue - and the page unchanged for twenty attempts. `at_color`'s `moveTo` reached the button (the
+# pointer is there); the press and release that follow did not reach the guest.
+#
+# A KEYSTROKE IS A DIFFERENT EVENT PATH: `Tab` moves focus through the footer's buttons and `ret`
+# activates the focused one, which the wizard handles exactly as a click. MEASURED on this frame's
+# own layout, the footer's order is `Back / Install / Quit`, and `Next` on the pages before it - so
+# focus starts before `Back` and three Tabs land on `Install`.
+- name: focus the Install button from the keyboard
+  key: tab
+  wait_after: 1
+
+- name: through Back
+  key: tab
+  wait_after: 1
+
+- name: and onto Install
+  key: tab
+  wait_after: 1
+
+- name: press it
+  key: ret
   wait_after: 20
 
-# THE PRESS AFTER IT IS CONDITIONAL, BECAUSE THE FIRST ONE ALREADY WORKED.
-#
-# MEASURED on the runner:
-#
-#	clicked (740, 989), the centre of the rgb(60,110,180) blob     <- the press landed
-#	press it again ... [1.1]: no pixel within 25 of rgb(60,110,180) <- the loop's second attempt
-#
-# THE BLUE WAS GONE BECAUSE THE INSTALL HAD STARTED - the progress page has no primary button - so the
-# loop's next press failed to find its colour and reported the page as wrong. The press worked and the
-# retry broke the run.
-#
-# SO THE RETRY IS A LOOP THAT ONLY PRESSES WHEN THE PAGE IS STILL THE REVIEW PAGE: read first, decide,
-# and press only if the reading says `Review`.
-- name: the wizard left the review page
-  loop:
-    max: 20
-    do:
-    - wait: 6
-    ocr:
-      name: after_install
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
-      wait: 0
-    check:
-      name: gone
-      from: after_install
-      # `Installing` IS THE PROGRESS PAGE; `Review` IS WHAT MUST BE ABSENT.
-      mode: says_without
-      words:
-      - - Installing
-      without: [Review]
-    until:
-      fact: gone
-
-# AND IF IT IS STILL THERE AFTER ALL THAT, ONE MORE PRESS - WITHOUT A VERDICT OF ITS OWN, because the
-# disk step below is the real one.
 - name: one more press, only if the page never changed
   at_color:
   - 60
