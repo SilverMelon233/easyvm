@@ -173,10 +173,26 @@ steps:
 # and deletes them before typing, which is a no-op on an empty box and puts the caret in it when the
 # press DID land. Every other field on this page already does this; the first one did not, because it
 # is the one that starts empty.
-- name: users - what is your name
+# THE FIRST FIELD NEVER TOOK THE TEXT ON THE RUNNER, AND THE FRAME SAYS WHY.
+#
+# MEASURED off the failing run's recording, the last frame before it gave up: the Users page with
+# `Your Full Name` STILL DRAWN AS THE PLACEHOLDER in the first box, `vmuser` green-ticked in the second,
+# and `Next` grey. So the press did not put the caret in the first box.
+#
+# AND THE OLD VERDICT COULD NOT SEE IT: it read a 60-row crop of the field and got
+# `What is your name? [vmuser| T Qo What name do you want ...` - the SECOND box's `vmuser` was inside
+# the crop, so `took = true` passed on a first box that was empty.
+#
+# THE BOX IS x=600..824, y=376..403 on that frame - centre (712, 390) - and the caret is put in it
+# before anything is typed. The verdict now reads a crop that stops ABOVE the second box's label, so
+# the only `vmuser` it can see is the one in the first field.
+- name: the full name field
   click:
-  - 718
-  - 377
+  - 712
+  - 390
+  wait_after: 2
+
+- name: users - what is your name
   clear: true
   type: '{{ user }}'
   wait_after: 2
@@ -188,7 +204,9 @@ steps:
     - wait: 1
     ocr:
       name: name_field
-      region: [560, 340, 1200, 420]
+      # ABOVE THE `What name do you want to use to log in?` LABEL, so the second box's text cannot be
+      # mistaken for this one's.
+      region: [560, 355, 900, 400]
       region_at: [1920, 1080]
       scale: 1
       wait: 0
