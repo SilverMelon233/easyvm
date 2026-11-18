@@ -934,11 +934,54 @@ steps:
 # `Installing / Software installation: ... / Installing software 8%`.
 #
 # SO THIS IS A PLAIN COORDINATE AGAIN, WITH THE VERDICT BELOW PROVING IT TOOK.
+# THE WIZARD'S ACCENT IS `rgb(60,110,180)` AND THAT IS THE PRESS.
+#
+# MEASURED on this workstation: the button is at (730, 999) and a press there starts the install. ON
+# THE RUNNER THE SAME COORDINATE DOES NOT - the run's own log says
+#
+#	=== begin the installation       clicked (730, 999)
+#	=== after_install: 75 word(s)    <- the review page, unchanged, for twenty attempts
+#
+# and the page it was on was the review page, so the press missed a button this workstation has at
+# that coordinate. That is a difference in where the wizard is DRAWN, not in what it does.
+#
+# SO THE BUTTON IS FOUND BY THE WIZARD'S OWN ACCENT COLOUR. `rgb(60,110,180)` fills `Install` and
+# nothing else on that page, `at_color` clicks the centre of its largest blob, and the search is the
+# whole frame so a dialog that is drawn elsewhere is still found.
 - name: begin the installation
-  click:
-  - 730
-  - 999
+  at_color:
+  - 60
+  - 110
+  - 180
+  color_tolerance: 25
   wait_after: 20
+
+- name: press it again, up to four times, until the page changes
+  loop:
+    max: 4
+    do:
+    - at_color:
+      - 60
+      - 110
+      - 180
+      color_tolerance: 25
+      wait_after: 12
+    ocr:
+      name: after_install
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 2
+    check:
+      name: left
+      from: after_install
+      # `Installing` IS THE PROGRESS PAGE AND `Review` IS THE ONE THIS PRESS LEAVES.
+      mode: says_without
+      words:
+      - - Installing
+      without: [Review]
+    until:
+      fact: left
 
 - name: the wizard left the review page
   loop:
