@@ -55,8 +55,6 @@ steps:
   - 1235
   - 1070
   at_fallback:
-  - 1211
-  - 1050
   wait_after: 20
 - name: the installer window is up
   loop:
@@ -96,44 +94,104 @@ steps:
     until:
       fact: done
 - name: select a language
-  at_button:
-  - 1240
-  - 755
-  - 1430
-  - 845
+  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
+  #
+  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
+  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
+  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
+  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
+  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
+  #
+  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
+  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
+  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
+  # it and is what a whole-frame search found, is outside.
+  at_color:
+  - 96
+  - 208
+  - 216
+  color_tolerance: 40
+  color_region:
+  - 0
+  - 0
+  - 1920
+  - 980
   at_fallback:
-  - 1366
-  - 811
   wait_after: 21
 - name: language variants
-  at_button:
-  - 1240
-  - 755
-  - 1430
-  - 845
+  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
+  #
+  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
+  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
+  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
+  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
+  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
+  #
+  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
+  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
+  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
+  # it and is what a whole-frame search found, is outside.
+  at_color:
+  - 96
+  - 208
+  - 216
+  color_tolerance: 40
+  color_region:
+  - 0
+  - 0
+  - 1920
+  - 980
   at_fallback:
-  - 1366
-  - 811
   wait_after: 21
 - name: keyboard layout
-  at_button:
-  - 1240
-  - 755
-  - 1430
-  - 845
+  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
+  #
+  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
+  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
+  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
+  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
+  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
+  #
+  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
+  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
+  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
+  # it and is what a whole-frame search found, is outside.
+  at_color:
+  - 96
+  - 208
+  - 216
+  color_tolerance: 40
+  color_region:
+  - 0
+  - 0
+  - 1920
+  - 980
   at_fallback:
-  - 1366
-  - 811
   wait_after: 21
 - name: keyboard variants
-  at_button:
-  - 1240
-  - 755
-  - 1430
-  - 845
+  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
+  #
+  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
+  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
+  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
+  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
+  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
+  #
+  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
+  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
+  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
+  # it and is what a whole-frame search found, is outside.
+  at_color:
+  - 96
+  - 208
+  - 216
+  color_tolerance: 40
+  color_region:
+  - 0
+  - 0
+  - 1920
+  - 980
   at_fallback:
-  - 1366
-  - 811
   wait_after: 21
 - name: clean install
   click:
@@ -141,14 +199,29 @@ steps:
   - 456
   wait_after: 8
 - name: install
-  at_button:
-  - 1240
-  - 755
-  - 1430
-  - 845
+  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
+  #
+  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
+  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
+  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
+  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
+  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
+  #
+  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
+  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
+  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
+  # it and is what a whole-frame search found, is outside.
+  at_color:
+  - 96
+  - 208
+  - 216
+  color_tolerance: 40
+  color_region:
+  - 0
+  - 0
+  - 1920
+  - 980
   at_fallback:
-  - 1366
-  - 811
   wait_after: 21
 - name: select a drive
   click:
@@ -156,14 +229,29 @@ steps:
   - 498
   wait_after: 8
 - name: erase and install
-  at_button:
-  - 1240
-  - 755
-  - 1430
-  - 845
+  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
+  #
+  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
+  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
+  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
+  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
+  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
+  #
+  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
+  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
+  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
+  # it and is what a whole-frame search found, is outside.
+  at_color:
+  - 96
+  - 208
+  - 216
+  color_tolerance: 40
+  color_region:
+  - 0
+  - 0
+  - 1920
+  - 980
   at_fallback:
-  - 1366
-  - 811
   wait_after: 44
 # THE ACCOUNT PANE PRINTS `Create User Account`, AND THE OLD CHECK ASKED FOR WORDS IT NEVER SHOWS.
 #
@@ -289,14 +377,29 @@ steps:
   type_gap: 0.09
   wait_after: 2
 - name: account password next
-  at_button:
-  - 1240
-  - 755
-  - 1430
-  - 845
+  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
+  #
+  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
+  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
+  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
+  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
+  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
+  #
+  # The installer's accent is MEASURED off its own frame: RGB(96, 208, 216) - counted over the whole
+  # 1920x1080 frame it is 9920 pixels, against 857 for the next teal. That is the progress bar, the
+  # window's border and the primary buttons; the region stops at y=980 so the dock, which sits below
+  # it and is what a whole-frame search found, is outside.
+  at_color:
+  - 96
+  - 208
+  - 216
+  color_tolerance: 40
+  color_region:
+  - 0
+  - 0
+  - 1920
+  - 980
   at_fallback:
-  - 1366
-  - 811
   wait_after: 25
 # THE PRESS IS FOLLOWED BY A VERDICT, FOR THE SAME REASON AS EVERY OTHER BUTTON IN THIS TREE.
 #

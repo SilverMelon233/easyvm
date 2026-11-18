@@ -197,27 +197,25 @@ steps:
   type: '{{ user }}'
   wait_after: 2
 
-- name: the name took, or the field would still be empty
-  loop:
-    max: 8
-    do:
-    - wait: 1
-    ocr:
-      name: name_field
-      # ABOVE THE `What name do you want to use to log in?` LABEL, so the second box's text cannot be
-      # mistaken for this one's.
-      region: [560, 355, 900, 400]
-      region_at: [1920, 1080]
-      scale: 1
-      wait: 0
-    check:
-      name: took
-      from: name_field
-      mode: says_any
-      words:
-      - - '{{ user }}'
-    until:
-      fact: took
+# THE NAME IS NOT READ BACK. A 45-ROW CROP OF A TEXT INPUT IS BELOW WHAT OCR RESOLVES.
+#
+# MEASURED, two runs of the narrowed crop:
+#
+#	name_field: 3 word(s): I immer 1
+#	name_field: 2 word(s): > cc)
+#
+# - at 45 rows neither the field's text nor its placeholder comes back, so this check can only ever
+# fail, and it fails on work that was done. The WIDER crop it replaced was worse in the other
+# direction: it included the second box, whose `vmuser` made the check pass on an empty first field.
+#
+# A CHECK THAT CANNOT READ ITS SUBJECT IS NOT A CHECK. What is kept is the press that puts the caret in
+# the box, and the proof that it took is downstream and unambiguous: Calamares keeps `Next` DISABLED
+# while the name is empty, so `the users page is drawn` on the NEXT page would never pass, and the
+# steps after this one press that Next.
+#
+# THE MISTAKE THAT MADE THIS NECESSARY WAS THE PRESS, NOT THE READING: the first box had no caret, and
+# that is fixed by clicking its own centre first.
+
 - name: users - login name, select all
   click:
   - 700
