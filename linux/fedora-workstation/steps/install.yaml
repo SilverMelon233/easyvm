@@ -958,46 +958,52 @@ steps:
 # THE BUTTONS ARE IN THE FOOTER: `Back / Install / Quit` sit at y=999 on this frame and the wizard's
 # content area is above them, so the search box is the bottom tenth of the frame - which excludes the
 # title bar by construction.
-# THE POINTER IS ON THE BUTTON AND THE PRESS DOES NOT TAKE, SO THE KEYBOARD IS USED.
+# THE INSTALL PRESS IS BY THE BUTTON'S OWN COLOUR, AND THE COLOUR I HAD WAS NOT THE BUTTON'S.
 #
-# MEASURED from the failing run's own recording, the frame at the moment of failure: the review page
-# with `[Back] [Install] [Quit]`, the pointer resting ON `Install`, the button drawn in its enabled
-# blue - and the page unchanged for twenty attempts. `at_color`'s `moveTo` reached the button (the
-# pointer is there); the press and release that follow did not reach the guest.
+# MEASURED on this workstation's review page: the footer reads `[Back] [Install] [Quit]` and
+# `Install` is filled `rgb(41,65,114)` - a DARK NAVY - spanning x 690..771, y 981..1015, centre
+# (730, 998). THE FILE SEARCHED FOR `rgb(60,110,180)` INSTEAD, which is the wizard's LIGHTER blue, and
+# on this page that colour is nowhere: the fallback then clicked (707, 1004), which is 23 pixels left
+# of the button's centre and inside its rounded left edge on a frame where the button starts at 690.
 #
-# A KEYSTROKE IS A DIFFERENT EVENT PATH: `Tab` moves focus through the footer's buttons and `ret`
-# activates the focused one, which the wizard handles exactly as a click. MEASURED on this frame's
-# own layout, the footer's order is `Back / Install / Quit`, and `Next` on the pages before it - so
-# focus starts before `Back` and three Tabs land on `Install`.
-- name: focus the Install button from the keyboard
-  key: tab
-  wait_after: 1
-
-- name: through Back
-  key: tab
-  wait_after: 1
-
-- name: and onto Install
-  key: tab
-  wait_after: 1
-
-- name: press it
-  key: ret
-  wait_after: 20
-
-- name: one more press, only if the page never changed
-  at_color:
-  - 60
-  - 110
-  - 180
-  color_tolerance: 25
-  color_region:
-  - 0
-  - 950
-  - 1920
-  - 1080
-  wait_after: 20
-  optional: true
+# AND NOTHING CHECKED THE RESULT. The step after it carried `optional: true`, so a press that did
+# nothing was swallowed: the run then waited an hour for a disk that never grew. Every other press in
+# this tree is followed by a verdict, and this one now is too - the review page is replaced by
+# `Installing` once the install starts.
+#
+# THE NAVY IS MEASURED OVER THE BUTTON ITSELF, not the whole frame, so the search region is the
+# footer where the button is the only thing this dark.
+- name: press install
+  loop:
+    max: 5
+    do:
+    - at_color:
+      - 41
+      - 65
+      - 114
+      color_tolerance: 30
+      color_region:
+      - 600
+      - 950
+      - 900
+      - 1040
+      wait_after: 15
+    ocr:
+      name: install_started
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 3
+      wait: 2
+    check:
+      name: begun
+      from: install_started
+      mode: says_any
+      # `Installing` IS THE PROGRESS PAGE'S OWN WORD; the review page does not carry it.
+      words:
+      - - Installing
+      - - Software
+    until:
+      fact: begun
 
 - name: the install is written
   disk_settle: 180
