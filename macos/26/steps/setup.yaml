@@ -518,9 +518,15 @@ steps:
     # never coming, and the run failed on a disk that was already written.
     #
     # `says_any` CANNOT SAY "OR NOTHING WAS DRAWN" - it needs a word list and an empty reading
-    # matches none of them. `matches` runs a regex over the normalised reading, so `^$` expresses a
-    # black frame exactly: measured, an empty reading matches `^$` and a reading with any letter or
-    # digit does not.
+    # matches none of them. `matches` runs a regex over the normalised reading, so the pattern's
+    # first alternative expresses a black frame.
+    #
+    # IT IS `^.{0,3}$` AND NOT `^$`, MEASURED BOTH WAYS. Run 44190274785's black frames read
+    # `0 word(s)`, which `^$` would catch. But a black frame on this host reads `e` - one stray
+    # character OCR keeps from the noise - and `^$` misses it, so the loop would wait out its whole
+    # ceiling on a screen that is plainly black. `^.{0,3}$` covers "", "e" and a two-token "a b"
+    # (the reading is the words joined by spaces) while still rejecting "about 17 minutes remaining",
+    # "update mac automatically" and "select your country or region" - all six measured.
     #
     # WHAT HAPPENS NEXT IS THE STEP THAT ALREADY FOLLOWS THIS LOOP - `reset the guest after look 1`,
     # which was written for the installer's stall. MEASURED LOCALLY ON A COPY OF THIS RUN'S OWN
@@ -532,7 +538,7 @@ steps:
       name: done
       from: screen
       mode: matches
-      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
+      pattern: '^.{0,3}$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 1, because this installer stalls and a reset is what moves it
@@ -583,7 +589,7 @@ steps:
       name: done
       from: screen
       mode: matches
-      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
+      pattern: '^.{0,3}$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
 
     until:
       fact: done
@@ -635,7 +641,7 @@ steps:
       name: done
       from: screen
       mode: matches
-      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
+      pattern: '^.{0,3}$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 3, because this installer stalls and a reset is what moves it
@@ -686,7 +692,7 @@ steps:
       name: done
       from: screen
       mode: matches
-      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
+      pattern: '^.{0,3}$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 4, because this installer stalls and a reset is what moves it
@@ -737,7 +743,7 @@ steps:
       name: done
       from: screen
       mode: matches
-      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
+      pattern: '^.{0,3}$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 5, because this installer stalls and a reset is what moves it
@@ -788,7 +794,7 @@ steps:
       name: done
       from: screen
       mode: matches
-      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
+      pattern: '^.{0,3}$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 6, because this installer stalls and a reset is what moves it
@@ -839,7 +845,7 @@ steps:
       name: done
       from: screen
       mode: matches
-      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
+      pattern: '^.{0,3}$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: reset the guest after look 7, because this installer stalls and a reset is what moves it
@@ -890,7 +896,7 @@ steps:
       name: done
       from: screen
       mode: matches
-      pattern: '^$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
+      pattern: '^.{0,3}$|select your country or region|transfer your information to this mac|choose a wireless network|sign in with your apple id|update mac automatically|choose your look'
     until:
       fact: done
 - name: the Setup Assistant is on screen, which is what this stage exists to reach
