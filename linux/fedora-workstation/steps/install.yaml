@@ -823,9 +823,17 @@ steps:
     - wait: 1
     ocr:
       name: esp_name
+      # THE CROP IS 60 PIXELS TALL AND OCR RETURNS NOTHING FROM IT AT scale 1. MEASURED:
+      #
+      #	esp_name: 0 word(s):
+      #	esp_name: 2 word(s): = 2
+      #
+      # - a 60-row strip of a text field is below what tesseract will read, so `boot` was never in
+      # the reading and the step failed on a field that held exactly `boot` (the frame shows it).
+      # `scale: 3` is what the tree's other tight crops use.
       region: [560, 240, 1300, 300]
       region_at: [1920, 1080]
-      scale: 1
+      scale: 3
       wait: 0
     check:
       name: took
