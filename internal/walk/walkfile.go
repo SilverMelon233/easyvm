@@ -648,6 +648,20 @@ func parseBoot(l line, rest string, step map[string]any) (map[string]any, error)
 				step["kernel_append"] = line
 			}
 		}
+		// `with a desktop` / `with a console` / `without a display` NAMES THE ADAPTER.
+		//
+		// THE THREE SHAPES ARE NOT COSMETIC. `terminal` is a text-mode adapter, and an X server on it
+		// answers `(EE) no screens found` - MEASURED. `desktop` asks for `virtio-gpu-device`, which is
+		// on the virtio bus (so a machine with no PCIe can attach it) and provides DRM/KMS, so X
+		// draws AND qemu's screendump records what it drew.
+		switch {
+		case strings.Contains(rest, "with a desktop"):
+			step["microvm_display"] = "desktop"
+		case strings.Contains(rest, "without a display"):
+			step["microvm_display"] = "serial"
+		case strings.Contains(rest, "with a console"):
+			step["microvm_display"] = "terminal"
+		}
 		if i := strings.Index(rest, "medium "); i >= 0 {
 			if name, _, err := firstQuote(rest[i:]); err == nil {
 				step["iso"] = name
