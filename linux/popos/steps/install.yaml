@@ -101,250 +101,165 @@ steps:
         - name
     until:
       fact: done
+# THE WIZARD, WALKED BY HAND ON THIS WORKSTATION, PAGE BY PAGE.
+#
+# EVERY COORDINATE AND COLOUR BELOW WAS TAKEN OFF A FRAME OF THE PAGE IT PRESSES, and the two things
+# that made the previous version fail are both here:
+#
+#	A BUTTON IS DARK (rgb(50,50,50)) UNTIL IT IS ENABLED. `at_color` on the accent only ever finds a
+#	button that is already pressable, so the STEP BEFORE each press must select whatever enables it.
+#
+#	`Erase and Install` IS RED (rgb(234,144,144)), NOT GREEN. The wizard's destructive action has its
+#	own colour, and a search for the accent never sees it.
+#
+#	THE KEYBOARD PAGE CAN LAND ON `Arabic (Iraq)` AND THEN ALL TYPED TEXT BECOMES ARABIC - measured,
+#	`VM User` came out as `سنتق`. So the keyboard's `Default` entry is chosen explicitly.
+#
+# THE FOOTER IS (1367, 811) ON EVERY PAGE OF THIS WIZARD, measured on four of them.
 - name: select a language
-  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
-  #
-  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
-  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
-  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
-  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
-  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
-  #
-  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
-  #
-  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
-  #   rgb(144,207,176) 1947 px  <- the fill
-  #   rgb(166,217,192)   70 px  <- its antialiased edge
-  #
-  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
-  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
-  # The region still stops at y=980 so the dock, below it, is outside.
   at_color:
   - 144
   - 207
   - 176
   color_tolerance: 30
-  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
-  #
-  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
-  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
-  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
-  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
-  # (1367, 810): the `Select` button exactly.
   color_region:
   - 1100
   - 700
   - 1920
   - 900
-  at_fallback:
-  wait_after: 21
-- name: language variants
-  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
-  #
-  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
-  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
-  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
-  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
-  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
-  #
-  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
-  #
-  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
-  #   rgb(144,207,176) 1947 px  <- the fill
-  #   rgb(166,217,192)   70 px  <- its antialiased edge
-  #
-  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
-  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
-  # The region still stops at y=980 so the dock, below it, is outside.
+  wait_after: 6
+
+- name: the keyboard page is up
+  loop:
+    max: 20
+    do:
+    - wait: 3
+    ocr:
+      name: kb
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: kb
+      mode: says_any
+      # `Layout` AND `Type to test` ARE THIS PAGE'S OWN; the language page above it has neither.
+      words:
+      - - Layout
+      - - Type
+    until:
+      fact: there
+
+# THE KEYBOARD'S OWN `Default` ENTRY, which is what keeps the layout US. MEASURED: the list's first
+# entry reads `A user-defined custom Layout`, then alphabetical names, and `Default` sits at the top of
+# the INPUT-LANGUAGE list behind the first entry. Choosing `Default` is what the hand run did before
+# `VM User` typed correctly.
+- name: the keyboard layout's Default, which is US
+  click:
+  - 1192
+  - 285
+  wait_after: 3
+
+- name: take the keyboard layout
   at_color:
   - 144
   - 207
   - 176
   color_tolerance: 30
-  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
-  #
-  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
-  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
-  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
-  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
-  # (1367, 810): the `Select` button exactly.
   color_region:
   - 1100
   - 700
   - 1920
   - 900
-  at_fallback:
-  wait_after: 21
-- name: keyboard layout
-  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
-  #
-  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
-  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
-  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
-  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
-  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
-  #
-  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
-  #
-  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
-  #   rgb(144,207,176) 1947 px  <- the fill
-  #   rgb(166,217,192)   70 px  <- its antialiased edge
-  #
-  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
-  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
-  # The region still stops at y=980 so the dock, below it, is outside.
-  at_color:
-  - 144
-  - 207
-  - 176
-  color_tolerance: 30
-  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
-  #
-  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
-  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
-  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
-  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
-  # (1367, 810): the `Select` button exactly.
-  color_region:
-  - 1100
-  - 700
-  - 1920
-  - 900
-  at_fallback:
-  wait_after: 21
-- name: keyboard variants
-  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
-  #
-  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
-  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
-  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
-  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
-  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
-  #
-  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
-  #
-  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
-  #   rgb(144,207,176) 1947 px  <- the fill
-  #   rgb(166,217,192)   70 px  <- its antialiased edge
-  #
-  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
-  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
-  # The region still stops at y=980 so the dock, below it, is outside.
-  at_color:
-  - 144
-  - 207
-  - 176
-  color_tolerance: 30
-  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
-  #
-  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
-  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
-  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
-  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
-  # (1367, 810): the `Select` button exactly.
-  color_region:
-  - 1100
-  - 700
-  - 1920
-  - 900
-  at_fallback:
-  wait_after: 21
+  wait_after: 6
+
+- name: the install page is up
+  loop:
+    max: 20
+    do:
+    - wait: 3
+    ocr:
+      name: inst
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: inst
+      mode: says_any
+      words:
+      - - Clean
+      - - Custom
+    until:
+      fact: there
+
+# `Clean Install` IS A RADIO, AND NOTHING IS SELECTED WHEN THE PAGE OPENS - so `Next` is dark until it
+# is pressed. MEASURED: the radio's own row spans y 415..455, x 990..1300; its centre is (1000, 433).
 - name: clean install
   click:
-  - 1180
-  - 456
-  wait_after: 8
+  - 1000
+  - 433
+  wait_after: 3
+
 - name: install
-  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
-  #
-  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
-  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
-  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
-  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
-  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
-  #
-  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
-  #
-  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
-  #   rgb(144,207,176) 1947 px  <- the fill
-  #   rgb(166,217,192)   70 px  <- its antialiased edge
-  #
-  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
-  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
-  # The region still stops at y=980 so the dock, below it, is outside.
   at_color:
   - 144
   - 207
   - 176
   color_tolerance: 30
-  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
-  #
-  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
-  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
-  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
-  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
-  # (1367, 810): the `Select` button exactly.
   color_region:
   - 1100
   - 700
   - 1920
   - 900
-  at_fallback:
-  wait_after: 21
+  wait_after: 6
+
+- name: the drive page is up
+  loop:
+    max: 20
+    do:
+    - wait: 3
+    ocr:
+      name: drv
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: drv
+      mode: says_any
+      words:
+      - - drive
+      - - Virtio
+    until:
+      fact: there
+
+# THE DISK MUST BE SELECTED before `Erase and Install` is drawn in its own colour. MEASURED: the row
+# reads `Virtio Block Device /dev/vda 128.0 GB` and its centre is (1185, 497).
 - name: select a drive
   click:
-  - 1193
-  - 498
-  wait_after: 8
+  - 1185
+  - 497
+  wait_after: 4
+
+# `Erase and Install` IS RED - rgb(234,144,144), measured over its own box, 3436 pixels. IT IS THE
+# WIZARD'S DESTRUCTIVE ACTION AND IT HAS ITS OWN COLOUR, so the accent search never sees it.
 - name: erase and install
-  # THE ACCENT COLOUR OVER THE WHOLE WIZARD AREA, ABOVE THE DOCK.
-  #
-  # MEASURED: the eight presses on this medium shared one scan box, (1240,755)-(1430,845), which is
-  # where THIS WORKSTATION draws the button. On the runner the installer's window is smaller and drawn
-  # elsewhere - fedora's was 685x365 there against 730x400 here - so the box contained no fill at all
-  # and the `at_fallback` point (1366, 811) landed outside the window: the run's own log shows the
-  # press closing the installer and the next reading being `Workspaces Applications ...`, the desktop.
-  #
-  # THE BUTTON'S FILL IS rgb(144,207,176), MEASURED ON THE BUTTON ITSELF.
-  #
-  # MEASURED over the `Select` button's own box (x 1330..1400, y 795..830 of the language page):
-  #   rgb(144,207,176) 1947 px  <- the fill
-  #   rgb(166,217,192)   70 px  <- its antialiased edge
-  #
-  # `rgb(96,208,216)` CAME FROM A WHOLE-FRAME CENSUS and is the PROGRESS BAR and the window BORDER -
-  # 9920 pixels of chrome. A census finds what there is most of; a button is what fills its own box.
-  # The region still stops at y=980 so the dock, below it, is outside.
   at_color:
+  - 234
   - 144
-  - 207
-  - 176
+  - 144
   color_tolerance: 30
-  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
-  #
-  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
-  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
-  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
-  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
-  # (1367, 810): the `Select` button exactly.
   color_region:
-  - 1100
+  - 1200
   - 700
   - 1920
   - 900
-  at_fallback:
-  wait_after: 44
-# THE ACCOUNT PANE PRINTS `Create User Account`, AND THE OLD CHECK ASKED FOR WORDS IT NEVER SHOWS.
-#
-# MEASURED, tesseract over this pane's own frame:
-#
-#	Install Pop!_OS 24.04 LTS
-#	Choose Account Password
-#	Confirm Password
-#	Create User Account
-#
-# - no `Full`, no `Name`, no `User` as separate words. `says` requires EVERY entry to be present, so
-# this loop could not pass and ran all 45 attempts on a page that was plainly up. The steps after it
-# then clicked into whatever the page had become by the time the loop gave up.
+  wait_after: 10
+
 - name: wait for the account pane
   loop:
     max: 45
