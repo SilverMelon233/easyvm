@@ -607,12 +607,9 @@ var Keys = map[string]Key{
 	// Go reaches - which is what makes `IsCinnamonDesktop` deletable rather than merely redundant.
 	"see": {Name: "see", Kind: KindMapping,
 		Summary: "MEASURE one rect and bind NUMBERS: {name, rect, of}. It decides nothing - a " +
-			"`want:` step answers from the names. `of:` names what to measure: mean, spread, sat, " +
-			"flat_rows, rows, text"},
-	"want": {Name: "want", Kind: KindMapping,
-		Summary: "DECIDE from named readings and bind a BOOLEAN: {name, all|any|not}. It compares " +
-			"with less_than, greater_than, at_least, at_most, equals, or a difference from another " +
-			"reading. It never reads the screen, so it costs nothing to re-ask"},
+			"`check:` step answers from the reading. `of:` names what to measure: mean, spread, " +
+			"sat, flat_rows, rows, text"},
+
 	// --- `check:`'s criteria, and the relations inside them -------------------------------
 	//
 	// THESE ARE SUBKEYS: they are written inside `check:` and never on a step. They are declared
@@ -670,9 +667,6 @@ var Keys = map[string]Key{
 		Summary: "a comparison: <= this"},
 	"between": {Name: "between", Kind: KindPair,
 		Summary: "a comparison: [low, high] inclusive"},
-	"minus": {Name: "minus", Kind: KindString,
-		Summary: "a comparison modifier: subtract another reading first, as " +
-			"`{minus: body.mean, greater_than: 40}`"},
 
 	"rect": {Name: "rect", Kind: KindRect,
 		Summary: "with `see:` and `check:`: the region to measure, as a FRACTION of the frame " +
@@ -693,12 +687,6 @@ var Keys = map[string]Key{
 			"rule is a disjunction of four shapes, which is what this key exists for"},
 	"from": {Name: "from", Kind: KindString,
 		Summary: "with `check:`: which named reading the older single-comparison form compares"},
-	"all": {Name: "all", Kind: KindList,
-		Summary: "with `want:`: every comparison must hold"},
-	"any": {Name: "any", Kind: KindList,
-		Summary: "with `want:`: at least one comparison must hold"},
-	"not": {Name: "not", Kind: KindMapping,
-		Summary: "with `want:`: the comparison must NOT hold"},
 
 	// `settle:` IS `wait:` AND `wait_after:` WITH ONE NAME.
 	//
@@ -793,6 +781,19 @@ var Keys = map[string]Key{
 			"answer CD. The value names WHAT, not how it is obtained"},
 	"to": {Name: "to", Kind: KindString,
 		Summary: "with `scp: {template: KIND}`: the remote path it is copied to"},
+	// THE THREE SETTINGS OF `check: {mode: like}`. A reference comparison is the one mode that
+	// decides on PIXELS, so it names an image and a ceiling rather than words.
+	"reference": {Name: "reference", Kind: KindString,
+		Summary: "with `mode: like`: the image to compare against, relative to the walkthrough - " +
+			"`reference: reference/desktop.png`"},
+	"tolerance": {Name: "tolerance", Kind: KindFloat,
+		Summary: "with `mode: like`: the share of pixels that MAY change, 0..1 - `tolerance: 0.03` " +
+			"is 3%. MEASURED: the same screen a second later differs by 0.5-0.9%, and two " +
+			"different screens by 98-100%, so anything between 2% and 95% works"},
+	"pixel_tolerance": {Name: "pixel_tolerance", Kind: KindInt,
+		Summary: "with `mode: like`: how far one pixel may drift per channel before it counts as " +
+			"changed, 0..255. Default 8 - enough to absorb the encoder's rounding, not enough to " +
+			"absorb a colour a person would see"},
 	"template": {Name: "template", Kind: KindString,
 		Summary: "with `generate: answer_iso`: the answer file to substitute into. It is a path in " +
 			"the repository because the placeholders are the file's vocabulary, not a download"},

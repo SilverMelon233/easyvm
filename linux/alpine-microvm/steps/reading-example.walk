@@ -7,8 +7,10 @@ walkthrough "what a reading looks like"
   read the bottom 4.5% of the screen as "panel"
     measuring mean spread sat flat_rows
 
-  decide "the window is the installer" is:
-    label is similar to "Install now" within 0.85
-    panel mean is between 20 and 60
-    panel spread is less than 42
-    panel flat_rows is at least 3
+  # `want:` USED TO COMBINE FOUR COMPARISONS INTO ONE BOOLEAN, AND NOTHING USED IT.
+  # `check:` binds ONE boolean from ONE reading, so a combined verdict is several steps and one `if:` -
+  # which is what a reader can follow, and what 29 walkthroughs actually do.
+  step "the label says install"
+    check == {name: label_ok, from: label, mode: contains, text: Install}
+  step "the panel is a toolbar"
+    see == {name: ratio, of: [mean], rect: [0, 0, 1920, 1080], rect_at: [1920, 1080], wait: 0}

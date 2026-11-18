@@ -37,6 +37,15 @@ walkthrough "windows 11 - install to a desktop"
   step "wait for the desktop"
     desktop == windows
     timeout == 5400
+  # THE DESKTOP IS THE PICTURE, NOT ONLY THE NUMBERS. `desktop:` decides on seven measurements -
+  # brightness drop, variance ratio, saturation - and several panes can share all seven. This step
+  # says the screen is THE ONE THIS FILE WAS MEASURED ON, by comparing pixels to a frame taken from
+  # this repository's own recording of this leg.
+  #
+  # 3% IS THE CEILING AND THE MEASUREMENT IS WHY: the same screen a second later differs by 0.5-0.9%,
+  # and two different screens by 98-100%, so the gap is three orders of magnitude wide.
+  step "the desktop is the one this file was written against"
+    check == {name: matched, mode: like, reference: reference/desktop.png, tolerance: 0.03}
   step "reboot into the installed system"
     boot == true
     os == windows
