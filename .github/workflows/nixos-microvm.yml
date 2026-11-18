@@ -279,11 +279,19 @@ jobs:
           fi
           # AND IT MUST CARRY THE STABLE `init=` NAME, or the guest stops at
           # `Failed to start Find NixOS closure` on a disk that mounted perfectly.
-          grep -q 'init=/nixos-system/init' result/kernel-args || {
-            echo "::error::kernel-args has no init=/nixos-system/init; the guest would not activate" >&2
-            cat result/kernel-args >&2
-            exit 1
-          }
+          #
+          # THE OUTPUT IS CAPTURED FIRST AND SEARCHED AFTER, rather than piped into `grep -q`:
+          # a quiet grep closes the pipe on its first match, the writer takes SIGPIPE, and under
+          # `set -euo pipefail` that reports a FAILED STEP for a check that succeeded. The
+          # repository has a test for this (`cmd/easyvm/workflow_test.go`), and it caught this line.
+          args=$(cat result/kernel-args)
+          case "$args" in
+            *init=/nixos-system/init*) echo "kernel-args carries the stable init=" ;;
+            *)
+              echo "::error::kernel-args has no init=/nixos-system/init; the guest would not activate" >&2
+              printf '%s\n' "$args" >&2
+              exit 1 ;;
+          esac
 
       - name: write the command that boots it
         # THE RUN PAGE HAS TO BE ENOUGH. Whoever downloads these files should not have to read this

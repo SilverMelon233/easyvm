@@ -77,17 +77,26 @@ if [ ! -d "$WORK/root/usr" ]; then
 	# direct-connect runner is unaffected.
 
 
-	# linux-virt BRINGS THE KERNEL AND /lib/modules, which is what `mkinitfs` reads. The X packages
-	# are what make this a DESKTOP rather than a serial console: openbox is the window manager, and
-	# xf86-video-vesa is the driver a microvm's ISA VGA adapter answers to.
+	# linux-virt BRINGS THE KERNEL AND /lib/modules, which is what `mkinitfs` reads.
+	#
+	# NO X PACKAGES, AND REMOVING THEM IS THE FIX FOR A REAL MISREPORT. This list used to install
+	# `openbox xorg-server xinit xterm xf86-video-vesa`, on the theory that they "make this a DESKTOP
+	# rather than a serial console". MEASURED: they were installed into every alpine image and NEVER
+	# EXECUTED - nothing in `/etc/inittab` started X - so the walkthrough that recorded this guest was
+	# named `desktop.walk` and filmed a text login prompt. A package that nothing runs is 40 MiB of
+	# image and a claim that is not true.
+	#
+	# A microvm cannot run X at all: no firmware (so no VESA framebuffer, no /dev/fb0) and no PCIe
+	# (so `virtio-gpu` attaches and its driver never binds). `machine.Boot.Validate` refuses
+	# `microvm_display: desktop` for that reason; see `vga-console.walk` for what this guest does
+	# prove.
+	#
 	# THE PROXY IS PASSED INTO THE CHROOT, because `apk` reads it from the ENVIRONMENT and a
 	# `/etc/profile.d` file is only sourced by a login shell. MEASURED: without this a runner behind a
 	# proxy answers "temporary failure in name resolution" and installs 9 MiB of nothing.
 	as_root env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_proxy"} \
 		chroot "$WORK/root" /sbin/apk add --no-cache \
-		alpine-base linux-virt mkinitfs \
-		openbox xorg-server xf86-input-libinput xf86-video-vesa \
-		xinit xterm font-misc-misc
+		alpine-base linux-virt mkinitfs
 	log "root tree: $(du -sm "$WORK/root" | cut -f1) MiB"
 fi
 
