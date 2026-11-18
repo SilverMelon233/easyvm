@@ -45,7 +45,7 @@ steps:
   check:
     name: asserted
     from: open_yast2
-    mode: says_any
+    mode: text
     words:
     - [installation]
     - [upgrade]

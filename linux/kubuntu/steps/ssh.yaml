@@ -45,7 +45,7 @@ steps:
     check:
       name: up
       from: desk
-      mode: says_any
+      mode: text
       words:
       - - applications
       - - welcome

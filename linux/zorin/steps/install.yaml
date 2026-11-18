@@ -43,7 +43,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - install
         - zorin
@@ -118,7 +118,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - installation
         - type
@@ -135,7 +135,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - installation
         - type
@@ -161,7 +161,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - write
         - the
@@ -192,7 +192,7 @@ steps:
   check:
     name: ext4
     from: format
-    mode: says
+    mode: text
     words:
     - ext4
 
@@ -212,7 +212,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - where
         - are
@@ -237,7 +237,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - who
         - are

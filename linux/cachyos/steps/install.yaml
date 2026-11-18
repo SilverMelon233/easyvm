@@ -81,7 +81,7 @@ steps:
     check:
       name: up
       from: cal
-      mode: says_any
+      mode: text
       # THE INSTALLER'S FIRST PAGE IS IN SIMPLIFIED CHINESE AND THIS WAIT RUNS BEFORE THE LANGUAGE
       # IS CHANGED, so it must accept the CHINESE title as well as the English one. MEASURED: the
       # page reads `欢迎使用 CachyOS 安装程序`, and a wait for `welcome installer` ran its whole
@@ -149,7 +149,7 @@ steps:
   check:
     name: ok
     from: english
-    mode: says
+    mode: text
     words: [welcome, cachyos]
 
     rect: [0, 0, 1920, 1080]
@@ -199,7 +199,7 @@ steps:
     check:
       name: here
       from: at_location
-      mode: says_any
+      mode: text
       words:
       - - location
       - - timezone
@@ -223,7 +223,7 @@ steps:
     check:
       name: here
       from: at_keyboard
-      mode: says_any
+      mode: text
       words:
       - - keyboard
       rect: [0, 0, 1920, 1080]
@@ -244,7 +244,7 @@ steps:
     check:
       name: here
       from: at_bootloader
-      mode: says_any
+      mode: text
       words:
       - - bootloader
       - - grub
@@ -275,7 +275,7 @@ steps:
   check:
     name: ok
     from: grub
-    mode: says
+    mode: text
     words: [grub]
 
     rect: [0, 0, 1920, 1080]
@@ -295,7 +295,7 @@ steps:
     check:
       name: here
       from: at_partitions
-      mode: says_any
+      mode: text
       words:
       - - erase
       - - partition
@@ -337,7 +337,7 @@ steps:
     check:
       name: here
       from: at_partitions_again
-      mode: says_any
+      mode: text
       words:
       - - partition
       - - erase
@@ -353,7 +353,7 @@ steps:
   check:
     name: ext4
     from: fs
-    mode: says
+    mode: text
     words: [ext4]
 
     rect: [0, 0, 1920, 1080]
@@ -388,7 +388,7 @@ steps:
     check:
       name: here
       from: at_users
-      mode: says_any
+      mode: text
       words:
       - - password
       - - name
@@ -436,7 +436,7 @@ steps:
   check:
     name: ok
     from: filled
-    mode: says_without
+    mode: text
     words: [vmuser]
     without: [match]
 
@@ -456,7 +456,7 @@ steps:
     check:
       name: here
       from: at_summary
-      mode: says_any
+      mode: text
       words:
       - - summary
       - - install
@@ -474,7 +474,7 @@ steps:
   check:
     name: ext4
     from: summary
-    mode: says
+    mode: text
     words: [ext4]
 
     rect: [0, 0, 1920, 1080]
@@ -511,7 +511,7 @@ steps:
     check:
       name: finished
       from: done
-      mode: says
+      mode: text
       words: [installed]
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]

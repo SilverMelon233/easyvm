@@ -46,7 +46,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - installation
         - method
@@ -109,7 +109,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - installation
         - method
@@ -130,7 +130,7 @@ steps:
   check:
     name: asserted
     from: welcome
-    mode: says_any
+    mode: text
     words:
     - [installation, method]
     rect: [0, 0, 1920, 1080]
@@ -146,7 +146,7 @@ steps:
   check:
     name: asserted
     from: installation_method
-    mode: says_any
+    mode: text
     words:
     - [storage, configuration]
     - [configuracion, de, almacenamiento]
@@ -163,7 +163,7 @@ steps:
   check:
     name: asserted
     from: storage_configuration
-    mode: says_any
+    mode: text
     words:
     - [review, and, install]
     - [revisar, e, instalar]
@@ -192,7 +192,7 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - welcome
         - to
@@ -265,7 +265,7 @@ steps:
   check:
     name: asserted
     from: about_you_full_name
-    mode: says
+    mode: text
     words:
     - '{{ user }}'
     rect: [0, 0, 1920, 1080]

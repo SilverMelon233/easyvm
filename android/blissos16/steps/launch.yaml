@@ -68,7 +68,7 @@ steps:
       check:
         name: reached
         from: boot
-        mode: says_any
+        mode: text
         # EITHER THE MENU OR THE ANDROID SPLASH. A menu means grub.cfg was found and is being shown;
         # the splash means it was found and the entry was taken. Both are "the disk started itself".
         words:
@@ -145,7 +145,7 @@ steps:
       check:
         name: asked
         from: chooser
-        mode: says
+        mode: text
         words:
         - home
         - app

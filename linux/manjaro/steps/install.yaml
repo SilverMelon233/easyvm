@@ -47,7 +47,7 @@ steps:
   check:
     name: asserted
     from: open_the_installer
-    mode: says_any
+    mode: text
     words:
     - [welcome]
     - [location]
@@ -115,7 +115,7 @@ steps:
   check:
     name: ext4
     from: fs
-    mode: says
+    mode: text
     words:
     - ext4
 
@@ -199,7 +199,9 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       words:
       - - all
         - done
@@ -218,8 +220,6 @@ steps:
         - completada
       - - instalacion
         - completada
-      rect: [0, 0, 1920, 1080]
-      rect_at: [1920, 1080]
     until:
       fact: done
 - name: stop the machine

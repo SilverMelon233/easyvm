@@ -90,7 +90,7 @@ steps:
   check:
     name: opened
     from: cal
-    mode: says
+    mode: text
     words: [welcome, partitions, next]
 
     rect: [0, 0, 1920, 1080]
@@ -157,7 +157,7 @@ steps:
   check:
     name: ext4
     from: fs
-    mode: says
+    mode: text
     words: [ext4]
 
     rect: [0, 0, 1920, 1080]
@@ -211,7 +211,7 @@ steps:
   check:
     name: ok
     from: filled
-    mode: says_without
+    mode: text
     # THE FORM IS COMPLETE WHEN THE USER NAME IS THERE AND NO MISMATCH IS SHOWN.
     #
     # `short` IS DELIBERATELY NOT IN `without:` - it is a WARNING for a password under eight
@@ -237,7 +237,7 @@ steps:
   check:
     name: ext4
     from: summary
-    mode: says
+    mode: text
     words: [ext4]
 
     rect: [0, 0, 1920, 1080]
@@ -275,7 +275,7 @@ steps:
     check:
       name: finished
       from: done
-      mode: says
+      mode: text
       words: [installed]
       rect: [0, 0, 1920, 1080]
       rect_at: [1920, 1080]
