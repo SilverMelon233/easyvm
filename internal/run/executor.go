@@ -25,9 +25,14 @@ type Executor struct {
 	// StartAt and StopBefore narrow the run, for re-running from the middle.
 	StartAt    string
 	StopBefore string
-	// ManualAfter says the machine OUTLIVES the walk: this run sets it up for a person to drive, so
-	// the recording is not taken and the machine is not shut down at the end.
-	ManualAfter bool
+	// startedAt is when this run began, for the recording's name.
+	startedAt time.Time
+	// `ManualAfter` WAS HERE AND HAD NO CALLER.
+	//
+	// The intent was "this run prepares a machine for a person to drive, so do not record it". Nothing
+	// sets it: `create` starts a sandbox WITHOUT running a walkthrough, so it never reaches `Run` at
+	// all. A field that says a run can hand the machine over, on a code path that cannot, is the same
+	// shape as `requires:` - a claim no code makes. It comes back when there is a caller.
 
 	// rec is the recording in progress. recDone stops its sampler and recStopped is closed by the
 	// goroutine on its way out, so stopping it is a JOIN rather than a hope - a tick in flight can
@@ -133,6 +138,7 @@ func (e *Executor) Run(steps []walk.Step) (Result, error) {
 	//
 	// A FAILING RUN IS THE ONE THAT NEEDS THE RECORDING. The frames are on disk; only the encode was
 	// skipped, and the encode is what turns them into the file a person can watch.
+	e.startedAt = time.Now()
 	defer e.finishRecording()
 
 	// THE RECORDING STARTS WITH THE WALK, NOT WITH A STEP.
