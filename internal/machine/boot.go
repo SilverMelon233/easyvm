@@ -164,6 +164,28 @@ func (b Boot) Validate() error {
 		return err
 	}
 
+	// A MICROVM CANNOT HAVE A DESKTOP, AND SAYING SO HERE IS BETTER THAN A BLACK RECORDING.
+	//
+	// MEASURED, on both adapters a `microvm` machine can create, with Debian 6.12 and Alpine 3.21:
+	//
+	//	virtio-gpu-device   the device attaches, `virtio_gpu` loads, and its probe FAILS with
+	//	                    `status = 0x83` (NEEDS_RESET) - no /dev/dri/card0 ever appears, so X
+	//	                    answers `(EE) no screens found`
+	//	isa-vga             a TEXT adapter: no DRM node, and no /dev/fb0 either, because
+	//	                    CONFIG_FB_VESA needs a VBE BIOS call and a microvm HAS NO FIRMWARE
+	//
+	// The root cause is the machine type: no firmware and no PCIe, and a desktop needs one of them.
+	// A file that asks anyway would run for two minutes and produce a video of nothing, so it is
+	// refused by name instead. `desktop` on a q35 boot is unaffected and still works.
+	if b.MicroVM && b.MicroVMDisplay == "desktop" {
+		return fmt.Errorf("a microvm cannot have a desktop: `microvm_display: desktop` asks for a " +
+			"GPU, and a microvm has neither firmware nor PCIe. MEASURED on both adapters this " +
+			"machine type can create - `virtio-gpu-device` attaches but its driver never binds " +
+			"(virtio status 0x83, NEEDS_RESET, no /dev/dri/card0), and `isa-vga` is a text adapter " +
+			"with no /dev/fb0 because CONFIG_FB_VESA needs a VBE BIOS call and there is no firmware. " +
+			"Use `microvm_display: serial` (no adapter) or `terminal` (a text console, which is what " +
+			"`see:` can read); a desktop needs a q35 boot")
+	}
 	if b.ISO != "" {
 		if b.OS.IsMacOS() {
 			return fmt.Errorf("macOS has no install ISO; it installs from its recovery image. " +

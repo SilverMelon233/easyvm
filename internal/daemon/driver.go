@@ -921,20 +921,38 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		// whose resolution is qemu's own default, and the walkthrough that reads it says what it
 		// expects rather than needing 1920x1080.
 		if boot.MicroVM {
-			// `desktop` ASKS FOR A GPU, NOT A TEXT CONSOLE.
+			// `desktop` ASKS FOR A GPU, AND ON A MICROVM THAT REQUEST CANNOT BE SATISFIED.
 			//
-			// `isa-vga` IS A TEXT-MODE ADAPTER: it gives the guest 80x25 with no DRM node and no
-			// `/dev/fb0`, so an X server on it cannot find a screen. MEASURED, twice:
+			// THIS COMMENT USED TO CLAIM THE OPPOSITE, AND THE CLAIM WAS NEVER TESTED. It said
+			// `virtio-gpu-device` "is on the virtio bus, not PCI, which is why a machine with no PCIe
+			// can still attach it ... the guest gets /dev/dri/card0, X draws". MEASURED on 2026-11-18,
+			// with Debian 6.12 and Alpine 3.21: the device attaches and the driver NEVER BINDS.
 			//
-			//	openbox on isa-vga   (EE) no screens found - X exits before it draws
-			//	xfce on Xvfb         the desktop is in the guest's MEMORY, and a qemu screendump
-			//	                     reads the ADAPTER, so the recording shows the console instead
+			//	qemu:  virtio-gpu-device on virtio-mmio-bus.23      (present)
+			//	guest: /sys/bus/virtio/devices/virtio1  device=0x0010  modalias virtio:d00000010v554D4551
+			//	       modules.alias has `virtio:d00000010v* virtio_gpu`  (matches)
+			//	       lsmod: virtio_gpu 102400 0                      (loaded, 0 users)
+			//	       virtio1/driver                                  (does not exist - never bound)
+			//	       virtio1/status = 0x83                           (contains 0x80 NEEDS_RESET)
+			//	       dmesg | grep -c virtio_gpu = 0                  (probe logged nothing)
+			//	       /sys/class/drm/ holds only `version`            (no card0)
 			//
-			// `virtio-gpu-device` IS ON THE virtio BUS, NOT PCI, which is why a machine with no PCIe
-			// can still attach it: it is the same transport `virtio-blk-device` and
-			// `virtio-net-device` already use here. It provides DRM/KMS, so the guest gets
-			// `/dev/dri/card0`, X draws, and - the point of this whole exercise - the picture is in
-			// an adapter qemu owns, so `screendump` records it.
+			// A status of 0x83 means ACKNOWLEDGE|DRIVER|DRIVER_OK plus NEEDS_RESET: the driver
+			// negotiated, then failed and asked the device to reset. Nothing produces /dev/dri/card0,
+			// so X answers `(EE) no screens found` on a machine whose GPU is attached.
+			//
+			// THE ALTERNATIVE IS CLOSED TOO. `isa-vga` is a text-mode adapter and was tried with both
+			// X drivers:
+			//
+			//	modesetting   no DRM node to open      -> no screens found
+			//	fbdev         needs /dev/fb0, and there is none: CONFIG_FB_VESA=y wants a VBE BIOS
+			//	              call, and this machine HAS NO FIRMWARE. /sys/class/graphics lists only
+			//	              `fbcon`, the console layer over an absent device.
+			//
+			// SO THE ROOT CAUSE IS THE MACHINE TYPE, NOT A DRIVER CHOICE: a microvm has no firmware
+			// and no PCIe, and a desktop needs one of the two. The option is kept - it still
+			// selects the adapter a future fix would use, and `desktop` on a q35 boot is unaffected -
+			// but a microvm asking for it is refused below rather than given a black recorder.
 			if boot.MicroVMDisplay == "desktop" {
 				args = append(args, "-device", "virtio-gpu-device")
 				break
@@ -953,8 +971,9 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 			//	Kernel 6.12.1-3-virt on an x86_64 (/dev/tty1)
 			//	localhost login:
 			//
-			// - which is what `see:` measures. `vgamem_mb=16` is enough for a text console and a
-			// quarter of what a full machine's adapter takes.
+			// - which is what `see:` measures. THIS IS A TEXT CONSOLE AND NOT A DESKTOP: no DRM
+			// node, no /dev/fb0, so nothing that draws an X window can use it. `vgamem_mb=16` is
+			// enough for a text console and a quarter of what a full machine's adapter takes.
 			args = append(args, "-device", "isa-vga,vgamem_mb=16")
 			break
 		}

@@ -237,9 +237,17 @@ var Keys = map[string]Key{
 			"whose root is a real filesystem - the default is Alpine's diskless `modloop=/dev/vda`, " +
 			"which mounts OVER the root disk and drops the guest to an emergency shell"},
 	"microvm_display": {Name: "microvm_display", Kind: KindString,
-		Summary: "with `microvm:`: `serial` (no VGA, so `see:` reads nothing), `terminal` (VGA, " +
-			"and the guest draws its TTY there), or `desktop` (VGA with a window manager). The " +
-			"default is `terminal`, because a black video cannot be debugged"},
+		// `desktop` WAS DESCRIBED HERE AS "VGA with a window manager" AND THAT IS NOT WHAT IT DOES:
+		// it asks for a GPU, and a microvm cannot provide one. MEASURED, both adapters this machine
+		// type can create - `virtio-gpu-device` attaches and its driver never binds (no
+		// /dev/dri/card0), `isa-vga` is text-only and has no /dev/fb0 without firmware. The engine
+		// now REFUSES it on a microvm rather than recording a black field; see
+		// `machine.Boot.Validate`.
+		Summary: "with `microvm:`: `serial` (no adapter at all, so `see:` reads nothing) or " +
+			"`terminal` (a TEXT console, which is what `see:` can read). The default is " +
+			"`terminal`, because a black video cannot be debugged. `desktop` is accepted by the " +
+			"vocabulary but REFUSED on a microvm: a GPU needs firmware or PCIe and a microvm has " +
+			"neither, so it is a q35-only shape"},
 	"microvm": {Name: "microvm", Kind: KindBool,
 		Summary: "with `boot:`: the smallest machine that can boot a modern Linux kernel - no " +
 			"firmware, no devices the guest does not need, a direct kernel hand-off. For a " +
