@@ -124,11 +124,18 @@ steps:
   - 207
   - 176
   color_tolerance: 30
+  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
+  #
+  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
+  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
+  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
+  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
+  # (1367, 810): the `Select` button exactly.
   color_region:
-  - 0
-  - 0
+  - 1100
+  - 700
   - 1920
-  - 980
+  - 900
   at_fallback:
   wait_after: 21
 - name: language variants
@@ -154,11 +161,18 @@ steps:
   - 207
   - 176
   color_tolerance: 30
+  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
+  #
+  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
+  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
+  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
+  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
+  # (1367, 810): the `Select` button exactly.
   color_region:
-  - 0
-  - 0
+  - 1100
+  - 700
   - 1920
-  - 980
+  - 900
   at_fallback:
   wait_after: 21
 - name: keyboard layout
@@ -184,11 +198,18 @@ steps:
   - 207
   - 176
   color_tolerance: 30
+  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
+  #
+  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
+  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
+  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
+  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
+  # (1367, 810): the `Select` button exactly.
   color_region:
-  - 0
-  - 0
+  - 1100
+  - 700
   - 1920
-  - 980
+  - 900
   at_fallback:
   wait_after: 21
 - name: keyboard variants
@@ -214,11 +235,18 @@ steps:
   - 207
   - 176
   color_tolerance: 30
+  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
+  #
+  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
+  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
+  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
+  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
+  # (1367, 810): the `Select` button exactly.
   color_region:
-  - 0
-  - 0
+  - 1100
+  - 700
   - 1920
-  - 980
+  - 900
   at_fallback:
   wait_after: 21
 - name: clean install
@@ -249,11 +277,18 @@ steps:
   - 207
   - 176
   color_tolerance: 30
+  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
+  #
+  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
+  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
+  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
+  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
+  # (1367, 810): the `Select` button exactly.
   color_region:
-  - 0
-  - 0
+  - 1100
+  - 700
   - 1920
-  - 980
+  - 900
   at_fallback:
   wait_after: 21
 - name: select a drive
@@ -284,11 +319,18 @@ steps:
   - 207
   - 176
   color_tolerance: 30
+  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
+  #
+  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
+  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
+  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
+  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
+  # (1367, 810): the `Select` button exactly.
   color_region:
-  - 0
-  - 0
+  - 1100
+  - 700
   - 1920
-  - 980
+  - 900
   at_fallback:
   wait_after: 44
 # THE ACCOUNT PANE PRINTS `Create User Account`, AND THE OLD CHECK ASKED FOR WORDS IT NEVER SHOWS.
@@ -437,11 +479,18 @@ steps:
   - 207
   - 176
   color_tolerance: 30
+  # THE LOWER HALF OF THE WIZARD, NOT THE WHOLE FRAME.
+  #
+  # MEASURED: with the search over `y 0..980` the same colour found 1297 pixels across
+  # `x568..1408 y238..826` - the ROBOT ILLUSTRATION on the language page, whose greens are within the
+  # tolerance - and the centre it computed was (988, 532), nowhere near the button.
+  # Restricted to `y 700..870, x 1200..1500` it finds 2476 pixels in `x1326..1408 y795..826`, centre
+  # (1367, 810): the `Select` button exactly.
   color_region:
-  - 0
-  - 0
+  - 1100
+  - 700
   - 1920
-  - 980
+  - 900
   at_fallback:
   wait_after: 25
 # THE PRESS IS FOLLOWED BY A VERDICT, FOR THE SAME REASON AS EVERY OTHER BUTTON IN THIS TREE.
