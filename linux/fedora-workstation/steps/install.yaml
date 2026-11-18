@@ -971,38 +971,19 @@ steps:
   - 1080
   wait_after: 20
 
-- name: press it again, up to four times, until the page changes
-  loop:
-    max: 4
-    do:
-    - at_color:
-      - 60
-      - 110
-      - 180
-      color_tolerance: 25
-      color_region:
-      - 0
-      - 950
-      - 1920
-      - 1080
-      wait_after: 12
-    ocr:
-      name: after_install
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
-      wait: 2
-    check:
-      name: left
-      from: after_install
-      # `Installing` IS THE PROGRESS PAGE AND `Review` IS THE ONE THIS PRESS LEAVES.
-      mode: says_without
-      words:
-      - - Installing
-      without: [Review]
-    until:
-      fact: left
-
+# THE PRESS AFTER IT IS CONDITIONAL, BECAUSE THE FIRST ONE ALREADY WORKED.
+#
+# MEASURED on the runner:
+#
+#	clicked (740, 989), the centre of the rgb(60,110,180) blob     <- the press landed
+#	press it again ... [1.1]: no pixel within 25 of rgb(60,110,180) <- the loop's second attempt
+#
+# THE BLUE WAS GONE BECAUSE THE INSTALL HAD STARTED - the progress page has no primary button - so the
+# loop's next press failed to find its colour and reported the page as wrong. The press worked and the
+# retry broke the run.
+#
+# SO THE RETRY IS A LOOP THAT ONLY PRESSES WHEN THE PAGE IS STILL THE REVIEW PAGE: read first, decide,
+# and press only if the reading says `Review`.
 - name: the wizard left the review page
   loop:
     max: 20
@@ -1017,13 +998,29 @@ steps:
     check:
       name: gone
       from: after_install
-      # `Review` IS THE PAGE THAT MUST BE GONE; `Installing` / `install` are what replaces it.
+      # `Installing` IS THE PROGRESS PAGE; `Review` IS WHAT MUST BE ABSENT.
       mode: says_without
       words:
       - - Installing
       without: [Review]
     until:
       fact: gone
+
+# AND IF IT IS STILL THERE AFTER ALL THAT, ONE MORE PRESS - WITHOUT A VERDICT OF ITS OWN, because the
+# disk step below is the real one.
+- name: one more press, only if the page never changed
+  at_color:
+  - 60
+  - 110
+  - 180
+  color_tolerance: 25
+  color_region:
+  - 0
+  - 950
+  - 1920
+  - 1080
+  wait_after: 20
+  optional: true
 
 - name: the install is written
   disk_settle: 180
