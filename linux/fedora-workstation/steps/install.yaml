@@ -740,24 +740,76 @@ steps:
       fact: up
 
 
-- name: choose the ESP type, because the dialog defaults to ext4
+# THE TYPE LIST IS A NATIVE SELECT, SO THE KEYBOARD PICK IS STEADIER THAN A POPUP COORDINATE.
+#
+# MEASURED: the previous pair clicked the combo and then an item's coordinate, and the dialog came
+# back with `Type [EXT4]` - the list had closed without taking the choice, so the "ESP" was created as
+# a second ext4 partition (and then could not be the boot device). A popup that closes on the wrong
+# press is the same failure the row menus had.
+#
+# A NATIVE SELECT RESPONDS TO TYPE-AHEAD: focus it, type the option's first letters, and press Return.
+# `EFI system partition` is the only option starting with `EF`, so two keys are enough.
+- name: focus the type list
   click:
   - 882
-  - 394
+  - 396
+  wait_after: 3
+
+- name: type the option's own prefix
+  type: 'EF'
+  wait_after: 3
+
+- name: and take it, which a native select does on Return
+  key: ret
   wait_after: 4
 
-- name: EFI system partition
-  click:
-  - 648
-  - 576
-  wait_after: 4
+- name: the type is the ESP now
+  loop:
+    max: 10
+    do:
+    - wait: 2
+    ocr:
+      name: type_now
+      region: [500, 540, 1300, 620]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: esp
+      from: type_now
+      mode: says_any
+      words:
+      - - EFI
+    until:
+      fact: esp
 
 - name: name it boot
   click:
   - 882
   - 271
+  clear: true
   type: boot
   wait_after: 2
+
+- name: the name took
+  loop:
+    max: 8
+    do:
+    - wait: 1
+    ocr:
+      name: esp_name
+      region: [560, 240, 1300, 300]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: took
+      from: esp_name
+      mode: says_any
+      words:
+      - - boot
+    until:
+      fact: took
 
 # THE ESP'S DIALOG IS VERIFIED BEFORE ITS BUTTON IS PRESSED, BECAUSE THIS IS WHERE IT WENT WRONG.
 #
