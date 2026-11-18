@@ -108,6 +108,15 @@ type Boot struct {
 	// MicroVM asks for the smallest machine that boots a modern Linux kernel: qemu's `microvm`
 	// machine type, no PCIe, no IDE, no USB, no VGA.
 	MicroVM bool
+	// MicroVMDisplay is serial, terminal or desktop - whether the microvm has a VGA adapter.
+	//
+	//	serial     graphics=off: serial only. `see:` reads nothing and a recording is blank.
+	//	terminal   graphics=on:  a VGA adapter the guest draws its TTY on. A recording of a
+	//	                         headless guest is a PICTURE of its console.
+	//	desktop    graphics=on:  the same adapter with a window manager on it.
+	//
+	// The last two are the SAME qemu machine; what separates them is what the guest runs.
+	MicroVMDisplay string
 	// Kernel and Initrd are handed to qemu directly, which is how a microvm starts: there is no
 	// firmware to read a boot sector, so the host supplies the kernel the guest runs.
 	Kernel string
