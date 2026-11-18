@@ -342,56 +342,78 @@ steps:
       - - User
     until:
       fact: done
+# THE ACCOUNT PAGE'S FIELDS ARE 87 ROWS LOWER ON THE RUNNER THAN THE VALUES IN THIS FILE.
+#
+# MEASURED off run 44261873378's own recording (its account page, second by second):
+#
+#	Full Name box   x 966..1413,  y 516..543   -> centre (1190, 530)
+#	User Name box   x 966..1413,  y 588..615   -> centre (1190, 602)
+#	Next            x 1324..1410, y 804..828   -> centre (1367, 816)
+#
+# - while this file pressed (1195, 443) for the name and (1195, 445) for the password. 443 is 87 rows
+# ABOVE the box, so the name was never typed, `Next` stayed disabled, and the press that followed
+# went through it to the PAGE BEHIND.
+#
+# AND WHAT WAS BEHIND IT WAS THE AVATAR, WHICH OPENS A FILE CHOOSER. The run's last frame is a
+# `Choose Icon` dialog over the wizard - `Recent / Home / Desktop / Other Locations`, `No Results
+# Found` - because (1366, 811) is the avatar button as well as the disabled `Next`. Every retry opened
+# it again, and the password pane it waited for was never reachable.
+#
+# SO THE NAME IS PRESSED AT ITS OWN CENTRE AND READ BACK, and the tab that was supposed to "let it
+# validate" is gone: `Tab` moved focus to the avatar, and the press after it activated that instead.
+# The wizard derives the user name from the full name, so nothing else needs typing.
 - name: type the display name
-  click:
-  - 1195
-  - 443
-  type: VM User
-  type_gap: 0.09
-  wait_after: 2
-- name: leave the field so it validates
-  key: tab
-  wait_after: 2
-# THE PRESS IS RETRIED UNTIL THE NEXT PANE APPEARS, BECAUSE ONE PRESS SOMETIMES DOES NOT TAKE.
+  loop:
+    max: 4
+    do:
+    - click:
+      - 1190
+      - 530
+      clear: true
+      type: VM User
+      type_gap: 0.09
+      wait_after: 2
+    ocr:
+      name: name_box
+      # THE BOX'S OWN INTERIOR, ENLARGED, so the reading is the text inside it and not the label.
+      region: [968, 518, 1411, 541]
+      region_at: [1920, 1080]
+      scale: 6
+      wait: 1
+    check:
+      name: took
+      from: name_box
+      mode: says_any
+      # `VM` IS THE FIRST TOKEN OF THE NAME TYPE: `VM User`. The empty box carries no text at all.
+      words:
+      - - VM
+      - - User
+    until:
+      fact: took
+
+# THE PRESS IS RETRIED UNTIL THE PASSWORD PANE APPEARS, AND THE VERDICT IS THAT PANE'S OWN LABELS.
 #
-# MEASURED on the CI leg: the fallback point (1366, 811) was pressed, and the next reading was
-#
-#	screen: 141 word(s): Workspaces Applications M1117 9:04 PM ...
-#
-# - THE DESKTOP. The wizard had closed or the press had gone to the dock, and the steps after it
-# typed a password into the wallpaper before the install step found the disk at 0 MiB.
-#
-# `at_button` WITH `at_fallback` PRESSES ONCE. This is a loop instead: press, then read the pane the
-# press is supposed to reach, and press again if it is not there. The verdict is `Choose Account
-# Password`, which is on the password pane and nowhere on the account-name pane before it.
+# MEASURED: `Confirm` and `Password` are drawn on the password pane and nowhere on the account pane
+# before it. A press that misses costs one attempt; the ESC below closes a file chooser if a stray
+# press opened the avatar.
 - name: create user account, and wait for the password pane
   loop:
     max: 6
     do:
     - click:
-      - 1366
-      - 811
+      - 1367
+      - 816
       wait_after: 8
     ocr:
       name: pw_pane
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
-      scale: 1
+      scale: 3
       wait: 2
     check:
       name: there
       from: pw_pane
       mode: says_any
-      # `Choose` IS ON THE DESKTOP - MEASURED, the run's own reading after the press was
-      #
-      #	pw_pane: 144 word(s): Workspaces Applications M1118 415 AM, uo om OO > lan ee, A ...
-      #	check: there = true (read "Choose")
-      #
-      # - the DESKTOP, with `Choose` somewhere in it. The press had closed the installer (or gone to
-      # the dock), and this check then said the password pane was up. Everything after it typed a
-      # password into the wallpaper and pressed `Don't Encrypt` into the dock at (907, 1047).
-      #
-      # `Confirm Password` IS THE PANE'S OWN SECOND LABEL and the desktop does not carry it.
       words:
       - - Confirm
       - - Password
@@ -413,17 +435,31 @@ steps:
 # `admin` IS SHORT AND THAT IS NOT A REFUSAL: the warning is drawn and `Next` turns GREEN anyway,
 # exactly as `Password is too short` is a warning in kubuntu's Calamares. The confirm field is the
 # same box 102 pixels lower: (1195, 547).
+# THE PASSWORD FIELDS ARE THE SAME TWO BOXES AS THE NAME FIELDS, 87 ROWS LOWER THAN THIS FILE SAID.
+#
+# MEASURED on the account page of run 44261873378: its two boxes are at y 516..543 and 588..615, with
+# `Next` at y 804..828. This file pressed 445 and 547 - the same 87-row error the name box had - so
+# both presses landed on the page above the fields.
+#
+# THE PASSWORD PANE REUSES THAT LAYOUT: same card, same two boxes, the second 72 rows below the
+# first. So the presses are (1190, 530) and (1190, 602), and each is read back - a box that took the
+# password shows dots, and a box that did not shows its own label.
+#
+# `admin` IS SHORT AND THAT IS NOT A REFUSAL: the warning is drawn and `Next` turns green anyway,
+# exactly as `Password is too short` is a warning in kubuntu's Calamares.
 - name: type the password
   click:
-  - 1195
-  - 445
+  - 1190
+  - 530
+  clear: true
   type: '{{ password }}'
   type_gap: 0.09
   wait_after: 2
 - name: confirm the password
   click:
-  - 1195
-  - 547
+  - 1190
+  - 602
+  clear: true
   type: '{{ password }}'
   type_gap: 0.09
   wait_after: 2
