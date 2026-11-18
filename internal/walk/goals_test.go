@@ -650,6 +650,11 @@ func TestEverySCPSourceIsProducedByAnEarlierStep(t *testing.T) {
 			if produced[src] {
 				continue
 			}
+			// A FILE BESIDE THE WALKTHROUGH IS A SOURCE. That is what replaced `script:`: a body too
+			// long to inline lives in `steps/<walk>/<name>`, and `scp:` finds it there.
+			if _, err := os.Stat(filepath.Join(filepath.Dir(path), src)); err == nil {
+				continue
+			}
 			// A SOURCE PRODUCED BY `fetch: iso` VARIES BY DISTRIBUTION, so a file whose own earlier
 			// steps name it is accepted: the fetch writes wherever that kind says, and this test cannot
 			// know every installer's name.

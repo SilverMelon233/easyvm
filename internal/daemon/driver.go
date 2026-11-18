@@ -1050,8 +1050,17 @@ func (m machineControl) Stop(method string, grace time.Duration) error {
 		d.logf("  killing the guest")
 		killNow = true
 	case "wait":
-		// THE GUEST WAS ASKED TO STOP BY SOMETHING ELSE - a `ssh: poweroff` step - AND THIS WAITS FOR
-		// IT TO GO.
+		// THE GUEST WAS ASKED TO STOP BY SOMETHING ELSE - a `ssh: ... poweroff` step - AND THIS WAITS
+		// FOR IT TO GO.
+		//
+		// THE STEP THAT SENDS THE REQUEST NEEDS `sudo`, AND WITHOUT IT NOTHING HERE FAILS: `poweroff`
+		// as a plain user exits 1 on every distribution here, the connection stays up, so the old
+		// `shutdown: ssh` logged nothing and then waited the whole grace before killing a guest it
+		// had never asked to stop. MEASURED: that is what every `shutdown: ssh` in this tree did.
+		//
+		// So the command is `printf '%s\n' '{{ password }}' | sudo -S -p '' poweroff`, the same
+		// shape every other privileged step in these files uses. `sudo -v` does not survive: its
+		// timestamp is five minutes and an install is forty.
 		//
 		// `ssh` WAS A METHOD HERE AND IT SENT THE REQUEST AS WELL, WHICH MADE THE SHUTDOWN A SECOND
 		// WAY TO RUN ONE COMMAND. Every Linux and BSD file used it to deliver `poweroff`, which is a

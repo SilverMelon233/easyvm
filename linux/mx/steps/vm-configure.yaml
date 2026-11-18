@@ -151,9 +151,8 @@ steps:
     '
   timeout: 60
 - name: ask the guest to power off
-  ssh: poweroff
+  ssh: printf '%s\n' '{{ password }}' | sudo -S -p '' poweroff
   timeout: 300
-  optional: true
 - name: wait for the machine to stop
   shutdown: wait
   timeout: 300

@@ -3,7 +3,6 @@ package run
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -383,8 +382,6 @@ func (e *Executor) runOne(s walk.Step) error {
 		return e.doFetch(s)
 	case s.Has("scp"):
 		return e.doSCP(s)
-	case s.Has("script"):
-		return e.doScript(s)
 	case s.Has("desktop"):
 		return e.doDesktop(s)
 	// THE TWO `share_*` BRANCHES WERE HERE. The share is always on now
@@ -875,29 +872,15 @@ func notImplemented(s walk.Step, key string) error {
 	return fmt.Errorf("%w: step %q needs %q", errNotImplemented, s.Name, key)
 }
 
-// scriptName is the file a `script:` body is written as.
-func scriptName(s walk.Step) string {
-	if v := s.Get("script_name"); v != "" {
-		return v
-	}
-	base := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			return r
-		}
-		return '-'
-	}, strings.ToLower(s.Name))
-	return filepath.Base(base) + ".ps1"
-}
-
 // errStopped is returned when a `stop` request ended the walk at a step boundary.
 var errStopped = errors.New("stopped as asked")
 
 // stepNeedsAGuest reports whether a step expects something to ANSWER.
 //
 // IT IS AN ALLOWLIST OF THE OPPOSITE: the steps that work on FILES are listed, and everything else is
-// assumed to need the machine. That way a key added to the vocabulary without a thought here is refused
-// after a shutdown - noisy and correct - rather than silently writing into a guest that is not there.
+// assumed to need the machine. That way a key added to the vocabulary without a thought here is
+// refused after a shutdown - noisy and correct - rather than silently writing into a guest that is
+// not there.
 func stepNeedsAGuest(s walk.Step) bool {
 	switch {
 	// the ending of a walk, and anything that turns files into other files

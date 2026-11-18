@@ -236,7 +236,8 @@ var Keys = map[string]Key{
 	"shutdown": {Name: "shutdown", Kind: KindString,
 		Summary: "a NAMED method: guest_agent, wait, acpi, or kill; there is no silent fallback " +
 			"between them. `wait` sends nothing and only waits for a guest that an earlier " +
-			"`ssh: poweroff` step asked to stop"},
+			"`ssh:` step asked to stop - and that step needs `sudo`, or the request is refused and " +
+			"`wait` spends its whole grace waiting for a machine nobody asked to stop"},
 	"graceful": {Name: "graceful", Kind: KindBool,
 		Summary: "ask the guest to shut down rather than killing it"},
 	"record": {Name: "record", Kind: KindRecord,
@@ -437,20 +438,21 @@ var Keys = map[string]Key{
 	"scp": {Name: "scp", Kind: KindAny,
 		Summary: "copy a file in. [local-file, remote-path], or {template: KIND, to: REMOTE} to " +
 			"render a bootstrap file (launcher, macos_agent_plist, windows_task) and copy it"},
-	// IT IS `scp` PLUS `ssh`, AND IT EARNS THE STEP AT LENGTH.
+	// `script:` WAS HERE, AND IT IS THE FILE BESIDE THE WALKTHROUGH NOW.
 	//
-	// `doScript` writes the body on the host, copies it in, and runs it by path - which is exactly
-	// what `scp:` and `ssh:` do in two steps, so this was a candidate for deletion. MEASURED, the
-	// bodies are 400 to 6600 characters and every one carries BOTH quote characters (the largest:
-	// 23 single and 18 double). Inlined into `ssh: "..."` each needs its double quotes escaped, and
-	// `install-powershell-7.ps1` alone would become a 6600-character line with dozens of `\"`.
+	// It was `scp` + `ssh` in one key: write the body on the host, copy it in, run it by path. I
+	// argued to keep it as an "escape valve" because inlining a 6600-character PowerShell body into
+	// `ssh: "..."` needs dozens of escaped quotes - and that argument was answering the wrong
+	// question. The body did not have to be IN the file. Once `scp:` could find a file BESIDE the
+	// walkthrough, the two steps it always was, written plainly:
 	//
-	// SO THE STEP IS THE ESCAPE VALVE: it exists for the case where `ssh:` would be unreadable, and
-	// the file says `{shell, name, body}` instead. A short command belongs in `ssh:`; this is for the
-	// ones that do not fit.
-	"script": {Name: "script", Kind: KindMapping,
-		Summary: "a LONG body: written on the host, copied in, and run by path, with no shell " +
-			"escaping. For a command that fits in `ssh:`, write it there instead"},
+	//	scp: [install-powershell-7.ps1, C:/Users/{{ user }}/install-powershell-7.ps1]
+	//	ssh: powershell -NoProfile -ExecutionPolicy Bypass -File C:/Users/{{ user }}/install-powershell-7.ps1
+	//
+	// MEASURED on the sixteen bodies it held: 42,000 characters of escaped script across two files,
+	// and extracting them took windows/11/steps/dev.walk from 46,315 bytes to 6,932. The scripts are
+	// now real files a shell can lint, with syntax highlighting and no escaping at all.
+	//
 	"adb": {Name: "adb", Kind: KindScript,
 		Summary: "a command run over adb IN the guest; Android's remote access is adbd and " +
 			"there is no sshd until a stage installs one"},

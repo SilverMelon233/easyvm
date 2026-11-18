@@ -12,7 +12,7 @@ func ExecutableKeys() []string {
 		"boot", "boot_from", "shutdown",
 		"disk",
 		"record", "compress",
-		"needs", "require", "require_ssh", "ssh", "scp", "script", "write", "fetch", "asset", "build", "generate",
+		"needs", "require", "require_ssh", "ssh", "scp", "write", "fetch", "asset", "build", "generate",
 		"desktop",
 		"type", "key", "double", "click",
 		"screenshot",

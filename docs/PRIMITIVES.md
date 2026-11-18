@@ -65,7 +65,6 @@ reason `internal/screen` grew to 1219 lines with nine `Is…Desktop` predicates.
 | `run` | shell text | type a command into the guest's own terminal | 78 |
 | `ssh` | shell text | one command over ssh; exit status is the verdict | 266 |
 | `scp` | `[local, remote]` | one copy, size-checked on both sides | 25 |
-| `script` | kind | write a body on the host, copy it in, run it by path | 16 |
 | `adb` | shell text | one command over the Android Debug Bridge | 16 |
 | `require_ssh` | bool | wait for sshd before the steps that use it | 40 |
 
@@ -235,7 +234,7 @@ name, and they keep working because the executor reads both.
 | `until`, `until_any` | 79 | `loop: {until:}` |
 | `family` | 0 | `os:` — **MIGRATED** |
 | `asset`, `build`, `generate` | 0 | `fetch:` — **MIGRATED** |
-| `script_shell`, `script_name` | 0 | `script: {body:, shell:, name:}` — **MIGRATED** |
+| `script`, `script_shell`, `script_name` | 0 | `scp:` a file beside the walkthrough + `ssh:` — **DELETED**: the 16 bodies became real files, and windows/11/steps/dev.walk went from 46,315 to 6,932 bytes |
 | `at_bottom` | 8 | `at_button:` |
 | `skip_when_unfinished` | 5 | `if: finished` |
 | `release` | 4 | `os: macos-15` |

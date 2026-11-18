@@ -171,7 +171,6 @@ var Roles = map[string]Role{
 	"ssh_probe":        RoleArgument,
 	"ssh_after_reboot": RoleArgument,
 	"scp":              RoleAction,
-	"script":           RoleAction,
 	"adb":              RoleAction,
 	"adb_privileged":   RoleAction,
 	"adb_connect":      RoleAction,
@@ -343,7 +342,7 @@ var dispatchOrder = []string{
 	"until", "until_any", "run", "esp_fallback", "adb_connect", "adb_privileged", "adb",
 	"at_color", "at_bottom", "at_button", "disk_settle", "screenshot", "write",
 	"fetch", "asset", "build", "generate",
-	"scp", "script", "desktop", "type", "key", "double", "click",
+	"scp", "desktop", "type", "key", "double", "click",
 	"wait", "settle",
 }
 

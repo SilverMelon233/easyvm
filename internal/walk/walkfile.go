@@ -969,8 +969,8 @@ func walkVerbFor(key string) (string, bool) {
 		"when": "when", "when_not": "unless", "loop": "repeat",
 		"shutdown": "stop",
 		"check":    "decide", "screenshot": "screenshot", "compress": "compress",
-		"scp":    "scp",
-		"script": "script", "write": "write", "reboot": "reboot",
+		"scp":   "scp",
+		"write": "write", "reboot": "reboot",
 		"require_ssh": "require_ssh", "see": "read", "fetch": "fetch", "esp_fallback": "esp_fallback",
 		"adb": "adb", "at_color": "at_color", "at_button": "at_button",
 		// THE REST OF THE VOCABULARY, each with the phrase a file writes. A key whose verb is a bare
@@ -985,7 +985,7 @@ func walkVerbFor(key string) (string, bool) {
 		"at_color_tolerance": "at_color", "colour": "decide", "text": "decide",
 		"want_all": "decide", "poll": "poll", "optional": "optionally",
 		"settle_after": "settle", "url": "fetch", "kind": "fetch",
-		"script_shell": "script", "script_name": "script", "modifier": "type",
+		"modifier":   "type",
 		"keep_alive": "desktop", "metadata": "fetch", "adb_connect": "adb",
 		"vga": "boot", "cpus": "with cpu", "at_button_fallback": "at_button",
 		// THE READING'S OWN SUBKEYS, which appear as keys of a `read`/`decide` block rather than as
