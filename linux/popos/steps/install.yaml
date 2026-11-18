@@ -116,18 +116,63 @@ steps:
 #	`VM User` came out as `سنتق`. So the keyboard's `Default` entry is chosen explicitly.
 #
 # THE FOOTER IS (1367, 811) ON EVERY PAGE OF THIS WIZARD, measured on four of them.
-- name: select a language
-  at_color:
-  - 144
-  - 207
-  - 176
-  color_tolerance: 30
-  color_region:
-  - 1100
-  - 700
-  - 1920
-  - 900
-  wait_after: 6
+# THE LANGUAGE CHOOSER IS THREE SELECTS DEEP, NOT ONE, AND THAT IS WHAT THE LAST FOUR RUNS HIT.
+#
+# MEASURED ON THE CI RECORDING of run 44250623032 (375 seconds, every frame the same):
+#
+#	t=130s and t=190s are the SAME PAGE - header `Languages | English`, the list reading
+#	`United States / Antigua and Barbuda / Australia / Botswana / Canada / ...`
+#
+# - the COUNTRY list, with `Select` still at the bottom right. The run had pressed `Select` ONCE
+# (the step below), which takes the top-level language list (`Chinese Spanish French ...`) to the
+# country list, and then sat there for six minutes waiting for a keyboard page that was two presses
+# further away.
+#
+# MEASURED BY HAND FROM THE SAME INSTALLER, page by page:
+#
+#	press 1   `Chinese Spanish French Portuguese ...`   -> `United States / Antigua and Barbuda / ...`
+#	press 2   the country list                          -> `English (US) / English (UK) / English (Australia) ...`
+#	press 3   the variant list                          -> `Keyboard Layout` + `Input Language`
+#
+# SO THE PRESS AND THE READING ARE ONE LOOP: press the accent, read the pane, press again while the
+# keyboard page is not there. `Select` IS THE SAME BUTTON ON ALL THREE PAGES - it is the wizard's
+# accent, rgb(144,207,176) - so one `at_color` presses all of them, and the loop stops on the page
+# rather than on a count of presses.
+#
+# THE READING IS IMMEDIATELY AFTER THE PRESS, so a press that lands on the keyboard page is the one
+# that ends the loop and `Select` is never pressed again on the page that follows it. Each attempt
+# waits six seconds - measured: these page changes are under a second.
+- name: select the language, all the way to the keyboard page
+  loop:
+    max: 8
+    do:
+    - at_color:
+      - 144
+      - 207
+      - 176
+      color_tolerance: 30
+      color_region:
+      - 1100
+      - 700
+      - 1920
+      - 900
+      wait_after: 6
+    ocr:
+      name: kb
+      region: [0, 0, 1920, 1080]
+      region_at: [1920, 1080]
+      scale: 1
+      wait: 0
+    check:
+      name: there
+      from: kb
+      mode: says_any
+      # `Layout` IS THE KEYBOARD PAGE'S OWN WORD (its header reads `Keyboard Layout` and the column
+      # reads `Input Language`); none of the three language pages above it carries it.
+      words:
+      - - Layout
+    until:
+      fact: there
 
 - name: the keyboard page is up
   loop:
