@@ -848,9 +848,18 @@ steps:
 #
 # ITS COORDINATE IS THE SAME FOOTER AS EVERY OTHER PAGE (726, 999), measured on the frame that showed
 # `Use configured storage` selected with `vda1 / vda2 /boot/efi` listed under it.
+# THE REVIEW PAGE'S BUTTON IS `Install`, AT (731, 999) - NOT `Next` AT (726, 999).
+#
+# MEASURED off that page's own frame: the footer reads `Back  Install  Quit` with `Install` the blue
+# filled one, its box spanning x=460..515 in the 1280 view - centre (487, 666) - which is (731, 999)
+# here. (726, 999) is 5 pixels left, on the gap between `Back` and `Install`, and a press there does
+# nothing at all.
+#
+# AND THE PAGE SHOWS WHY THIS STEP EXISTS: `Installation type  Use configured storage` with
+# `vda1 136 GB mount /` and `vda2 1.44 GB mount /boot/efi` - the layout the storage editor built.
 - name: begin the installation
   click:
-  - 726
+  - 731
   - 999
   wait_after: 20
 
