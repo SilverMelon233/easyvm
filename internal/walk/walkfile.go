@@ -523,8 +523,6 @@ func parseVerbed(l line, verb, rest string, step map[string]any) (map[string]any
 	// ---- a reading -----------------------------------------------------------------------
 	case "read":
 		return parseRead(l, rest, step)
-	case "decide":
-		return parseDecide(l, rest, step)
 
 	// ---- the serial console, which is all a microvm has --------------------------------
 	case "wait":
@@ -750,15 +748,12 @@ func parseRead(l line, rest string, step map[string]any) (map[string]any, error)
 	return step, nil
 }
 
-// parseDecide reads a `decide "name" is:` block head; its comparisons are children.
-func parseDecide(l line, rest string, step map[string]any) (map[string]any, error) {
-	name, _, err := firstQuote(rest)
-	if err != nil {
-		return nil, fmt.Errorf("line %d: `decide \"name\"` needs a quoted name: %w", l.no, err)
-	}
-	step["want"] = map[string]any{"name": name}
-	return step, nil
-}
+// `parseDecide` WAS HERE, AND `decide` WENT WITH `want:`.
+//
+// A `decide "name" is:` block parsed into a `want:` step, and `want:` is deleted - zero walkthroughs
+// used it while `check:` was used 29 times. The only two files that ever wrote `decide` were the
+// microvm measurement examples, which are about the vocabulary proving itself rather than about a
+// guest, and they build their steps directly.
 
 // ---- small parsers -----------------------------------------------------------------------
 
@@ -988,7 +983,7 @@ func walkVerbFor(key string) (string, bool) {
 		"disk_gb": "make a disk", "boot": "boot", "os": "boot ... as a", "iso": "boot",
 		"microvm": "boot ... as a microvm", "timeout": "waiting up to",
 		"click": "click", "double": "double", "key": "press", "type": "type", "run": "run",
-		"ssh": "ssh", "settle": "settle", "ocr": "read", "want": "decide",
+		"ssh": "ssh", "settle": "settle", "ocr": "read",
 		"when": "when", "when_not": "unless", "loop": "repeat",
 		"shutdown": "stop", "acpi": "acpi", "qga": "qga", "wait_until": "wait until",
 		"check": "decide", "screenshot": "screenshot", "compress": "compress",

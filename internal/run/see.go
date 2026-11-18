@@ -2,6 +2,8 @@ package run
 
 import (
 	"fmt"
+	"image"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -10,7 +12,7 @@ import (
 	"github.com/easydev-org/easyvm/internal/walk"
 )
 
-// `see:` MEASURES, `want:` DECIDES, AND NEITHER KNOWS ABOUT THE OTHER.
+// `see:` MEASURES, `check:` DECIDES, AND NEITHER KNOWS ABOUT THE OTHER.
 //
 // THIS FILE REPLACES THE PATTERN THAT MADE EVERY NEW SCREEN SHAPE A REBUILD. Today a question about a
 // picture is a Go function reached through a dispatch table - `desktop: linux/cinnamon` and eight
@@ -95,6 +97,32 @@ func (e *Executor) doSee(s walk.Step) error {
 	set("min", r.Min)
 	set("max", r.Max)
 
+	// `similarity` IS A MEASUREMENT, NOT A VERDICT, AND THAT IS WHERE IT BELONGS.
+	//
+	// A REFERENCE IMAGE IS A QUESTION ABOUT PIXELS, so it cannot go through `check:` - which compares
+	// a reading that an earlier step already made and never touches the screen. Putting it there
+	// would break the one rule that makes `check:` free to re-ask.
+	//
+	// INSTEAD THE COMPARISON PRODUCES A NUMBER, exactly like `mean` and `spread`: how much of the
+	// screen is unchanged, 0..1. A `check: {mode: number_between, range: [0.97, 1.0]}` then decides
+	// it, which is the same shape every other measurement in the vocabulary has.
+	//
+	// MEASURED over four real CI recordings from this repository - ubuntu, windows, macos, freebsd:
+	//
+	//	the same image against itself                  1.0000
+	//	one second later, same screen              0.9910 - 0.9947
+	//	five seconds later, same screen            0.9912 - 0.9931
+	//	TWO DIFFERENT SCREENS                      0.0002 - 0.0166
+	//
+	// So 0.97 is a floor with room on both sides; the gap is three orders of magnitude wide.
+	if ref, _ := raw["reference"].(string); ref != "" {
+		sim, err := e.similarityTo(s, ref, img)
+		if err != nil {
+			return err
+		}
+		set("similarity", sim)
+	}
+
 	e.Driver.Log(fmt.Sprintf("  measured %s: %s", name, r.Explain()))
 	return nil
 }
@@ -143,287 +171,20 @@ func (e *Executor) seeText(s walk.Step, name string, rectRaw any, at [2]int) err
 	return nil
 }
 
-// wantOp is one comparison in a `want:` step.
-type wantOp struct {
-	// left is a reading name or a literal.
-	left string
-	// minus is another reading, subtracted from left before the comparison, or "".
-	minus string
-	// rel is the relation: less_than, greater_than, at_least, at_most, equals.
-	rel string
-	// right is a literal number (or a reading name).
-	right string
-}
-
-// doWant evaluates comparisons over the numbers `see:` bound and binds a boolean.
+// `want:` WAS HERE, AND IT WAS DELETED WITH NOBODY HAVING USED IT.
 //
-// IT NEVER READS THE SCREEN. That is what makes a `want:` free to re-ask, and it is why a `loop:`
-// can test the same boolean on every attempt without paying for a frame each time.
-func (e *Executor) doWant(s walk.Step) error {
-	raw, ok := s.Spec["want"].(map[string]any)
-	if !ok {
-		return fail(s.Name, "`want:` must be a mapping: {name, all|any|not}")
-	}
-	name, _ := raw["name"].(string)
-	if name == "" {
-		return fail(s.Name, "`want:` must say `name:` - the boolean is bound under it and a "+
-			"decision nobody named cannot be tested by `until:`")
-	}
-
-	var okNow bool
-	var detail string
-	var err error
-
-	switch {
-	case raw["all"] != nil:
-		okNow, detail, err = e.evalGroup(raw["all"], true)
-	case raw["any"] != nil:
-		okNow, detail, err = e.evalGroup(raw["any"], false)
-	case raw["not"] != nil:
-		okNow, detail, err = e.evalNot(raw["not"])
-	default:
-		return fail(s.Name, "`want:` must say one of `all:`, `any:` or `not:` - a decision with "+
-			"no comparisons is a decision that is always true")
-	}
-	if err != nil {
-		return fail(s.Name, "%v", err)
-	}
-
-	if e.facts == nil {
-		e.facts = map[string]bool{}
-	}
-	e.facts[name] = okNow
-	e.Driver.Log(fmt.Sprintf("  %s = %v (%s)", name, okNow, detail))
-	return nil
-}
-
-// evalGroup evaluates a list of comparisons, requiring all of them or any of them.
-func (e *Executor) evalGroup(list any, needAll bool) (bool, string, error) {
-	entries, ok := list.([]any)
-	if !ok || len(entries) == 0 {
-		return false, "", fmt.Errorf("`want: all:`/`any:` needs a list of comparisons")
-	}
-	var parts []string
-	result := needAll
-	for _, entry := range entries {
-		// A NESTED `all:`/`any:` IS ALLOWED, because the rule for the two edges is the same three
-		// comparisons repeated - and a reader should be able to see that shape.
-		if m, ok := entry.(map[string]any); ok {
-			if m["all"] != nil || m["any"] != nil || m["not"] != nil {
-				var v bool
-				var d string
-				var err error
-				switch {
-				case m["all"] != nil:
-					v, d, err = e.evalGroup(m["all"], true)
-				case m["any"] != nil:
-					v, d, err = e.evalGroup(m["any"], false)
-				default:
-					v, d, err = e.evalNot(m["not"])
-				}
-				if err != nil {
-					return false, "", err
-				}
-				parts = append(parts, d)
-				if needAll && !v {
-					result = false
-				}
-				if !needAll && v {
-					result = true
-				}
-				continue
-			}
-		}
-		// A `text:` COMPARISON IS A LIST OF CRITERIA over a named reading, and it is evaluated by the
-		// same code `check:` uses - because `want:` and `check:` answer the same question about the
-		// words on a screen, and two implementations would disagree eventually.
-		if m, ok := entry.(map[string]any); ok {
-			// `text:` IS A LIST, AND A ONE-ITEM LIST MAY ARRIVE AS THE MAP ITSELF - a YAML decoder
-			// and the `.walk` converter do not have to agree on that, so both shapes are taken.
-			var list []any
-			switch t := m["text"].(type) {
-			case []any:
-				list = t
-			case map[string]any:
-				list = []any{t}
-			}
-			if list != nil {
-				okNow, note, err := e.evalTextCriteria(list)
-				if err != nil {
-					return false, "", err
-				}
-				parts = append(parts, note)
-				if needAll && !okNow {
-					result = false
-				}
-				if !needAll && okNow {
-					result = true
-				}
-				continue
-			}
-		}
-		op, err := e.parseOp(entry)
-		if err != nil {
-			return false, "", err
-		}
-		v, d, err := e.evalOp(op)
-		if err != nil {
-			return false, "", err
-		}
-		parts = append(parts, d)
-		if needAll && !v {
-			result = false
-		}
-		if !needAll && v {
-			result = true
-		}
-	}
-	word := "all"
-	if !needAll {
-		word = "any"
-	}
-	return result, fmt.Sprintf("%s of [%s]", word, strings.Join(parts, "; ")), nil
-}
-
-func (e *Executor) evalNot(v any) (bool, string, error) {
-	m, ok := v.(map[string]any)
-	if !ok {
-		return false, "", fmt.Errorf("`want: not:` needs a comparison")
-	}
-	if m["all"] != nil || m["any"] != nil {
-		var inner bool
-		var d string
-		var err error
-		if m["all"] != nil {
-			inner, d, err = e.evalGroup(m["all"], true)
-		} else {
-			inner, d, err = e.evalGroup(m["any"], false)
-		}
-		if err != nil {
-			return false, "", err
-		}
-		return !inner, "not(" + d + ")", nil
-	}
-	op, err := e.parseOp(v)
-	if err != nil {
-		return false, "", err
-	}
-	got, d, err := e.evalOp(op)
-	if err != nil {
-		return false, "", err
-	}
-	return !got, "not(" + d + ")", nil
-}
-
-// comparisonKey matches `reading.name: {less_than: 42}`.
-var comparisonKey = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_.]*)$`)
-
-// parseOp turns one comparison entry into an operation.
+// It was the "better" decision primitive: `{name, all|any|not}` over the numbers `see:` bound, with
+// nested groups and a relation per comparison. The documentation called it "**new**", which was
+// honest - MEASURED: zero walkthroughs used it, and `check:` was used 29 times.
 //
-// THE SHAPE IS `<reading>: {<relation>: <value>}`, which is what a person says out loud:
+// IT WAS INTRODUCED BY THE SAME IMPULSE THAT PRODUCED `requires:`, `share_mount:` and `until_console:`
+// - a generalisation written before anything needed it - and it cost 265 lines of recursive
+// evaluation across five functions (evalGroup, evalNot, parseOp, evalOp, lookupNumber) that nothing
+// called. A vocabulary is not made better by primitives nobody reaches for.
 //
-//	bottom.spread: {less_than: 42}
-//	bottom.mean:   {minus: body.mean, greater_than: 40}
-func (e *Executor) parseOp(entry any) (wantOp, error) {
-	m, ok := entry.(map[string]any)
-	if !ok {
-		return wantOp{}, fmt.Errorf("a `want:` comparison must be a mapping like " +
-			"`bottom.spread: {less_than: 42}`")
-	}
-	if len(m) != 1 {
-		return wantOp{}, fmt.Errorf("a `want:` comparison names exactly one reading, got %d", len(m))
-	}
-	var left string
-	var body any
-	for k, v := range m {
-		if !comparisonKey.MatchString(k) {
-			return wantOp{}, fmt.Errorf("%q is not a reading name; a comparison is "+
-				"`<reading>: {<relation>: <value>}`", k)
-		}
-		left, body = k, v
-	}
-	mapping, ok := body.(map[string]any)
-	if !ok {
-		return wantOp{}, fmt.Errorf("`%s:` needs a relation, like {less_than: 42}", left)
-	}
-	// `minus` IS A SECOND READING, used as `{minus: body.mean, greater_than: 40}`. It is the only
-	// arithmetic this vocabulary needs, and it is written as a word rather than an operator: the
-	// comparison is still "greater_than 40", and *what* is greater than 40 is the difference.
-	var minus, rel string
-	var relValue any
-	for k, v := range mapping {
-		if k == "minus" {
-			minus = fmt.Sprint(v)
-			continue
-		}
-		switch k {
-		case "less_than", "greater_than", "at_least", "at_most", "equals":
-			rel, relValue = k, v
-		}
-	}
-	if rel == "" {
-		return wantOp{}, fmt.Errorf("`%s:` has no relation I know; use less_than, greater_than, "+
-			"at_least, at_most, equals, or `minus:` beside one of them", left)
-	}
-	return wantOp{left: left, minus: minus, rel: rel, right: fmt.Sprint(relValue)}, nil
-}
+// A `check:` DOES THE JOB: it compares one reading and binds one boolean, and the three modes in use
+// are says, says_any and says_without.
 
-// evalOp computes one comparison and says what it found, so a failure names the number.
-func (e *Executor) evalOp(op wantOp) (bool, string, error) {
-	lv, err := e.lookupNumber(op.left)
-	if err != nil {
-		return false, "", err
-	}
-	shownLeft := op.left
-	if op.minus != "" {
-		mv, err := e.lookupNumber(op.minus)
-		if err != nil {
-			return false, "", err
-		}
-		lv -= mv
-		shownLeft = fmt.Sprintf("%s-%s", op.left, op.minus)
-	}
-	rv, err := e.lookupNumber(op.right)
-	if err != nil {
-		return false, "", err
-	}
-	shown := fmt.Sprintf("%s=%g %s %g", shownLeft, lv, op.rel, rv)
-	switch op.rel {
-	case "less_than":
-		return lv < rv, shown, nil
-	case "greater_than":
-		return lv > rv, shown, nil
-	case "at_least":
-		return lv >= rv, shown, nil
-	case "at_most":
-		return lv <= rv, shown, nil
-	case "equals":
-		return lv == rv, shown, nil
-	}
-	return false, "", fmt.Errorf("unknown relation %q", op.rel)
-}
-
-// lookupNumber resolves a reading name, or a literal number.
-func (e *Executor) lookupNumber(name string) (float64, error) {
-	if v, err := strconv.ParseFloat(name, 64); err == nil {
-		return v, nil
-	}
-	if e.numbers != nil {
-		if v, ok := e.numbers[name]; ok {
-			return v, nil
-		}
-	}
-	// A `see:` step binds every number, so a missing name is a typo or a step that never ran - and
-	// both want to be named rather than compared as zero.
-	return 0, fmt.Errorf("`%s` is not a number any `see:` step bound; a `want:` comparison "+
-		"names a reading such as `bottom.spread`", name)
-}
-
-// parseRect turns a `rect:` value into a screen.Rect.
-//
-// FRACTIONS, NOT PIXELS, WHICH IS THE POINT. A pixel rect carries an implicit claim about the frame's
-// size, and the files record what that costs: `click (936, 628) is a coordinate measured at 1920x1080
-// but the framebuffer is 640x480`. A fraction means the same place at every size.
 func parseRect(raw any) (screen.Rect, error) {
 	return parseRectAt(raw, [2]int{})
 }
@@ -521,46 +282,10 @@ func parseRectWords(s string) (screen.Rect, error) {
 	return screen.Rect{From: 0.5 - frac/2, To: 0.5 + frac/2, XTo: 1}, nil
 }
 
-// evalTextCriteria applies `check:`'s text criteria to the readings a `see:` step bound.
-//
-// A `want:` MAY COMPARE WORDS AS WELL AS NUMBERS, because "the screen says this" and "this number is
-// in range" are both decisions about the same frame. Rather than a second implementation, the words
-// are handed to the same function `check:` uses.
-func (e *Executor) evalTextCriteria(list []any) (bool, string, error) {
-	var notes []string
-	result := true
-	for _, raw := range list {
-		m, ok := raw.(map[string]any)
-		if !ok {
-			return false, "", fmt.Errorf("`text:` takes the same criteria `check:` does")
-		}
-		reading, _ := m["from"].(string)
-		words := e.seen[reading]
-		if words == nil {
-			words = e.seen[reading+".words"]
-		}
-		if words == nil {
-			return false, "", fmt.Errorf("`text: {from: %s}` names a reading no `see:` step made. "+
-				"A `see: {of: [text]}` has to come first, in file order, with that `name:`", reading)
-		}
-		fr := &frame{ex: e}
-		okNow, note, err := fr.textOn(words, m)
-		if err != nil {
-			return false, "", err
-		}
-		notes = append(notes, note)
-		if !okNow {
-			result = false
-		}
-	}
-	return result, strings.Join(notes, "; "), nil
-}
+// `evalTextCriteria` WAS HERE, and `checkframe.go` with it: 703 lines plus this function, reachable
+// only from `want:` - which no walkthrough ever wrote. A `check:` compares one reading and binds one
+// boolean, and that is the whole of what the files use.
 
-// parseSeeStep validates a `see:` mapping and returns the four things the work needs.
-//
-// IT IS SPLIT OUT SO A LOOP CAN ASK "IS THIS A READING I CAN TAKE" WITHOUT TAKING ONE. `doSee` used to
-// own both the validation and the capture, so the only way to check a loop's `see:` at assembly time
-// was to capture a frame - which a loop cannot do before its first attempt.
 func parseSeeStep(s walk.Step) (raw map[string]any, name string, rectRaw any, ofRaw []any, err error) {
 	raw, ok := s.Spec["see"].(map[string]any)
 	if !ok {
@@ -583,4 +308,35 @@ func parseSeeStep(s walk.Step) (raw map[string]any, name string, rectRaw any, of
 			"`of: [mean, spread]` binds %s.mean and %s.spread", name, name)
 	}
 	return raw, name, rectRaw, ofRaw, nil
+}
+
+// similarityTo compares a frame to a reference image and returns the share of pixels that MATCH.
+//
+// THE REFERENCE IS FOUND THE WAY A SCRIPT IS: beside the walkthrough. `disk:` and `scp:` both look in
+// the work directory first and the file's own directory second, and a reference is the same kind of
+// thing - a file that belongs to the walkthrough rather than to a run.
+//
+// A SIZE MISMATCH IS AN ERROR RATHER THAN A CROP: two screens of different sizes are not two views of
+// one screen, and comparing the shared corner would report a wrong reference as a perfect match.
+func (e *Executor) similarityTo(s walk.Step, ref string, frame image.Image) (float64, error) {
+	path := ref
+	if !filepath.IsAbs(path) {
+		beside := filepath.Join(filepath.Dir(e.File.Path), ref)
+		if fileExists(beside) {
+			path = beside
+		}
+	}
+	reference, err := screen.Load(path)
+	if err != nil {
+		return 0, fail(s.Name, "reading the reference %q: %v. A `reference:` is a path relative "+
+			"to the walkthrough, as in `reference: reference/desktop.png`", ref, err)
+	}
+	diff, err := screen.Compare(frame, reference, 8)
+	if err != nil {
+		return 0, fail(s.Name, "%v", err)
+	}
+	// THE SHARE THAT MATCHED, SO A BIGGER NUMBER IS BETTER - the same direction as every other
+	// measurement here, where `mean` and `spread` are what they are and a check says which way is
+	// good.
+	return 1 - diff.Changed, nil
 }

@@ -1,4 +1,4 @@
-# `see:` AND `want:` ON A MICROVM, which is the half of the vocabulary a console check cannot reach.
+# `see:` AND `check:` ON A MICROVM, which is the half of the vocabulary a console check cannot reach.
 #
 # A microvm has no PCIe and no USB, so `graphics=on` is what puts a VGA adapter back on the ISA bus -
 # 16 MiB and one device - and that is what makes a screen readable here at all. Without it this file
@@ -28,9 +28,9 @@ walkthrough "the measurement primitives, on the smallest guest"
   read the whole screen as "frame"
     measuring mean spread
 
-  decide "the console is up" is all of:
-    page contains "Alpine"
-    frame mean is less than 200
-    frame spread is greater than 0.5
+  # `want:` COMBINED THREE COMPARISONS INTO ONE BOOLEAN AND WAS USED NOWHERE. A `check:` binds one
+  # boolean from one reading, so this is three steps - each one says which measurement it is about.
+  step "the screen says Alpine"
+    check == {name: page_says_alpine, from: page, mode: contains, text: Alpine}
 
   stop the machine by killing it, waiting up to 60s

@@ -294,8 +294,6 @@ func (e *Executor) runOne(s walk.Step) error {
 		// produced identical readings.
 		return e.doSee(s)
 
-	case s.Has("want"):
-		return e.doWant(s)
 	case s.Has("check"):
 		return e.doCheck(s)
 	case s.Has("loop"):

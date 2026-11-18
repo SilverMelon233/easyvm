@@ -93,7 +93,6 @@ header's own `resolution:`.
 | key | value | what it does | uses |
 |---|---|---|---|
 | `check` | `{name, text?, colour?, any_of?, region?, must?}` | ONE capture, every criterion against it, one boolean | 128 |
-| `want` | `{name, all\|any\|not}` | compares `see:` numbers, binds a boolean | **new** |
 | `when` | words | run this step only if the screen says these words | 16 |
 | `do` | list | run these steps in order under one name | 8 |
 | `if` | fact | branches: `{then: [...], else: [...]}` | 19 |
@@ -185,10 +184,10 @@ the measuring machine and wrong on the runner.
 | `adb_connect`, `adb_privileged` | `adb` | connection and privilege | 2 |
 | `rect`, `rect_at`, `of` | `see`, `ocr` | where to read, the size a pixel rect was measured at, what to bind | 291 |
 | `text`, `colour`, `any_of` | `check` | the criteria | 119 |
-| `all`, `any`, `not` | `want` | how the comparisons combine | new |
-| `contains`, `contains_any`, `not_contains`, `equals`, `matches`, `like`, `fuzzy`, `ratio` | `check: text` | the text criteria | new |
-| `mean`, `spread`, `sat`, `flat_rows`, `contrast`, `min`, `max`, `vs` | `check: colour` | the pixel criteria | new |
-| `less_than`, `greater_than`, `at_least`, `at_most`, `between`, `equals`, `minus` | a comparison | the relation | new |
+| `contains`, `equals`, `matches`, `like` | `check` | the modes that compare TEXT or a PICTURE | 119 |
+| `flat_rows`, `min`, `max`, `contrast`, `vs` | `see` | the numbers a measurement binds | 291 |
+| `contains_any`, `not_contains`, `ratio`, `fuzzy`, `at_least`, `at_most`, `between`, `greater_than` | — | **DEAD**: declared and read by nothing since `want:` went | 0 |
+| `reference` | `see` | an image to compare the rect against; binds `<name>.similarity` 0..1 | 0 |
 | `do`, `until`, `max`, `fact` | `loop` | the action, the stop test, the ceiling | 79 |
 | `then`, `else` | `if` | the branches | 21 |
 | `template`, `release`, `recovery` | `fetch` | inputs to one asset build | 5 |
@@ -261,6 +260,8 @@ name, and they keep working because the executor reads both.
 | `press`, `sweep` | 0 | `at_button:`, `loop: {do: [{click: …}]}` — **DEAD** |
 | `demo_script` | 0 | `write:` — **DELETED**: zero uses and it only ever answered `notImplemented` |
 | `host_log`, `line_gap`, `adb_serial`, `share_dir`, `end`, `stuck_after`, `as`, `cpus` | 0 | — **DEAD** |
+| `want`, `all`, `any`, `not`, `minus` | 0 | `check:` - **DELETED**: 265 lines of recursive group evaluation and zero walkthroughs ever wrote one, while `check:` was used 29 times |
+| `mean`, `spread`, `sat`, `less_than`, `between` (as `check:` criteria) | 0 | **DELETED** with the retired `check: text`/`check: colour` syntax: those criteria were only ever read by `want:`, which nothing wrote |
 | `record` | 0 | automatic - **DELETED**: the recording starts with the run and `finishRecording` encodes it however the walk ended |
 | `until_console` | 0 | `until: {from: console}` - **DELETED**: it was `until:` with a different source, which is a parameter |
 | `host_log` (step) | 0 | — **DELETED**: zero uses and no branch remains |
