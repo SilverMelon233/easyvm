@@ -418,26 +418,29 @@ steps:
     until:
       fact: here
 
-# THE SUMMARY PAGE'S `Install` IS 29 ROWS BELOW THE OTHER PAGES' `Next`, AND THE RUNNER DRAWS THE
-# WHOLE WIZARD 15 ROWS LOWER THAN THIS WORKSTATION DOES.
+# THE SUMMARY PAGE'S `Install` IS 29 ROWS BELOW THE OTHER PAGES' `Next`, AND THE VERDICT IS THE
+# PROGRESS PAGE'S OWN WORD - NOT THE SIDEBAR'S.
 #
-# MEASURED, both bands scanned as the button's own interior - pixels brighter than 240 at its centre
-# column, between the two grey border rows whose value is 150..205:
+# MEASURED, both bands scanned as the button's own interior (pixels brighter than 240 at its centre
+# column, between the two grey border rows 150..205):
 #
 #	                          runner            this workstation
 #	ordinary pages' `Next`    y 826..845        y 810..831
 #	summary's `Install`       y 855..874        y 839..860
 #
 # - the summary is 29 rows lower on each, because its content is taller and Calamares lays the footer
-# out under the content instead of pinning it. The 15-row gap between the two machines is the
-# window's own position, and NO SINGLE NUMBER IS INSIDE ALL FOUR BANDS.
+# out under it. 857 is inside both summary bands (855..874 and 839..860).
 #
-# 857 IS INSIDE BOTH SUMMARY BANDS (855..874 and 839..860), so one press names the button on either.
-# THE FILE HAS ALTERNATED BETWEEN (1329,867) AND (1331,851) - the runner's centre and this
-# workstation's centre - and each one misses on the other machine.
+# AND THAT PRESS WORKS ON THE RUNNER: run 44263043882's own last frame is the PROGRESS page -
+# `Installing NixOS...`, a 65% bar, the sidebar showing `Install` highlighted - so the install had
+# been running for minutes while this step reported `gone = false` five times. THE VERDICT WAS WRONG,
+# NOT THE PRESS: it was `says_without` with `without: [Summary]`, and THE SIDEBAR ON THAT PAGE STILL
+# READS `Summary` - the wizard marks the current step in its sidebar and does not remove the entries
+# of the ones behind it. A word that is permanently on screen can never be absent.
 #
-# AND THE PRESS IS CHECKED, because a press that misses logs `clicked` and does nothing: the loop
-# presses, reads, and stops only when the summary page is gone.
+# SO THE TEST IS `Installing`, WHICH THE SUMMARY PAGE DOES NOT CARRY AND THE PROGRESS PAGE DOES.
+# MEASURED: the summary page's OCR at 3x contains `overview` and no `Installing`; the progress page
+# contains `Installing` and no `overview`.
 - name: summary - install
   loop:
     max: 6
@@ -450,43 +453,18 @@ steps:
       name: summary_after
       region: [0, 0, 1920, 1080]
       region_at: [1920, 1080]
-      # THE READING IS ENLARGED FOR THE SAME REASON AS THE GATE ABOVE: at `scale: 1` the runner's
-      # frame reads only the title bar and the sidebar, so the page's own words are never in it.
+      # ENLARGED: at `scale: 1` the runner's whole frame reads only the title bar and the sidebar.
       scale: 3
       wait: 2
     check:
-      name: gone
-      from: summary_after
-      mode: says_without
-      # `Summary` IS THIS PAGE'S OWN NAME IN THE SIDEBAR; it is absent only once the wizard has left
-      # the page, which it does only by starting the install.
-      words:
-      - - Installing
-      without: [Summary]
-    until:
-      fact: gone
-
-- name: the install has started
-  loop:
-    max: 20
-    do:
-    - wait: 6
-    ocr:
-      name: started
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 3
-      wait: 0
-    check:
       name: begun
-      from: started
-      mode: says_without
+      from: summary_after
+      mode: says_any
       words:
       - - Installing
-      without: [Summary]
     until:
       fact: begun
-  wait_after: 25
+
 - name: the install is written
   disk_settle: 180
   disk_min_mb: 1024
