@@ -90,19 +90,11 @@ type Request struct {
 	// does not run vet: the image's `binary` job failed on
 	//
 	//	internal/protocol/protocol.go:92:5: struct field Y repeats json tag "x"
-	// POINTERS, SO "NO COORDINATE" IS A DIFFERENT FACT FROM "COORDINATE ZERO".
 	//
-	// `(0, 0)` IS THE TOP-LEFT PIXEL AND A LEGAL TARGET. As plain `int` it was indistinguishable from
-	// a request that sent nothing, so
-	//
-	//	POST /api/click  {"x": 100, "y": 200}     both fields set
-	//	POST /api/click  {}                       ALSO 0, 0 - and clicked the corner
-	//
-	// and a caller that misspelled the keys got a click at the top-left with `{"ok":true}`. THE
-	// SECRETARY OF THE BUG IS THAT IT SUCCEEDED: there was no reading anywhere that said the two
-	// numbers the request was supposed to carry had never arrived.
-	//
-	// WITH `*int` the daemon can refuse `nil` BY NAME, and `0` still means the corner.
+	// THEY ARE POINTERS, AND `omitempty` IS WHY. `(0, 0)` IS THE TOP-LEFT PIXEL and a walkthrough may
+	// name it; as `int` with `omitempty` it was DROPPED from the wire, so the daemon could not tell
+	// "click the corner" from "the caller sent nothing". `*int` makes those two facts different
+	// values - `&0` and `nil` - which is what lets the missing one be refused by name.
 	X    *int   `json:"x,omitempty"`
 	Y    *int   `json:"y,omitempty"`
 	Key  string `json:"key,omitempty"`

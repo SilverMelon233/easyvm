@@ -3,6 +3,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net"
 	"os"
 	"os/exec"
@@ -26,13 +27,20 @@ import (
 const (
 	// vncBase is qemu's own numbering: display N listens on 5900+N.
 	vncBase = 5900
-	// vncDisplay is the display number, and it is a CONSTANT RATHER THAN STATE.
+	// vncDisplay IS THE FALLBACK, and the display is chosen per WORK DIRECTORY.
 	//
-	// ONE GUEST PER CONTAINER, so there is nothing to compute: qemu is always given
-	// `-vnc 127.0.0.1:0` and therefore always listens on 5900. The driver used to carry a
-	// `vncPort int` field for this, which could only ever hold 5900 or 0 - and the 0 was really
-	// the answer to a DIFFERENT question, "is there a machine". Two facts in one field, and the
-	// console page read it on every browser connect.
+	// IT WAS A CONSTANT ON THE ASSUMPTION "ONE GUEST PER CONTAINER", and that assumption is true of
+	// the deployed pod and false of every other place this runs - measured, repeatedly, in the lab:
+	// a second daemon on another port answers at startup
+	//
+	//	qemu-system-x86_64: -vnc 127.0.0.1:0: Failed to find an available port: Address already in
+	//	use
+	//
+	// and because qemu exits, the step that needed it reports `qmp ... connection refused`, which
+	// reads as a socket problem rather than a VNC one.
+	//
+	// SO THE DISPLAY COMES FROM THE WORK DIRECTORY: two daemons with different work directories get
+	// different displays, and the deployed pod - which has one - still gets 0.
 	vncDisplay = 0
 )
 
@@ -315,6 +323,28 @@ func (d *Driver) sendStrokes(conn *qmp.Conn, strokes []keys.Stroke, perChar time
 // four frames of headroom.
 const DefaultVideoDevice = "VGA,xres=1920,yres=1080,vgamem_mb=32"
 
+// machineType is the qemu machine this boot asks for.
+//
+// `q35` IS THE FULL MACHINE and the default: PCIe, an IDE controller for the CD-ROM, a USB
+// controller for the tablet, a VGA adapter. Every distribution installer here needs all of it.
+//
+// `microvm` IS THE SMALL ONE: virtio-mmio devices and a serial line, no PCIe, no IDE, no USB, no
+// VGA. A `microvm:` boot says so on its step, because a file may install a distribution and then
+// verify the result in the same run, and only the verification wants the small machine.
+func machineType(boot machine.Boot) string {
+	if boot.MicroVM {
+		// `graphics=on` IS WHAT MAKES `see:` POSSIBLE ON A MICROVM, and without it the machine is
+		// serial-only. A walkthrough that PROVES THE VOCABULARY has to read the screen, so a microvm
+		// with no display could only test the console half - and the measurement primitives are the
+		// half this branch exists to make testable.
+		//
+		// IT IS STILL THE SMALL MACHINE: no PCIe, no IDE, no USB. The graphics option adds the VGA
+		// adapter back on the ISA bus, which is one device and about 16 MiB.
+		return "microvm,accel=kvm,pcie=off,graphics=on"
+	}
+	return "q35,accel=kvm,vmport=off"
+}
+
 // --- the guest ------------------------------------------------------------------------
 
 // Guest is the connection a step addresses the guest through, or nil when none could be made.
@@ -517,6 +547,9 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		ISO:          spec.ISO,
 		AnswerCD:     spec.AnswerCD,
 		DriverCD:     spec.DriverCD,
+		MicroVM:      spec.MicroVM,
+		Kernel:       spec.Kernel,
+		Initrd:       spec.Initrd,
 		Recovery:     spec.Recovery,
 		OpenCoreROM:  spec.OpenCoreROM,
 		OpenCoreVars: spec.OpenCoreVars,
@@ -623,7 +656,18 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		//
 		// THE TABLET IS STILL ATTACHED (`usb-tablet,bus=xhci.0`): this disables the COMPETING handler,
 		// so the events reach the device the walkthrough was measured against.
-		"-machine", "q35,accel=kvm,vmport=off",
+		// A MICROVM IS `microvm` RATHER THAN `q35`, AND THAT IS THE WHOLE DIFFERENCE: no PCIe bus, no
+		// IDE controller, no USB controller, no VGA - only virtio-mmio devices and a serial line.
+		//
+		// IT IS FOR WALKTHROUGHS THAT PROVE THE VOCABULARY RATHER THAN INSTALL A DISTRIBUTION. A
+		// distribution installer needs UEFI, a virtio-blk disk, a VGA adapter and a USB tablet; a
+		// walk whose job is "drive a guest and read its screen" pays for all four and needs none.
+		// MEASURED: the kubuntu install is 4 GiB of RAM, 128 GiB of disk and forty minutes for
+		// thirty-eight steps; the alpine microvm below is 512 MiB, 1 GiB and under two minutes.
+		//
+		// `pcie=off` IS EXPLICIT because qemu's default depends on the machine type, and a machine
+		// that quietly grew a PCIe bus would be the thing this branch exists to avoid.
+		"-machine", machineType(boot),
 		"-cpu", cpu,
 		"-smp", boot.SMP(opts.CPUs),
 		"-m", fmt.Sprint(opts.MemMB),
@@ -669,7 +713,15 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	// which is the FIRST isa-serial device qemu adds, so this must be the only one and it is.
 	qgaSocket := filepath.Join(d.work, "qga.sock")
 	_ = os.Remove(qgaSocket)
-	if guestOS.IsMacOS() {
+	//
+	// A MICROVM GETS `isa-serial` FOR THE SAME KIND OF REASON: `virtio-serial` is a PCI device and a
+	// microvm has no PCI bus. MEASURED, live:
+	//
+	//	qemu-system-x86_64: -device virtio-serial: No 'PCI' bus found for device 'virtio-serial-pci'
+	//
+	// and because qemu exits at startup the step reports `qmp ... connection refused`, which reads
+	// as a socket problem rather than an argument one.
+	if guestOS.IsMacOS() || boot.MicroVM {
 		args = append(args,
 			"-chardev", "socket,id=qga0,path="+qgaSocket+",server=on,wait=off",
 			"-device", "isa-serial,chardev=qga0",
@@ -717,7 +769,36 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		args = append(args, "-vga", "none")
 	case machine.AndroidVGA:
 		args = append(args, "-device", "virtio-vga,xres=1920,yres=1080")
-	default:
+	case "std":
+		// A MICROVM HAS NO PCI BUS, so `-device VGA` cannot attach - measured:
+		//
+		//	qemu-system-x86_64: -device VGA,xres=1920,yres=1080,vgamem_mb=32:
+		//	No 'PCI' bus found for device 'VGA'
+		//
+		// `-vga std` IS THE ISA FORM of the same adapter. It cannot carry a resolution, which is why
+		// every other guest here uses the `-device` form - but a microvm's screen is a text console
+		// whose resolution is qemu's own default, and the walkthrough that reads it says what it
+		// expects rather than needing 1920x1080.
+		if boot.MicroVM {
+			// `isa-vga` IS THE ADAPTER A `microvm` CAN ACTUALLY CREATE, and `-vga std` is not:
+			//
+			//	qemu-system-x86_64: warning: A -vga option was passed but this machine type does
+			//	not use that option; No VGA device has been created
+			//
+			// MEASURED, after switching to `-device isa-vga`: a screendump of the running microvm
+			// returns a 720x400 frame that reads
+			//
+			//	SeaBIOS (version 1.17.0-debian-1.17.0-1)
+			//	Booting from ROM...
+			//	Welcome to Alpine Linux 3.21
+			//	Kernel 6.12.1-3-virt on an x86_64 (/dev/tty1)
+			//	localhost login:
+			//
+			// - which is what `see:` measures. `vgamem_mb=16` is enough for a text console and a
+			// quarter of what a full machine's adapter takes.
+			args = append(args, "-device", "isa-vga,vgamem_mb=16")
+			break
+		}
 		args = append(args, "-device", DefaultVideoDevice)
 	}
 	args = append(args, boot.StorageArgs()...)
@@ -729,11 +810,15 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	args = append(args, boot.ExtraArgs()...)
 	args = append(args,
 		"-qmp", "unix:"+qmpPath+",server=on,wait=off",
-		"-vnc", fmt.Sprintf("127.0.0.1:%d", vncDisplay),
+		"-vnc", fmt.Sprintf("127.0.0.1:%d", d.vncNumber()),
 		"-netdev", fmt.Sprintf("tap,id=net0,ifname=%s,script=no,downscript=no",
 			easyvmnet.TapName),
-		"-device", fmt.Sprintf("virtio-net-pci,netdev=net0,mac=%s,romfile=,host_mtu=%d",
-			easyvmnet.TapMAC, easyvmnet.UplinkMTU()),
+		// `romfile=` AND `host_mtu=` ARE NOT OPTIONS EVERY VIRTIO NET DEVICE HAS. `virtio-net-device`
+		// - the mmio form a microvm needs - has neither:
+		//
+		//	-device virtio-net-device,netdev=net0,...,romfile=,host_mtu=1450:
+		//	Property 'virtio-net-device.romfile' not found
+		"-device", netDevice(boot, easyvmnet.TapMAC, easyvmnet.UplinkMTU()),
 	)
 	// THE POINTER IS ADDED BY `StorageArgs`, NOT HERE, AND THAT IS THE FIX FOR WINDOWS.
 	//
@@ -765,6 +850,10 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		}
 	}
 	args = append(args, boot.FirmwareArgs(ovmfCode, ovmfVars)...)
+	// A MICROVM GETS ITS KERNEL FROM THE HOST, because there is no firmware to read a boot sector and
+	// no display to fall back to. The two are mutually exclusive by construction: `FirmwareArgs`
+	// returns nothing for a microvm.
+	args = append(args, boot.KernelArgs()...)
 
 	// A RESUME LOADS INSTEAD OF BOOTING, and `-incoming` is what says so.
 	//
@@ -960,17 +1049,31 @@ func (m machineControl) Stop(method string, grace time.Duration) error {
 		// `windows-ssh` and every throwaway overlay here.
 		d.logf("  killing the guest")
 		killNow = true
+	case "wait":
+		// THE GUEST WAS ASKED TO STOP BY SOMETHING ELSE - a `ssh: ... poweroff` step - AND THIS WAITS
+		// FOR IT TO GO.
+		//
+		// THE STEP THAT SENDS THE REQUEST NEEDS `sudo`, AND WITHOUT IT NOTHING HERE FAILS: `poweroff`
+		// as a plain user exits 1 on every distribution here, the connection stays up, so the old
+		// `shutdown: ssh` logged nothing and then waited the whole grace before killing a guest it
+		// had never asked to stop. MEASURED: that is what every `shutdown: ssh` in this tree did.
+		//
+		// So the command is `printf '%s\n' '{{ password }}' | sudo -S -p '' poweroff`, the same
+		// shape every other privileged step in these files uses. `sudo -v` does not survive: its
+		// timestamp is five minutes and an install is forty.
+		//
+		// `ssh` WAS A METHOD HERE AND IT SENT THE REQUEST AS WELL, WHICH MADE THE SHUTDOWN A SECOND
+		// WAY TO RUN ONE COMMAND. Every Linux and BSD file used it to deliver `poweroff`, which is a
+		// fact about the guest rather than about the machine, so it belongs in an `ssh:` step where a
+		// reader can see it. What CANNOT be written as `ssh:` is waiting for qemu to exit - the
+		// connection dies before the process does - and that is all this method does now.
+		//
+		// IT DOES NOT SEND ANYTHING. A file that says `shutdown: wait` without an earlier
+		// `ssh: poweroff` waits out the grace and then reports it, which is the honest outcome.
+		d.logf("  waiting for the guest to power off")
 	case "ssh":
-		// THE GUEST SHUTS ITSELF DOWN, AND THE FILESYSTEM IT IS ABOUT TO PUBLISH IS CLOSED.
-		//
-		// This is the method every Linux and BSD `vm-configure` file names, and it was not
-		// implemented - so a stage that had done all its work failed on its LAST step:
-		//
-		//	stop the machine: shutdown method "ssh" is not implemented in this build; `kill` is
-		//
-		// A KILL IS NOT A SUBSTITUTE HERE. The disk this stage produces is the artifact, and a killed
-		// guest leaves a filesystem that has to replay a journal on the next boot - which reads, in
-		// the next stage's log, as a slow boot rather than as a torn disk.
+		// KEPT FOR A FILE THAT WAS NOT PORTED. It is the old one-step form: send `poweroff` and wait.
+		// New files write the two steps, so the command is visible in the file.
 		if err := d.shutdownOverSSH(); err != nil {
 			return err
 		}
@@ -986,7 +1089,9 @@ func (m machineControl) Stop(method string, grace time.Duration) error {
 			return err
 		}
 	default:
-		return fmt.Errorf("%q is not a shutdown method; use guest_agent, ssh, acpi or kill", method)
+		return fmt.Errorf("%q is not a shutdown method; use guest_agent, wait, acpi or kill. To stop "+
+			"a guest over ssh, write the command as its own step: `ssh: poweroff` then "+
+			"`shutdown: wait`", method)
 	}
 	// AND THE PROCESS IS WAITED FOR, WHICHEVER PATH ASKED IT TO STOP. A guest that was asked politely
 	// has to actually exit, or the disk is still open when the next step reads it.
@@ -1625,7 +1730,26 @@ func (d *Driver) VNCPort() int {
 		// NO MACHINE, NO PORT. The port itself is not a variable: see `vncDisplay`.
 		return 0
 	}
-	return vncBase + vncDisplay
+	return vncBase + d.vncNumber()
+}
+
+// vncNumber is the display this driver's qemu listens on, derived from its work directory.
+//
+// TWO DAEMONS MUST NOT ASK FOR THE SAME DISPLAY, and the work directory is what identifies a daemon:
+// the deployed pod has one and gets 0, which is the port the console page expects; a second daemon
+// anywhere else gets a number that its own path hashes to, so the two cannot collide.
+//
+// THE RANGE IS SMALL ON PURPOSE - 32 displays, 5900 to 5931 - because a display number is a port and
+// a wide scatter would be indistinguishable from a real service. A collision inside the range is
+// still possible and qemu says so plainly, which is better than the silent wrong-answer this
+// replaced.
+func (d *Driver) vncNumber() int {
+	if d.work == "" || d.work == "/work" {
+		return vncDisplay
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(d.work))
+	return int(h.Sum32() % 32)
 }
 
 // ErrMachineGone is what a caller gets once the guest's qemu has exited.
@@ -1640,3 +1764,19 @@ func (d *Driver) VNCPort() int {
 // fail, not retry: "the guest is gone" is the answer, and every further attempt is a minute of somebody's
 // afternoon spent confirming it.
 var ErrMachineGone = errors.New("the guest is no longer running")
+
+// netDevice builds the network device this machine can attach.
+//
+// THE PCI FORM TAKES `romfile=` AND `host_mtu=`, and both are load-bearing there: the empty `romfile`
+// keeps qemu from looking for a PXE ROM that is not installed in this image, and `host_mtu` matches
+// the tap. The mmio form a microvm needs has NEITHER property, so the two cannot share a format
+// string - MEASURED, live:
+//
+//	-device virtio-net-device,netdev=net0,...,romfile=,host_mtu=1450:
+//	Property 'virtio-net-device.romfile' not found
+func netDevice(boot machine.Boot, mac string, mtu int) string {
+	if boot.MicroVM {
+		return fmt.Sprintf("virtio-net-device,netdev=net0,mac=%s", mac)
+	}
+	return fmt.Sprintf("virtio-net-pci,netdev=net0,mac=%s,romfile=,host_mtu=%d", mac, mtu)
+}

@@ -224,12 +224,12 @@ type fakeOSMachine struct {
 	running bool
 }
 
-func (m fakeOSMachine) Boot(run.BootSpec) error { return nil }
+func (m fakeOSMachine) Boot(run.BootSpec) error          { return nil }
 func (m fakeOSMachine) Stop(string, time.Duration) error { return nil }
-func (m fakeOSMachine) Reboot() error           { return nil }
-func (m fakeOSMachine) IsRunning() bool         { return m.running }
-func (m fakeOSMachine) ReleaseDiff() error      { return nil }
-func (m fakeOSMachine) OS() string              { return m.os }
+func (m fakeOSMachine) Reboot() error                    { return nil }
+func (m fakeOSMachine) IsRunning() bool                  { return m.running }
+func (m fakeOSMachine) ReleaseDiff() error               { return nil }
+func (m fakeOSMachine) OS() string                       { return m.os }
 
 func (d *fakeOSDriver) Frame() (run.Frame, error)                  { return nil, errors.New("fake") }
 func (d *fakeOSDriver) Click(int, int) error                       { return errors.New("fake") }

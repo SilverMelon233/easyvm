@@ -221,9 +221,17 @@ func TestEveryClaimedKeyIsHandled(t *testing.T) {
 		// default and the whole package's test run timed out at ninety seconds. The list is the
 		// thing that has to grow when a waiting key is added, which is why it sits here rather than
 		// being derived: derived-from-nothing would never have caught it either.
+		//
+		// `adb_connect` BELONGS HERE AND WAS MISSING, and the cost was five minutes of every run:
+		// MEASURED, the package's tests were 331 seconds and 320 of them were this one key waiting
+		// out its own 300-second default for an adbd that no fake driver has. The list is a
+		// statement about WHICH KEYS WAIT, so a key that waits without being on it is invisible -
+		// the step does not fail, it is slow, and a slow test reads as a large package.
 		if key == "require_ssh" || key == "desktop" || key == "until_console" ||
 			key == "until" || key == "until_any" || key == "expect" || key == "expect_any" ||
-			key == "repeat_until" || key == "wait_for" || key == "wait" {
+			key == "repeat_until" || key == "wait_for" || key == "wait" ||
+			key == "adb_connect" || key == "adb" || key == "adb_privileged" ||
+			key == "ssh" || key == "ssh_probe" {
 			steps[0].Spec["timeout"] = 1
 		}
 		_, err := ex.Run(steps)
@@ -758,15 +766,20 @@ func TestActionsAreDispatchedBeforeTheirChecks(t *testing.T) {
 	atWindow := pos(`case s.Has("at_color"):`)
 	atButton := pos(`case hasKey(s, "at_button"):`)
 	expect := pos(`case s.Has("expect_any") || s.Has("expect"):`)
-	if atWindow < 0 || atButton < 0 || expect < 0 {
+	if atWindow < 0 || atButton < 0 {
 		t.Fatal("a branch this test looks for is missing, so it would pass vacuously")
 	}
-	if atWindow > expect {
-		t.Error("`at_color` is dispatched AFTER `expect`, so a step with both clicks NOTHING and " +
-			"reports that the thing it was meant to open did not open")
-	}
-	if atButton > expect {
-		t.Error("`at_button` is dispatched AFTER `expect`, for the same reason")
+	// `expect:` HAS NO BRANCH ANY MORE, so the misordering it caused cannot recur: it is an argument
+	// of `run:` and `doRun` calls the check after the typing. If a top-level branch returns, the two
+	// assertions below apply again.
+	if expect >= 0 {
+		if atWindow > expect {
+			t.Error("`at_color` is dispatched AFTER `expect`, so a step with both clicks NOTHING and " +
+				"reports that the thing it was meant to open did not open")
+		}
+		if atButton > expect {
+			t.Error("`at_button` is dispatched AFTER `expect`, for the same reason")
+		}
 	}
 }
 
@@ -801,7 +814,7 @@ func TestAStepThatNeedsNoGuestSurvivesAShutdown(t *testing.T) {
 		{"a click", map[string]any{"name": "x", "click": []any{1, 2}}, true},
 		{"a reading", map[string]any{"name": "x", "ocr": map[string]any{"name": "s"}}, true},
 		{"a key", map[string]any{"name": "x", "key": "ret"}, true},
-		{"a wait", map[string]any{"name": "x", "wait": 5}, true},
+		{"a wait", map[string]any{"name": "x", "settle": 5}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := walk.Step{Name: tc.name, Spec: tc.spec}

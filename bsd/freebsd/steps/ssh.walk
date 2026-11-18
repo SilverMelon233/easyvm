@@ -1,0 +1,59 @@
+walkthrough "freebsd 15.1 - sshd, XFCE, and a desktop"
+  resolution 1920x1080
+  user vmuser
+  password admin
+  var out == {default: out/freebsd-ssh.qcow2, from: args.out}
+  var shutdown == {default: acpi, from: args.shutdown}
+  var user == {default: vmuser, from: args.user}
+  header ssh_port == 2222
+
+  step "start recording"
+    record == freebsd-ssh.mp4
+  step "boot the disk"
+    boot == true
+    memory_mb == 8192
+    os == bsd
+    timeout == 900
+  step "wait for sshd"
+    require_ssh == true
+    timeout == 600
+  step "prove the kernel over ssh"
+    ssh == uname -a
+  step "prove the account over ssh"
+    ssh == id -un
+  step "install xfce and the display manager"
+    ssh == sudo env ASSUME_ALWAYS_YES=yes pkg install -y xorg xfce lightdm lightdm-gtk-greeter
+    timeout == 5400
+  step "prove xfce is installed"
+    ssh == ls -l /usr/local/share/xsessions/xfce.desktop
+    timeout == 120
+  step "enable the display manager at boot"
+    ssh == sudo sysrc lightdm_enable=YES
+    timeout == 120
+  step "enable dbus, without which there is no session"
+    ssh == "sudo sysrc dbus_enable=YES\nsudo sysrc devfs_system_ruleset=desktop\nsudo pw groupmod video -m {{ user }}\nsysrc -a\n"
+    timeout == 180
+  step "set the account's password so PAM will authenticate it"
+    ssh == "sudo sh -c 'cp=$(openssl passwd -6 -salt \"$(date +%s%N | tail -c 17)\" \"{{ password }}\") && pw usermod {{ user }} -H \"$cp\"'\nsudo grep \"^{{ user }}:\" /etc/master.passwd | cut -d: -f2 | cut -c1-3\n"
+    timeout == 180
+  step "prove the password is a hash and not a locked field"
+    ssh == sh -c 'grep "^{{ user }}:" /etc/master.passwd | case "$(cat)" in *:*\$6\$*) echo HASH_SET ;; *) echo LOCKED ;; esac'
+  step "point lightdm at the greeter and autologin"
+    ssh == "sudo mkdir -p /usr/local/etc/lightdm\nsudo sh -c 'printf \"%s\\n\" \"[Seat:*]\" \"greeter-session=lightdm-gtk-greeter\" \"autologin-user={{ user }}\" \"autologin-user-timeout=0\" \"session-wrapper=/usr/local/etc/lightdm/Xsession\" \"user-session=xfce\" > /usr/local/etc/lightdm/lightdm.conf'\ncat /usr/local/etc/lightdm/lightdm.conf\n"
+    timeout == 120
+  step "prove lightdm will start"
+    ssh == grep -c autologin-user /usr/local/etc/lightdm/lightdm.conf
+    timeout == 120
+  step "flush the writes before anything else"
+    ssh == sudo sync
+    timeout == 300
+  step "flush the writes before the machine stops"
+    ssh == sudo sync
+    timeout == 300
+  step "stop the machine"
+    shutdown == '{{ shutdown }}'
+    timeout == 600
+  step "publish the disk"
+    compress == '{{ out }}'
+  step "stop recording"
+    record == false

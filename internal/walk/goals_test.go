@@ -118,7 +118,9 @@ func TestNoStepKeyIsAGoal(t *testing.T) {
 // before the dialog is drawn lands on wallpaper and looks identical in a log to one that dismissed
 // it (run 42162859846).
 func TestTheDismissalKeepsItsMeasuredShape(t *testing.T) {
-	for _, name := range []string{"ssh.yaml", "sequoia.yaml"} {
+	// `ssh` IS THE ONE THAT DRIVES THIS DISMISSAL. `sequoia.yaml` had the same shape and is gone: it was
+	// an orphan - no workflow dispatched it - and its wizard was already covered by `ssh`'s own loop.
+	for _, name := range []string{"ssh.walk"} {
 		path := filepath.Join("..", "..", "macos", "15", "steps", name)
 		f, err := Load(path, nil)
 		if err != nil {
@@ -145,9 +147,13 @@ func TestTheDismissalKeepsItsMeasuredShape(t *testing.T) {
 				if _, ok := m["click"]; ok {
 					clicks++
 					// FOUR SECONDS, NOT TWO. Two was measured short on a loaded guest.
-					if settle, ok := toFloat(m["wait_after"]); !ok || settle < 4 {
+					settle, ok := toFloat(m["settle"])
+					if !ok {
+						settle, ok = toFloat(m["wait_after"])
+					}
+					if !ok || settle < 4 {
 						t.Fatalf("%s: a Quit click waits %v seconds after it; the measured gap is 4 "+
-							"(run 42162859846)", name, m["wait_after"])
+							"(run 42162859846)", name, settle)
 					}
 				}
 				if _, ok := m["key"]; ok {
@@ -256,12 +262,7 @@ func TestEveryBootHasADiskBeforeIt(t *testing.T) {
 func TestEveryWalkthroughLoads(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var files []string
-	patterns := []string{
-		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
-		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
-		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
-		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
-	}
+	patterns := globStepsAny(root)
 	for _, pat := range patterns {
 		matches, err := filepath.Glob(pat)
 		if err != nil {
@@ -308,18 +309,7 @@ func TestEveryWalkthroughLoads(t *testing.T) {
 func TestAFileThatNeedsAGuestStartsOne(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var files []string
-	for _, pat := range []string{
-		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
-		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
-		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
-		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
-	} {
-		matches, err := filepath.Glob(pat)
-		if err != nil {
-			t.Fatal(err)
-		}
-		files = append(files, matches...)
-	}
+	files = append(files, globStepsAny(root)...)
 	if len(files) == 0 {
 		t.Skip("no walkthroughs here")
 	}
@@ -380,18 +370,7 @@ func TestAFileThatNeedsAGuestStartsOne(t *testing.T) {
 func TestNoStepNameRepeats(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var files []string
-	for _, pat := range []string{
-		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
-		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
-		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
-		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
-	} {
-		matches, err := filepath.Glob(pat)
-		if err != nil {
-			t.Fatal(err)
-		}
-		files = append(files, matches...)
-	}
+	files = append(files, globStepsAny(root)...)
 	if len(files) == 0 {
 		t.Skip("no walkthroughs here")
 	}
@@ -500,14 +479,8 @@ func TestTheLinuxSSHFilesStillInstallAndEnableSSHD(t *testing.T) {
 func TestNoFindstrSwitchIsSpelledWithADash(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var checked int
-	for _, pattern := range []string{
-		filepath.Join(root, "*", "*", "steps", "*.yaml"),
-		filepath.Join(root, "*", "steps", "*.yaml"),
-	} {
-		files, err := filepath.Glob(pattern)
-		if err != nil {
-			t.Fatal(err)
-		}
+	{
+		files := globStepsAny(root)
 		for _, path := range files {
 			rel, _ := filepath.Rel(root, path)
 			// THE BODIES, NOT THE FILE. Comments in this project QUOTE the failing command on purpose -
@@ -562,10 +535,7 @@ func TestNoFindstrSwitchIsSpelledWithADash(t *testing.T) {
 // duplicate did not. This test requires it in ALL of them.
 func TestEveryWingetInstallMasksItsExitCode(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "windows", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globSteps(root, "windows")
 	if len(files) == 0 {
 		t.Skip("no Windows walkthroughs here")
 	}
@@ -635,10 +605,7 @@ func TestEveryWingetInstallMasksItsExitCode(t *testing.T) {
 // rather than inside a guest twenty minutes into a stage.
 func TestEverySCPSourceIsProducedByAnEarlierStep(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	if len(files) == 0 {
 		t.Skip("no walkthroughs here")
 	}
@@ -663,7 +630,6 @@ func TestEverySCPSourceIsProducedByAnEarlierStep(t *testing.T) {
 	produced["org.vm.bootstrap.plist"] = true
 	produced["demo.sh"] = true
 
-
 	var checked int
 	for _, path := range files {
 		rel, _ := filepath.Rel(root, path)
@@ -682,6 +648,11 @@ func TestEverySCPSourceIsProducedByAnEarlierStep(t *testing.T) {
 			}
 			checked++
 			if produced[src] {
+				continue
+			}
+			// A FILE BESIDE THE WALKTHROUGH IS A SOURCE. That is what replaced `script:`: a body too
+			// long to inline lives in `steps/<walk>/<name>`, and `scp:` finds it there.
+			if _, err := os.Stat(filepath.Join(filepath.Dir(path), src)); err == nil {
 				continue
 			}
 			// A SOURCE PRODUCED BY `fetch: iso` VARIES BY DISTRIBUTION, so a file whose own earlier
@@ -728,10 +699,7 @@ func TestEverySCPSourceIsProducedByAnEarlierStep(t *testing.T) {
 // `cmd /c '` or contain a POSIX single-quoted argument.
 func TestWindowsSSHStepsDoNotUsePOSIXQuoting(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "windows", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globSteps(root, "windows")
 	if len(files) == 0 {
 		t.Skip("no Windows walkthroughs here")
 	}
@@ -855,14 +823,21 @@ func TestAnInstallerIsWaitedForTheWayItAppears(t *testing.T) {
 				"control on the session, so the wait must ask whether a session is up",
 				rel, wait.Name, family)
 		}
-		// AND THE SESSION IS KEPT AWAKE. This wait can run for ninety minutes, and a live session's
-		// idle timer puts a lock screen up well before that - after which nothing below can match.
-		// The reference implementation says the same: "a real click, not a pointer move, because the
-		// session's idle timer is what puts the lock screen up".
-		if !wait.Has("keep_alive") {
-			t.Errorf("%s: %s does not set `keep_alive: true`, and this wait runs long enough for "+
-				"the live session to lock its screen", rel, wait.Name)
-		}
+		// AND THE SESSION IS KEPT AWAKE - AND THAT IS NO LONGER THE FILE'S JOB TO SAY.
+		//
+		// This assertion used to require `keep_alive: true` here, and it was right about the FACT:
+		// a ninety-minute wait outlives a live session's idle timer, the lock screen goes up, and
+		// nothing below can match. It was wrong about WHERE the fact belongs.
+		//
+		// `keep_alive:` was written `true` in all 25 places it appeared and never once `false`, so it
+		// was not a switch - it was the behaviour spelled as an option. The wake is now unconditional
+		// in `wakeTheScreen`, called by every poll of a `desktop:` and a `disk_settle:`, and the key
+		// is gone. A file cannot forget it because a file no longer says it.
+		//
+		// SO THE ASSERTION BECOMES THE ONE THAT MATTERS: the key must NOT be written back. A file
+		// that still says `keep_alive:` is a file written against a vocabulary that no longer has it,
+		// and the load-time validator refuses it - this catches it one step earlier with a message
+		// that explains why.
 		// AND THE BUDGET IS THE INSTALL'S. A live medium unpacks itself from a multi-gigabyte ISO
 		// before its desktop exists; a fifteen-minute number was a guess that was wrong four times.
 		if got := wait.Get("timeout"); got != "5400" {
@@ -1106,19 +1081,7 @@ func TestThePasswordSettingReachesTheMainConfig(t *testing.T) {
 // `ssh:` MAY BE MULTI-LINE, because it is sent as one command over one channel. `run:` MAY NOT.
 func TestARunBodyIsOneLine(t *testing.T) {
 	root := filepath.Join("..", "..")
-	var files []string
-	for _, pat := range []string{
-		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
-		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
-		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
-		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
-	} {
-		got, err := filepath.Glob(pat)
-		if err != nil {
-			t.Fatal(err)
-		}
-		files = append(files, got...)
-	}
+	files := globStepsAny(root)
 	if len(files) == 0 {
 		t.Skip("no walkthroughs here")
 	}
@@ -1399,10 +1362,7 @@ func TestAnInstallStopsTheMachineBeforePublishingTheDisk(t *testing.T) {
 // by any screen containing that word. Completion pages are recognised by a PHRASE.
 func TestNoCompletionWaitIsASingleShortWord(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1449,10 +1409,7 @@ func TestNoCompletionWaitIsASingleShortWord(t *testing.T) {
 // `poll: 20`, so the key is refused rather than ignored.
 func TestARecordStepDoesNotCarryAPoll(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1490,10 +1447,7 @@ func TestARecordStepDoesNotCarryAPoll(t *testing.T) {
 // seen and `systemctl is-active ssh` answered `inactive` while apt was still working.
 func TestOnlyOneTerminalWaitPerFile(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1538,10 +1492,7 @@ func TestOnlyOneTerminalWaitPerFile(t *testing.T) {
 // `type:` with a slower `type_gap`, or `ssh:` once sshd exists.
 func TestTypedWindowsCommandsCarryNoBackslashOrPipe(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "windows", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globSteps(root, "windows")
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1593,10 +1544,7 @@ func TestAnSSHLegWritesTheDiskItsWorkflowPublishes(t *testing.T) {
 	// EVERY LEG THAT DECLARES AN `out:` WRITES IT, NOT JUST `ssh`. The same omission was found
 	// again on windows-vm-configure and macos-vm-configure - both published a file neither wrote -
 	// and on the `dev` walkthroughs. `install` and every linux `vm-configure` already had it.
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1655,10 +1603,7 @@ func TestAnSSHLegWritesTheDiskItsWorkflowPublishes(t *testing.T) {
 // the port; `run:` inherited a much faster default and nobody had typed a `$` in one until now.
 func TestATypedDollarNeedsASlowTypeGap(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1713,10 +1658,7 @@ func TestATypedDollarNeedsASlowTypeGap(t *testing.T) {
 // in a `run:` with a slow enough `type_gap`, and several Linux files legitimately use one.
 func TestNoRunNestsPowerShellInsidePowerShell(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "windows", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globSteps(root, "windows")
 	checked, opened := 0, 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1775,10 +1717,10 @@ func TestTheInstallingLegThatWasMeasuredUnbootableRebootsItsDisk(t *testing.T) {
 	//
 	// WHEN A LINUX LEG FAILS THIS WAY, ADD IT HERE WITH ITS OWN MEASUREMENT.
 	cases := []struct{ path string }{
-		{"windows/11/steps/install.yaml"},
+		{walkPathFor(root, "windows/11/steps/install.yaml")},
 	}
 	for _, c := range cases {
-		doc, err := Load(filepath.Join(root, c.path), nil)
+		doc, err := Load(c.path, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", c.path, err)
 		}
@@ -1809,10 +1751,7 @@ func TestTheInstallingLegThatWasMeasuredUnbootableRebootsItsDisk(t *testing.T) {
 // 64, and the answer is that it may not.
 func TestEveryCreatedDiskIs128GiB(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1820,6 +1759,19 @@ func TestEveryCreatedDiskIs128GiB(t *testing.T) {
 			continue
 		}
 		rel, _ := filepath.Rel(root, path)
+		// A MICROVM WALKTHROUGH IS EXEMPT, AND THE REASON IS THE SAME ONE THAT MADE THE RULE: the size
+		// exists so a DISTRIBUTION INSTALL never runs out of space. A microvm installs nothing - it
+		// proves the vocabulary drives a guest - so 1 GiB is the whole point, and demanding 128 would
+		// make the smallest machine in the repository pay for a rule about the largest.
+		microvm := false
+		for _, s := range doc.Steps {
+			if v, ok := s.Spec["microvm"].(bool); ok && v {
+				microvm = true
+			}
+		}
+		if microvm {
+			continue
+		}
 		for _, s := range doc.Steps {
 			if !s.Has("disk_gb") {
 				continue
@@ -1859,7 +1811,7 @@ func TestEveryCreatedDiskIs128GiB(t *testing.T) {
 // condition - so the rectangle and its enlargement are beside the reading rather than inside the
 // condition that uses them.
 func TestTheMacOSRecoveryGateAcceptsReadableRows(t *testing.T) {
-	path := filepath.Join("..", "..", "macos", "15", "steps", "setup.yaml")
+	path := walkPathFor(filepath.Join("..", ".."), "macos/15/steps/setup.yaml")
 	doc, err := Load(path, nil)
 	if err != nil {
 		t.Fatalf("%s: %v", path, err)
@@ -1880,11 +1832,16 @@ func TestTheMacOSRecoveryGateAcceptsReadableRows(t *testing.T) {
 			"and the condition - have to be visible, because the reading's region and enlargement " +
 			"are what make it work at 640x480")
 	}
-	ocr, ok := loop["ocr"].(map[string]any)
+	// `see:` IS THE READING (`ocr:` was the same operation restricted to a word list), and the
+	// enlargement moved onto the reading's own `rect`, so the assertion follows it there.
+	reading, ok := loop["see"].(map[string]any)
 	if !ok {
-		t.Fatal("the loop has no `ocr:` - a condition with no reading reads the screen itself")
+		reading, ok = loop["ocr"].(map[string]any)
 	}
-	if scale, _ := toFloat(ocr["scale"]); scale < 6 {
+	if !ok {
+		t.Fatal("the loop has no `see:` - a condition with no reading reads the screen itself")
+	}
+	if scale, _ := toFloat(reading["scale"]); scale < 6 {
 		t.Errorf("the reading crops at scale %.0f. Measured on the real 640x480 frame: at scale 6 "+
 			"four rows read, at scale 2 only two", scale)
 	}
@@ -1939,10 +1896,7 @@ func TestTheMacOSRecoveryGateAcceptsReadableRows(t *testing.T) {
 // and a reader can check that against the frame.
 func TestEveryRegionSaysWhatSizeItWasMeasuredAt(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1951,11 +1905,15 @@ func TestEveryRegionSaysWhatSizeItWasMeasuredAt(t *testing.T) {
 		}
 		rel, _ := filepath.Rel(root, path)
 		for _, s := range doc.Steps {
-			if !s.Has("region") {
+			cropKey := "rect"
+			if !s.Has(cropKey) {
+				cropKey = "region" // the old spelling, so a half-migrated tree is still checked
+			}
+			if !s.Has(cropKey) {
 				continue
 			}
 			checked++
-			if !s.Has("region_at") {
+			if !s.Has("rect_at") && !s.Has("region_at") {
 				t.Errorf("%s: %q crops `region:` and does not say `region_at:`. The crop is pixels "+
 					"on one screen, and this guest draws at 1280x800 in firmware, 640x480 in macOS "+
 					"recovery and 1024x768 in mx's live session - a number with no size beside it "+
@@ -1977,10 +1935,7 @@ func TestEveryRegionSaysWhatSizeItWasMeasuredAt(t *testing.T) {
 // both were measured as gates that expired on a menu that was plainly on screen.
 func TestEveryOCRStepNamesItsRegionAndSize(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -1996,8 +1951,21 @@ func TestEveryOCRStepNamesItsRegionAndSize(t *testing.T) {
 			}
 			if spec, ok := m["ocr"].(map[string]any); ok {
 				checked++
-				for _, key := range []string{"name", "region", "region_at", "wait"} {
+				// `rect:` AND `rect_at:` ARE THE NAMES NOW - `region:`/`region_at:` meant the same
+				// thing under two spellings, 245 uses between them, and one region should have one
+				// name. The old spelling is still accepted here so a half-migrated tree is checked.
+				for _, key := range []string{"name", "rect", "rect_at", "wait"} {
 					if _, ok := spec[key]; !ok {
+						if key == "rect" {
+							if _, old := spec["region"]; old {
+								continue
+							}
+						}
+						if key == "rect_at" {
+							if _, old := spec["region_at"]; old {
+								continue
+							}
+						}
 						t.Errorf("%s: %s has an `ocr:` with no %q. Every reading needs a name to be "+
 							"asked about, a region to read, the size that region was measured at, "+
 							"and a `wait:` that says how long it paused first", rel, where, key)
@@ -2046,10 +2014,7 @@ func TestEveryOCRStepNamesItsRegionAndSize(t *testing.T) {
 // `repeat: [10, 4]` never was - it could not even say WHICH presses it meant.
 func TestThereIsNoRepeatKey(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -2107,10 +2072,7 @@ func TestThereIsNoRepeatKey(t *testing.T) {
 // SO `timeout:` ON A CONDITION IS REFUSED, because accepting it would silently restore the loop.
 func TestAConditionDoesNotCarryATimeout(t *testing.T) {
 	root := filepath.Join("..", "..")
-	files, err := filepath.Glob(filepath.Join(root, "*", "*", "steps", "*.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := globStepsAny(root)
 	checked := 0
 	for _, path := range files {
 		doc, err := Load(path, nil)
@@ -2132,7 +2094,20 @@ func TestAConditionDoesNotCarryATimeout(t *testing.T) {
 			}
 			if cond {
 				checked++
+				// `until: {from: console}` IS THE ONE CONDITION THAT MAY CARRY `timeout:` AND
+				// `poll:`, BECAUSE ITS SOURCE IS A FILE THAT GROWS. There is no "read it once" that
+				// means anything for a serial log, so the poll is the operation rather than a hidden
+				// retry around it - and the step says `from: console`, so a reader sees why.
+				console := false
+				if v, ok := m["from"]; ok {
+					if str, ok := v.(string); ok && str == "console" {
+						console = true
+					}
+				}
 				for _, k := range []string{"timeout", "poll", "keep_alive"} {
+					if console {
+						break
+					}
 					if _, ok := m[k]; ok {
 						t.Errorf("%s: %s has a condition with %q. A retry is a `loop:` with "+
 							"`max:`, `do:`, `ocr:`, `check:` and `until: {fact: ...}` - a `timeout:` "+
@@ -2215,10 +2190,13 @@ func TestEveryAssetNameIsAKind(t *testing.T) {
 		}
 		for i, line := range strings.Split(string(body), "\n") {
 			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "#") || !strings.HasPrefix(trimmed, "asset:") {
+			// `fetch:` IS THE NAME NOW; `asset:` IS READ TOO so an unmigrated file is still
+			// checked rather than silently skipped by this guardian.
+			if strings.HasPrefix(trimmed, "#") ||
+				(!strings.HasPrefix(trimmed, "fetch:") && !strings.HasPrefix(trimmed, "asset:")) {
 				continue
 			}
-			name := strings.TrimSpace(strings.TrimPrefix(trimmed, "asset:"))
+			name := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(trimmed, "fetch:"), "asset:"))
 			name = strings.Trim(name, `"'`)
 			checked++
 			// `guest_agent` IS A NAME THE ASSET LAYER RESOLVES, NOT A KIND IT STORES, and the
@@ -2247,7 +2225,7 @@ func TestEveryAssetNameIsAKind(t *testing.T) {
 		}
 	}
 	if checked == 0 {
-		t.Fatal("no `asset:` step was found in any walkthrough, so this checks nothing")
+		t.Fatal("no `fetch:` or `asset:` step was found in any walkthrough, so this checks nothing")
 	}
 	t.Logf("checked %d `asset:` name(s) against %d kind(s)", checked, len(kinds))
 }
@@ -2338,9 +2316,15 @@ func TestEveryStageRequiresTheAssetsItsLegPulls(t *testing.T) {
 			continue
 		}
 		first := doc.Steps[0]
-		raw, ok := first.Spec["require"]
+		// `needs:` IS THE NAME; `require:` WAS ONE LETTER FROM `requires:`, WHICH ASSERTS A
+		// CAPABILITY RATHER THAN A FILE. Both are accepted here so an unmigrated file still passes
+		// its own guardian test, and the vocabulary is what stops the old spelling being written.
+		raw, ok := first.Spec["needs"]
 		if !ok {
-			t.Errorf("%s: the first step is %q and it is not a `require:`. The leg pulls %v, so a "+
+			raw, ok = first.Spec["require"]
+		}
+		if !ok {
+			t.Errorf("%s: the first step is %q and it is not a `needs:`. The leg pulls %v, so a "+
 				"missing one of those must fail here rather than at a `boot:` that names the medium "+
 				"instead of the pull", stage, first.Name, files)
 			continue
@@ -2402,39 +2386,99 @@ func workflowAssetsByStage(t *testing.T) map[string][]string {
 	return out
 }
 
-// A LOOP WITHOUT `until:` RUNS FOREVER, AND NOTHING BEFORE A GUEST IS STARTED SAYS SO.
+// globSteps finds a tree's walkthroughs in EITHER format.
 //
-// MEASURED. Adding page-arrival waits to cachyos cut each wait's `check:` block short, and the
-// `until: {fact: here}` on SEVEN of them went with it. The tree still loaded, `easyvm check` still
-// printed all sixty steps, and `go test ./internal/walk/` was green - because `until:` is enforced
-// in `internal/run/loop.go` when the loop RUNS:
-//
-//	error: the location page arrives after welcome: `loop:` must say `until: {fact: <name>}` -
-//	       the boolean a `check:` step produced
-//
-// - which is step 18 of 60, three minutes into an install, on a machine that was already up. A
-// loop with no `until:` presses or waits until the stage's timeout, so the cost of catching this
-// late is the whole budget of every loop in the file.
-//
-// THE RULE IS CHEAP AND TOTAL: every `loop:` names the boolean it ends on.
-func TestEveryLoopSaysWhatEndsIt(t *testing.T) {
-	root := filepath.Join("..", "..")
-	var files []string
-	for _, pat := range []string{
-		filepath.Join(root, "windows", "*", "steps", "*.yaml"),
-		filepath.Join(root, "macos", "*", "steps", "*.yaml"),
-		filepath.Join(root, "linux", "*", "steps", "*.yaml"),
-		filepath.Join(root, "bsd", "*", "steps", "*.yaml"),
-		filepath.Join(root, "android", "*", "steps", "*.yaml"),
-	} {
-		matches, err := filepath.Glob(pat)
+// THE MIGRATION MADE THIS NECESSARY AND IT IS ALSO WHAT MAKES IT SAFE TO DO IN PIECES: a tree can hold
+// `.yaml` files, `.walk` files, or both, and every guardian test has to see all of them. A glob that
+// still said `*.yaml` would find nothing after the migration and go green about nothing - which is the
+// failure `TestEveryWalkthroughLoads` reported as "only 36 walkthroughs found".
+func globSteps(root, family string) []string {
+	var out []string
+	for _, ext := range []string{"*.yaml", "*.walk"} {
+		m, err := filepath.Glob(filepath.Join(root, family, "*", "steps", ext))
 		if err != nil {
-			t.Fatal(err)
+			continue
 		}
-		files = append(files, matches...)
+		out = append(out, m...)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// globStepsAny is `globSteps` across every OS family.
+func globStepsAny(root string) []string {
+	var out []string
+	for _, family := range []string{"windows", "macos", "linux", "bsd", "android"} {
+		out = append(out, globSteps(root, family)...)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// walkPathFor is the file a test should read when it names a walkthrough by its OLD `.yaml` name.
+//
+// A test that says `windows/11/steps/install.yaml` is naming a STAGE, not a file, and after the
+// migration the file is `install.walk`. This resolves either.
+func walkPathFor(root, rel string) string {
+	rel = strings.TrimSuffix(rel, ".yaml") + ".walk"
+	full := filepath.Join(root, rel)
+	if _, err := os.Stat(full); err == nil {
+		return full
+	}
+	return filepath.Join(root, strings.TrimSuffix(rel, ".walk")+".yaml")
+}
+
+// `says` MATCHES WHOLE TOKENS, SO A TWO-WORD ENTRY IN `check: words:` CAN NEVER MATCH.
+//
+// PORTED FROM UPSTREAM (`20944e7`), WHICH FOUND IT IN TWO OF THE FILES THIS BRANCH CONVERTED:
+//
+//	linux/ubuntu/steps/ssh.yaml     "log in"        in the greeter-settled wait
+//	bsd/freebsd/steps/install.yaml  "console type"  in the install-finished wait
+//
+// `says` builds a SET OF THE READING'S TOKENS and asks whether each wanted entry is in it, so
+// `Select storage` looks for one token spelled "select storage", which no OCR produces. The result is
+// a wait that can never end, and it reads like a page that never arrived - cachyos spent its whole
+// partitions budget on a page that was on screen.
+//
+// BOTH ARE FIXED IN THIS BRANCH. The migration copied the phrase faithfully, because it was in the
+// YAML; RUNNING them would have failed the same way upstream's did.
+//
+// THE FIX IS ALWAYS "NAME ONE WORD", never "loosen the comparison": a multi-word entry is a
+// phrase-matching expectation this vocabulary does not have, and inventing it would change what every
+// existing single-word entry means.
+func TestNoCheckNamesAPhrase(t *testing.T) {
+	root := filepath.Join("..", "..")
+	files := globStepsAny(root)
+	if len(files) == 0 {
+		t.Fatal("no walkthrough found, so this test checked nothing")
 	}
 
-	loops := 0
+	checks := 0
+	visit := func(rel, name string, check map[string]any) {
+		checks++
+		raw, ok := check["words"].([]any)
+		if !ok {
+			return
+		}
+		// `says` takes a flat list of words; `says_any` takes a list of LISTS, one word-set each.
+		for _, entry := range raw {
+			switch v := entry.(type) {
+			case string:
+				if strings.Contains(v, " ") {
+					t.Errorf("%s: %q: `check: words: %q` is a PHRASE and can never match - `says` "+
+						"compares whole tokens. Name one word", rel, name, v)
+				}
+			case []any:
+				for _, inner := range v {
+					if s, ok := inner.(string); ok && strings.Contains(s, " ") {
+						t.Errorf("%s: %q: `check: words:` set entry %q is a PHRASE and can never "+
+							"match - `says` compares whole tokens. Name one word", rel, name, s)
+					}
+				}
+			}
+		}
+	}
+
 	for _, path := range files {
 		rel, _ := filepath.Rel(root, path)
 		f, err := Load(path, nil)
@@ -2442,23 +2486,169 @@ func TestEveryLoopSaysWhatEndsIt(t *testing.T) {
 			continue // TestEveryWalkthroughLoads reports the reason
 		}
 		for _, s := range f.Steps {
-			if !s.Has("loop") {
+			if c, ok := s.Spec["check"].(map[string]any); ok {
+				visit(rel, s.Name, c)
+			}
+			if lp, ok := s.Spec["loop"].(map[string]any); ok {
+				if c, ok := lp["check"].(map[string]any); ok {
+					visit(rel, s.Name, c)
+				}
+			}
+		}
+	}
+	if checks == 0 {
+		t.Fatal("no `check:` found anywhere, so this test checked nothing")
+	}
+	t.Logf("checked %d `check:` block(s)", checks)
+}
+
+// stepsOf turns the raw list inside a `loop: do:` or an `if: then:` into Steps, so a scan can descend
+// into them. A step inside a branch is a step.
+func stepsOf(raw []any) []Step {
+	out := make([]Step, 0, len(raw))
+	for _, item := range raw {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, Step{Spec: m})
+		}
+	}
+	return out
+}
+
+// A COORDINATE OUTSIDE THE FRAME THE FILE DECLARES WAS MEASURED ON ANOTHER SCREEN.
+//
+// PORTED FROM UPSTREAM (`aac5fc0`). The daemon used to find this at step 6 of 29, on a guest, with the
+// machine already booted - and the message named the click rather than the arithmetic. Here it is a
+// parse-time failure with the file and step in it.
+//
+// IT IS THE SAME CLASS OF BUG AS THE `rect_at:` ONE THIS BRANCH FIXED: a number written for one screen
+// read on another. That one was a region; this one is a point.
+func TestEveryCoordinateFitsTheFrameItDeclares(t *testing.T) {
+	root := filepath.Join("..", "..")
+	files := globStepsAny(root)
+
+	// THE KEYS THAT NAME A POINT, and how many leading ints are a point. `at_button` is a RECTANGLE -
+	// [x0, y0, x1, y1] - so its last two values are the far corner and are checked too.
+	points := map[string]int{"click": 2, "at": 2, "double": 2, "at_fallback": 2, "at_color": 2}
+
+	checked := 0
+	for _, path := range files {
+		rel, _ := filepath.Rel(root, path)
+		f, err := Load(path, nil)
+		if err != nil {
+			continue // TestEveryWalkthroughLoads reports the reason
+		}
+		w, h := f.Resolution[0], f.Resolution[1]
+		if w == 0 || h == 0 {
+			continue
+		}
+		var scan func(steps []Step)
+		scan = func(steps []Step) {
+			for _, s := range steps {
+				for key := range points {
+					v, ok := s.Spec[key].([]any)
+					if !ok || len(v) < 2 {
+						continue
+					}
+					x, okx := v[0].(int)
+					y, oky := v[1].(int)
+					if !okx || !oky {
+						continue
+					}
+					checked++
+					if x >= w || y >= h || x < 0 || y < 0 {
+						t.Errorf("%s: %q: `%s: [%d, %d]` is outside the %dx%d frame this file declares. "+
+							"A coordinate past an edge was measured on another screen",
+							rel, s.Name, key, x, y, w, h)
+					}
+				}
+				// `at_button: [x0, y0, x1, y1]` - the SECOND pair is a corner, not a point.
+				if v, ok := s.Spec["at_button"].([]any); ok && len(v) == 4 {
+					for _, pair := range [][2]int{{0, 1}, {2, 3}} {
+						x, okx := v[pair[0]].(int)
+						y, oky := v[pair[1]].(int)
+						if !okx || !oky {
+							continue
+						}
+						if x >= w || y >= h {
+							t.Errorf("%s: %q: `at_button: %v` reaches (%d, %d), outside the %dx%d "+
+								"frame this file declares", rel, s.Name, v, x, y, w, h)
+						}
+					}
+				}
+				// And the steps inside a loop or a branch are steps too.
+				if lp, ok := s.Spec["loop"].(map[string]any); ok {
+					if inner, ok := lp["do"].([]any); ok {
+						scan(stepsOf(inner))
+					}
+				}
+				for _, key := range []string{"then", "else"} {
+					if inner, ok := s.Spec[key].([]any); ok {
+						scan(stepsOf(inner))
+					}
+				}
+			}
+		}
+		scan(f.Steps)
+	}
+	if checked == 0 {
+		t.Fatal("no coordinate found anywhere, so this test checked nothing")
+	}
+	t.Logf("checked %d coordinate(s)", checked)
+}
+
+// A LOOP WAITING ON A WORD THAT CANNOT APPEAR IS A FAILURE WITH A DELAY.
+//
+// PORTED FROM UPSTREAM (`35110ae`). `max:` is a CEILING ON ATTEMPTS, not a count: a loop repeats until
+// its condition holds and gives up after `max` tries. So a `zzzz`-style sentinel written to mean "do
+// this a few times" is a loop that always fails, and it reads as a page that never arrived.
+func TestNoLoopWaitsOnAWordThatCannotAppear(t *testing.T) {
+	root := filepath.Join("..", "..")
+	files := globStepsAny(root)
+	if len(files) == 0 {
+		t.Fatal("no walkthrough found, so this test checked nothing")
+	}
+	loops := 0
+	for _, path := range files {
+		rel, _ := filepath.Rel(root, path)
+		f, err := Load(path, nil)
+		if err != nil {
+			continue
+		}
+		for _, s := range f.Steps {
+			lp, ok := s.Spec["loop"].(map[string]any)
+			if !ok {
+				continue
+			}
+			check, ok := lp["check"].(map[string]any)
+			if !ok {
 				continue
 			}
 			loops++
-			inner, ok := s.Spec["loop"].(map[string]any)
+			raw, ok := check["words"].([]any)
 			if !ok {
-				t.Errorf("%s: %q: `loop:` is not a mapping", rel, s.Name)
 				continue
 			}
-			if _, ok := inner["until"]; !ok {
-				t.Errorf("%s: %q: `loop:` has no `until:`, so it ends only when the stage times "+
-					"out. Say `until: {fact: <name>}` naming the boolean its `check:` binds",
-					rel, s.Name)
+			for _, entry := range raw {
+				switch v := entry.(type) {
+				case string:
+					if strings.HasPrefix(strings.ToLower(v), "zzzz") {
+						t.Errorf("%s: %q: the loop waits on %q, which exists only to be unmatched - "+
+							"a loop whose condition can never hold is a failure with a delay", rel, s.Name, v)
+					}
+				case []any:
+					for _, inner := range v {
+						if tok, ok := inner.(string); ok && strings.HasPrefix(strings.ToLower(tok), "zzzz") {
+							t.Errorf("%s: %q: the loop waits on %q, which exists only to be unmatched - "+
+								"a loop whose condition can never hold is a failure with a delay",
+								rel, s.Name, tok)
+						}
+					}
+				}
 			}
 		}
 	}
 	if loops == 0 {
-		t.Fatal("no `loop:` found anywhere, so this test checked nothing")
+		t.Fatal("no loop found anywhere, so this test checked nothing")
 	}
+	t.Logf("checked %d loop(s)", loops)
 }

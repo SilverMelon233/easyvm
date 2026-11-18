@@ -26,7 +26,7 @@ steps:
   # forty minutes into a run. Every one of these files is declared by this leg's
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
-  require:
+  needs:
   - kubuntu.iso
 - name: start recording
   record: kubuntu-install.mp4
@@ -62,8 +62,6 @@ steps:
 - name: wait for the installer's launcher
   desktop: linux/kubuntu
   timeout: 5400
-  poll: 5
-  keep_alive: true
 
 # THE TWO BUTTONS, MEASURED OFF THE FRAME by scanning row y=844 for runs of brighter pixels:
 #
@@ -77,14 +75,14 @@ steps:
   click:
   - 1332
   - 844
-  wait_after: 20
+  settle: 20
 
 - name: calamares is open
-  ocr:
+  see:
+    of: [text]
     name: cal
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 5
 
 # CALAMARES' OWN FOOTER IS THE PROOF OF A PAGE, AND THE SIDEBAR IS NOT CLICKABLE.
@@ -106,28 +104,28 @@ steps:
   click:
   - 1777
   - 1059
-  wait_after: 8
+  settle: 8
 
 # Location -> Keyboard
 - name: next from location
   click:
   - 1777
   - 1059
-  wait_after: 8
+  settle: 8
 
 # Keyboard -> Customize, where the installation mode is chosen
 - name: next from keyboard
   click:
   - 1777
   - 1059
-  wait_after: 8
+  settle: 8
 
 - name: the installation mode page
-  ocr:
+  see:
+    of: [text]
     name: mode
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 # Customize -> Partitions
@@ -135,14 +133,14 @@ steps:
   click:
   - 1777
   - 1059
-  wait_after: 8
+  settle: 8
 
 - name: the partitions page
-  ocr:
+  see:
+    of: [text]
     name: parts
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 4
 
 # THE PARTITIONS PAGE OFFERS `Erase disk` AND `Manual partitioning`, AND `Erase disk` IS THE ONE
@@ -162,14 +160,14 @@ steps:
   click:
   - 250
   - 76
-  wait_after: 6
+  settle: 6
 
 - name: the erase page shows ext4
-  ocr:
+  see:
+    of: [text]
     name: fs
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 - name: the default filesystem is ext4
@@ -184,14 +182,14 @@ steps:
   click:
   - 1777
   - 1059
-  wait_after: 8
+  settle: 8
 
 - name: the users page
-  ocr:
+  see:
+    of: [text]
     name: users
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 4
 
 # THE FIVE FIELDS, MEASURED FROM THE PAGE. Each box is wide and the click is in its left third where
@@ -199,39 +197,39 @@ steps:
 - name: the full name
   click: [293, 51]
   type: '{{ user }}'
-  wait_after: 2
+  settle: 2
 - name: the login name
   click: [293, 119]
   clear: true
   type: '{{ user }}'
-  wait_after: 2
+  settle: 2
 - name: the computer name
   click: [293, 187]
   clear: true
   type: kubuntu
-  wait_after: 2
+  settle: 2
 - name: the password
   click: [293, 255]
   clear: true
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: the password again
   click: [500, 255]
   clear: true
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 
 # THE ACCOUNT LOGS ITSELF IN, because an unattended client cannot type at a login screen.
 - name: log in automatically
   click: [205, 295]
-  wait_after: 3
+  settle: 3
 
 - name: the users page is filled in
-  ocr:
+  see:
+    of: [text]
     name: filled
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 - name: the password was accepted
@@ -252,14 +250,14 @@ steps:
   click:
   - 1777
   - 1059
-  wait_after: 8
+  settle: 8
 
 - name: the summary page
-  ocr:
+  see:
+    of: [text]
     name: summary
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 4
 
 # THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM.
@@ -275,21 +273,21 @@ steps:
   click:
   - 1777
   - 1059
-  wait_after: 8
+  settle: 8
 
 - name: the confirmation dialog
-  ocr:
+  see:
+    of: [text]
     name: confirm
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 # `Install Now`, MEASURED AT (1071, 535) INSIDE THE DIALOG. The dialog's own title is the check, so a
 # click that missed it is visible as a page with no dialog rather than as a silent no-op.
 - name: install now
   click: [1071, 535]
-  wait_after: 15
+  settle: 15
 
 # THE INSTALL WRITES FOR TWENTY MINUTES AND THE PROGRESS BARS ARE THE ONLY SIGNAL. `disk_settle`
 # waits for the DISK to stop changing rather than for a clock, which is the difference between "the
@@ -298,19 +296,17 @@ steps:
   disk_settle: 300
   disk_min_mb: 4000
   timeout: 3600
-  poll: 20
-  keep_alive: true
 
 - name: the install is done
   loop:
     max: 60
     do:
-    - wait: 15
-    ocr:
+    - settle: 15
+    see:
+      of: [text]
       name: done
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       wait: 0
     check:
       name: finished

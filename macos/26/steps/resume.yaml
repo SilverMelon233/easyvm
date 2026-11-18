@@ -44,7 +44,7 @@ steps:
   # nothing below reaches the network. That is the same rule the install stages follow, and it is why
   # there is no `asset:` here - a walk that downloads is a walk whose duration a file cannot describe.
   - name: the recovery image this boot reads is already on disk
-    require:
+    needs:
     - recovery.dmg
 
   - name: boot the disk that is already there

@@ -350,7 +350,7 @@ jobs:
         # `ssh:` AND `vm-configure:` START FROM A SYSTEM SOMEBODY ELSE INSTALLED. Pulling it here rather
         # than inside the walk is the same rule the media follow: a stage whose duration depends on a
         # registry is measuring a download.
-        if: inputs.boot_disk != ''
+        if: github.event_name != 'workflow_dispatch' || inputs.boot_disk != ''
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -368,7 +368,7 @@ jobs:
         #
         # IT IS AN INPUT LIKE ANY OTHER, so it is downloaded BEFORE the run and nothing fetches
         # inside the guest - the rule every stage here follows.
-        if: contains(inputs.assets, 'alpine')
+        if: github.event_name != 'workflow_dispatch' || contains(inputs.assets, 'alpine')
         run: |
           set -eu
           cd "$GITHUB_WORKSPACE/work"

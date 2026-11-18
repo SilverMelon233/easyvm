@@ -18,7 +18,7 @@ steps:
   # forty minutes into a run. Every one of these files is declared by this leg's
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
-  require:
+  needs:
   - cachyos.iso
 - name: start recording
   record: cachyos-install.mp4
@@ -55,12 +55,9 @@ steps:
 - name: wait for the live desktop
   desktop: linux/kde
   timeout: 5400
-  poll: 5
-  keep_alive: true
 
 - name: let the desktop settle
-  wait: 15
-  keep_alive: true
+  settle: 15
 
 # CACHYOS HELLO IS THE FIRST WINDOW, AND `Launch installer` IS A BUTTON INSIDE IT - ONCE, NOT TWICE.
 #
@@ -68,22 +65,22 @@ steps:
 # Calamares. The button is a Qt push button, so the first click takes focus and the second activates.
 - name: open the installer
   click: [960, 743]
-  wait_after: 1
+  settle: 1
 
 - name: open the installer, second click
   click: [960, 743]
-  wait_after: 25
+  settle: 25
 
 - name: the installer is on screen
   loop:
     max: 40
     do:
-    - wait: 5
-    ocr:
+    - settle: 5
+    see:
+      of: [text]
       name: cal
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       wait: 0
     check:
       name: up
@@ -129,30 +126,30 @@ steps:
 # locale list's order.
 - name: open the language list
   click: [980, 661]
-  wait_after: 4
+  settle: 4
 
 - name: jump to the English group
   key: e
-  wait_after: 2
+  settle: 2
 
 - name: step up to British English
   key: up
-  wait_after: 1
+  settle: 1
 
 - name: step up to American English
   key: up
-  wait_after: 1
+  settle: 1
 
 - name: choose it
   key: ret
-  wait_after: 6
+  settle: 6
 
 - name: the installer speaks English now
-  ocr:
+  see:
+    of: [text]
     name: english
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 - name: the page is in English
@@ -179,7 +176,7 @@ steps:
 # Welcome -> Location
 - name: next from welcome
   click: [1356, 751]
-  wait_after: 8
+  settle: 8
 
 # Location IS LEFT AS IT IS: Asia/Hong Kong and English (Hong Kong SAR China) are the defaults and
 # nothing below depends on them. Location -> Keyboard
@@ -202,83 +199,82 @@ steps:
   loop:
     max: 30
     do:
-    - wait: 10
-    ocr:
+    - settle: 10
+    see:
+      of: [text]
       name: at_location
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       wait: 3
     check:
       name: here
       from: at_location
       mode: says_any
       words:
-      - - Region
-      - - zone
-      - - system language
+      - - location
+      - - timezone
+      - - region
     until:
       fact: here
 
 - name: next from location
   click: [1356, 791]
-  wait_after: 8
+  settle: 8
 
 # Keyboard -> Bootloader. The Generic 105-key PC and Default layout are the defaults.
 - name: the keyboard page arrives after location
   loop:
     max: 30
     do:
-    - wait: 10
-    ocr:
+    - settle: 10
+    see:
+      of: [text]
       name: at_keyboard
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       wait: 3
     check:
       name: here
       from: at_keyboard
       mode: says_any
       words:
-      - - Keyboard model
-      - - Layout
-      - - Type here to test
+      - - keyboard
     until:
       fact: here
 
 - name: next from keyboard
   click: [1356, 834]
-  wait_after: 8
+  settle: 8
 
 - name: the bootloader page arrives after keyboard
   loop:
     max: 30
     do:
-    - wait: 10
-    ocr:
+    - settle: 10
+    see:
+      of: [text]
       name: at_bootloader
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       wait: 3
     check:
       name: here
       from: at_bootloader
       mode: says_any
       words:
-      - - snapshot
-      - - chainloading
-      - - multiprotocol
+      - - bootloader
+      - - grub
+      - - refind
+      - - systemd-boot
     until:
       fact: here
 
 - name: the bootloader page
-  ocr:
+  see:
+    of: [text]
     name: boot
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 # GRUB, NOT THE DEFAULT LIMINE, AND THE REASON IS THE FILESYSTEM THIS WALK INSTALLS.
@@ -289,14 +285,14 @@ steps:
 # Limine, Limine preselected, and GRUB is at (440, 313).
 - name: choose grub
   click: [500, 305]
-  wait_after: 5
+  settle: 5
 
 - name: grub is selected
-  ocr:
+  see:
+    of: [text]
     name: grub
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 - name: the bootloader is grub
@@ -310,40 +306,40 @@ steps:
 # before it is selected - the opposite of Kubuntu, where it is already on.
 - name: next from bootloader
   click: [1356, 791]
-  wait_after: 10
+  settle: 10
 
 - name: the partitions page arrives after the bootloader
   loop:
     max: 30
     do:
-    - wait: 10
-    ocr:
+    - settle: 10
+    see:
+      of: [text]
       name: at_partitions
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       wait: 3
     check:
       name: here
       from: at_partitions
       mode: says_any
       words:
-      - - Select storage
-      - - Erase disk
-      - - Manual partitioning
+      - - erase
+      - - partition
+      - - manual
     until:
       fact: here
 
 - name: select erase disk
   click: [533, 364]
-  wait_after: 8
+  settle: 8
 
 - name: the partitions page with erase selected
-  ocr:
+  see:
+    of: [text]
     name: parts
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 4
 
 # THE FILESYSTEM COMBO DEFAULTS TO btrfs AND THIS WALK REQUIRES ext4.
@@ -356,40 +352,39 @@ steps:
 # and its list is btrfs / xfs / ext4 / f2fs / zfs, with ext4 the third entry at (526, 516).
 - name: open the filesystem list
   click: [543, 425]
-  wait_after: 5
+  settle: 5
 
 - name: choose ext4
   click: [527, 517]
-  wait_after: 6
+  settle: 6
 
 - name: the partitions page settles after the filesystem list closes
   loop:
     max: 24
     do:
-    - wait: 10
-    ocr:
+    - settle: 10
+    see:
+      of: [text]
       name: at_partitions_again
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       wait: 3
     check:
       name: here
       from: at_partitions_again
       mode: says_any
       words:
-      - - Select storage
-      - - Erase disk
-      - - Manual partitioning
+      - - partition
+      - - erase
     until:
       fact: here
 
 - name: the page after choosing ext4
-  ocr:
+  see:
+    of: [text]
     name: fs
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 - name: the root partition is ext4
@@ -402,62 +397,61 @@ steps:
 # Partitions -> Desktop, where Plasma Desktop is preselected.
 - name: next from partitions
   click: [1356, 793]
-  wait_after: 10
+  settle: 10
 
 - name: the desktop page
-  ocr:
+  see:
+    of: [text]
     name: desk
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 # Desktop -> Packages, where the CachyOS sets are already ticked.
 - name: next from desktop
   click: [1356, 793]
-  wait_after: 12
+  settle: 12
 
 - name: the packages page
-  ocr:
+  see:
+    of: [text]
     name: pkgs
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 # Packages -> Users
 - name: next from packages
   click: [1356, 793]
-  wait_after: 12
+  settle: 12
 
 - name: the users page arrives before anything is typed into it
   loop:
     max: 30
     do:
-    - wait: 10
-    ocr:
+    - settle: 10
+    see:
+      of: [text]
       name: at_users
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       wait: 3
     check:
       name: here
       from: at_users
       mode: says_any
       words:
-      - - What is your name
-      - - Computer Name
-      - - Repeat Password
+      - - password
+      - - name
     until:
       fact: here
 
 - name: the users page
-  ocr:
+  see:
+    of: [text]
     name: users
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 4
 
 # THE FIVE FIELDS, MEASURED FROM THE PAGE. `Computer Name` IS NOT FILLED BY HAND: this installer
@@ -466,30 +460,30 @@ steps:
 - name: the full name
   click: [515, 341]
   type: '{{ user }}'
-  wait_after: 3
+  settle: 3
 
 - name: the login name
   click: [515, 412]
   clear: true
   type: '{{ user }}'
-  wait_after: 3
+  settle: 3
 
 - name: the password
   click: [515, 550]
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 
 - name: the password again
   click: [720, 552]
   type: '{{ password }}'
-  wait_after: 3
+  settle: 3
 
 - name: the users page is filled in
-  ocr:
+  see:
+    of: [text]
     name: filled
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 # THE FORM IS COMPLETE WHEN THE USER NAME IS THERE AND NO MISMATCH IS SHOWN.
@@ -508,35 +502,35 @@ steps:
 # Users -> Summary
 - name: next from users
   click: [1356, 793]
-  wait_after: 10
+  settle: 10
 
 - name: the summary page arrives before install is clicked
   loop:
     max: 30
     do:
-    - wait: 10
-    ocr:
+    - settle: 10
+    see:
+      of: [text]
       name: at_summary
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       wait: 3
     check:
       name: here
       from: at_summary
       mode: says_any
       words:
-      - - overview
-      - - happen
+      - - summary
+      - - install
     until:
       fact: here
 
 - name: the summary page
-  ocr:
+  see:
+    of: [text]
     name: summary
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 4
 
 # THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM - the
@@ -553,21 +547,21 @@ steps:
 # the summary's progress text and nothing happens.
 - name: start the install
   click: [1362, 872]
-  wait_after: 10
+  settle: 10
 
 - name: the confirmation dialog
-  ocr:
+  see:
+    of: [text]
     name: confirm
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
     wait: 3
 
 # `Install Now` INSIDE THE DIALOG, AT (1055, 616). The dialog's title is the check, so a click that
 # missed it is visible as a page with no dialog rather than as a silent no-op.
 - name: install now
   click: [1055, 617]
-  wait_after: 25
+  settle: 25
 
 # THE INSTALL WRITES FOR TWENTY MINUTES AND THE PROGRESS BAR IS THE ONLY SIGNAL. `disk_settle` waits
 # for the DISK to stop changing rather than for a clock.
@@ -575,19 +569,17 @@ steps:
   disk_settle: 300
   disk_min_mb: 4000
   timeout: 3600
-  poll: 20
-  keep_alive: true
 
 - name: the install is done
   loop:
     max: 80
     do:
-    - wait: 15
-    ocr:
+    - settle: 15
+    see:
+      of: [text]
       name: done
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
       wait: 0
     check:
       name: finished

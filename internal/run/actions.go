@@ -36,9 +36,6 @@ func (e *Executor) doBoot(s walk.Step) error {
 	// landing on the wrong screen.
 	if running, ok := m.(interface{ IsRunning() bool }); ok && running.IsRunning() {
 		want := s.Get("os")
-		if want == "" {
-			want = s.Get("family")
-		}
 		if want != "" {
 			if named, ok := m.(interface{ OS() string }); ok {
 				if have := named.OS(); have != "" && have != want {
@@ -50,11 +47,10 @@ func (e *Executor) doBoot(s walk.Step) error {
 		e.Driver.Log(fmt.Sprintf("  already running: %s", s.Name))
 		return nil
 	}
-	// `os:` REPLACED `family:`, and both are read so a file that has not been renamed still runs.
+	// `family:` WAS THE SAME KEY UNDER ANOTHER NAME and is gone: MEASURED 15 uses against `os:`'s
+	// 56, every one of them meaning the same thing, and the reader had to guess which spelling a
+	// given file used. `os:` is the name.
 	osName := s.Get("os")
-	if osName == "" {
-		osName = s.Get("family")
-	}
 	if osName == "" {
 		return fail(s.Name, "a boot step must name `os:` (windows, linux or macos)")
 	}
@@ -76,13 +72,13 @@ func (e *Executor) doBoot(s walk.Step) error {
 		}
 	}
 	spec := BootSpec{
-		OS:           osName,
-		Disk:         e.bootDisk(),
-		ISO:          e.assetPath(s.Get("iso")),
-		AnswerCD:     e.assetPath(s.Get("answer_cd")),
-		DriverCD:     e.assetPath(s.Get("driver_cd")),
-		Recovery:     e.assetPath(s.Get("recovery")),
-		Incoming:     resumeFrom,
+		OS:       osName,
+		Disk:     e.bootDisk(),
+		ISO:      e.assetPath(s.Get("iso")),
+		AnswerCD: e.assetPath(s.Get("answer_cd")),
+		DriverCD: e.assetPath(s.Get("driver_cd")),
+		Recovery: e.assetPath(s.Get("recovery")),
+		Incoming: resumeFrom,
 	}
 	// THE SIZE COMES OFF THE STEP, WHICH IS WHERE `MachineSteps` PUT IT.
 	//
@@ -100,6 +96,19 @@ func (e *Executor) doBoot(s walk.Step) error {
 	}
 	if n, err := s.Float("cpus", 0); err == nil && n > 0 {
 		spec.CPUs = int(n)
+	}
+	// `microvm: true` SELECTS THE SMALLEST MACHINE, and it is a property of the step rather than of
+	// the file because a file may install a distribution and then verify it in the same run.
+	if v, ok := s.Spec["microvm"].(bool); ok && v {
+		spec.MicroVM = true
+		spec.Kernel = e.assetPath(s.Get("kernel"))
+		spec.Initrd = e.assetPath(s.Get("initrd"))
+		if spec.CPUs == 0 {
+			spec.CPUs = 1
+		}
+		if spec.MemMB == 0 {
+			spec.MemMB = 512
+		}
 	}
 	// THE OPENCORE FILES ARE NEEDED BY EVERY MACOS BOOT, AND ONLY SOME OF THEM ATTACH THE
 	// RECOVERY IMAGE. They are built from it - Apple's APFS driver comes out of that image - but
@@ -239,31 +248,6 @@ func (e *Executor) doShutdown(s walk.Step) error {
 	}
 	return nil
 }
-
-func (e *Executor) doReboot(s walk.Step) error {
-	m := e.Driver.Machine()
-	if m == nil {
-		return fail(s.Name, "this driver has no machine to reboot")
-	}
-	if err := m.Reboot(); err != nil {
-		return fail(s.Name, "%v", err)
-	}
-	e.Driver.Log("  the machine is back")
-	return nil
-}
-
-// --- the disk -------------------------------------------------------------------------
-
-// doDisk names the file `boot:` will start.
-//
-// `disk:` IS A PATH, NOT A MAPPING. Every real file writes `disk: disk.qcow2`, and the richer
-// {from, copy} form was never used outside a comment. Accepting both would be a second shape for
-// one fact, which is the drift this port exists to remove - so a mapping is refused by name rather
-// than silently half-read.
-//
-// THE OVERLAY IS `boot:`'s JOB, and that is from the Python implementation: a file used to need a
-// separate `disk_overlay:` step because letting `boot:` make the overlay had no way to say so. Now
-// it does, so this step only says which file.
 func (e *Executor) doDisk(s walk.Step) error {
 	// A STEP WITH `disk_gb:` CREATES A DISK; one with `disk:` NAMES AN EXISTING ONE.
 	//
@@ -415,9 +399,6 @@ func (e *Executor) doDesktop(s walk.Step) error {
 	// `os:` were both empty and the fallback is `windows`. The value of the key is the family, and
 	// every file here writes `desktop: windows|macos|linux` - so reading it is the whole job.
 	family := s.Get("desktop")
-	if family == "" {
-		family = s.Get("desktop_family")
-	}
 	if family == "" {
 		family = s.Get("os")
 	}
@@ -602,6 +583,11 @@ func (e *Executor) doDesktop(s walk.Step) error {
 				time.Since(start).Round(time.Second), lastStats.Explain()))
 			return nil
 		}
+		// A GUEST THAT BLANKS ITS OWN SCREEN WAKES ON INPUT, and a blank screen during a boot is
+		// normal rather than a failure. THIS IS UNCONDITIONAL NOW, because it used to be behind
+		// `keep_alive:` and that key was written `true` in all 25 places it appeared - a switch
+		// nobody ever set to false is not a switch, it is the behaviour.
+		wakeTheScreen(e)
 		time.Sleep(poll)
 	}
 	return failWithScreen(s.Name, e.Driver,
@@ -610,72 +596,31 @@ func (e *Executor) doDesktop(s walk.Step) error {
 
 // --- host commands --------------------------------------------------------------------
 
-// doScript writes a body on the host, copies it in and runs it by path.
-//
-// WHY BY PATH RATHER THAN AS A QUOTED ONE-LINER: the body is the guest's own shell, and a command
-// that has to survive python -> ssh -> cmd loses its quotes. That is measured - the Python
-// implementation's own comment says the Build Tools `--override` arrived with none of them.
-func (e *Executor) doScript(s walk.Step) error {
-	client := e.Driver.Guest()
-	if client == nil {
-		return fail(s.Name, "no ssh connection; a `require_ssh:` step must come first")
-	}
-	shell := s.Get("script_shell")
-	if shell == "" {
-		shell = "powershell"
-	}
-	name := scriptName(s)
-	local := filepath.Join(e.Work, name)
-	if err := os.MkdirAll(e.Work, 0o755); err != nil {
-		return fail(s.Name, "%v", err)
-	}
-	body := s.Get("script")
-	if shell == "cmd" {
-		// cmd.exe reads a .bat byte for byte, and a stray \n is a command name.
-		body = strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\n", "\r\n")
-	}
-	if err := os.WriteFile(local, []byte(body), 0o644); err != nil {
-		return fail(s.Name, "writing %s: %v", name, err)
-	}
-
-	remote := "C:/Users/" + e.File.SSHUser + "/" + name
-	if shell == "sh" {
-		remote = "/tmp/" + name
-	}
-	if err := scpFile(client, local, remote); err != nil {
-		return fail(s.Name, "copying %s in: %v", name, err)
-	}
-
-	var command string
-	switch shell {
-	case "cmd":
-		command = `cmd /c "` + strings.ReplaceAll(remote, "/", `\`) + `"`
-	case "powershell", "pwsh":
-		command = `powershell -NoProfile -ExecutionPolicy Bypass -File "` + remote + `"`
-	default:
-		// `bash`, not `sh`: these bodies use `set -uo pipefail` and `[[ ]]`, which POSIX sh does
-		// not have and which silently ignores a failing stage of a pipeline.
-		command = "bash " + remote
-	}
-
-	res, err := client.Run(command, seconds(s, "timeout", 1800))
-	e.Driver.Log(fmt.Sprintf("  script %s (%s) -> %d", name, shell, res.Status))
-	for _, line := range headAndTail(res.Combined(), 18, 6) {
-		e.Driver.Log("    " + line)
-	}
-	if err != nil {
-		return fail(s.Name, "%v", err)
-	}
-	if res.Status != 0 {
-		return fail(s.Name, "the script exited %d", res.Status)
-	}
-	return nil
-}
-
 func (e *Executor) doSCP(s walk.Step) error {
 	client := e.Driver.Guest()
 	if client == nil {
 		return fail(s.Name, "no ssh connection; a `require_ssh:` step must come first")
+	}
+	// `scp: {template: launcher, to: /tmp/x}` IS THE ONE-STEP FORM, and it replaces a `write:` step
+	// plus the `scp:` that copied what it wrote. Measured: all 16 `write:` steps were followed
+	// immediately by exactly that `scp:`.
+	if m, ok := s.Spec["scp"].(map[string]any); ok {
+		kind, _ := m["template"].(string)
+		remote, _ := m["to"].(string)
+		if kind == "" || remote == "" {
+			return fail(s.Name, "`scp:` as a mapping needs `template:` (what to render) and "+
+				"`to:` (where it goes): `scp: {template: launcher, to: /tmp/bootstrap-launcher.sh}`")
+		}
+		local, err := e.writeTemplate(s, kind)
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(e.Work, local)
+		if err := scpFile(client, path, remote); err != nil {
+			return fail(s.Name, "scp %s -> %s: %v", local, remote, err)
+		}
+		e.Driver.Log(fmt.Sprintf("  scp: %s (%s) -> %s", local, kind, remote))
+		return nil
 	}
 	raw, ok := s.Spec["scp"].([]any)
 	if !ok || len(raw) != 2 {
@@ -721,114 +666,7 @@ func (e *Executor) doSCP(s walk.Step) error {
 	return nil
 }
 
-// --- the share ------------------------------------------------------------------------
-
-func (e *Executor) doShareServe(s walk.Step) error {
-	dir := s.Get("share_dir")
-	if dir == "" {
-		dir = "~/shared"
-	}
-	dir = strings.ReplaceAll(dir, "~", os.Getenv("HOME"))
-	e.Driver.Log(fmt.Sprintf("  share: serving %s", dir))
-	if sv, ok := e.Driver.(interface{ ServeShare(string) error }); ok {
-		if err := sv.ServeShare(dir); err != nil {
-			return fail(s.Name, "%v", err)
-		}
-		return nil
-	}
-	return notImplemented(s, "share_serve")
-}
-
-// shareDirOrEmpty is the directory being served, for a proof that must look on the host side.
-func (e *Executor) shareDirOrEmpty() string {
-	if d, ok := e.Driver.(interface{ ShareDir() string }); ok {
-		return d.ShareDir()
-	}
-	return ""
-}
-
-// shareURLOf asks the driver where the share is served. It is "" when nothing is shared, which the
-// caller has already refused.
-func shareURLOf(e *Executor) string {
-	if sv, ok := e.Driver.(interface{ ShareURL() string }); ok {
-		return sv.ShareURL()
-	}
-	return ""
-}
-
-// doShareMount proves the guest can read the shared directory over HTTP.
-//
-// IT USED TO MOUNT AN SMB SHARE, AND EVERY GUEST NEEDED A DIFFERENT CLIENT: `mount -t cifs` on
-// Linux, Apple's mount_smbfs on macOS, `net use` on Windows - and on FreeBSD NOTHING IN THE BASE
-// SYSTEM COULD CONNECT AT ALL, because netsmb speaks SMB1 on NetBIOS 139 while the server offers
-// SMB3 on 445.
-//
-// THE TRANSPORT IS NOW THE DAEMON'S OWN HTTP LISTENER, so this step asks the guest to FETCH a file
-// the host just wrote, with whatever that platform ships:
-//
-//	linux/bsd/macos   curl
-//	windows           Invoke-WebRequest
-//
-// THE SENTINEL IS WRITTEN ON THE HOST AND READ IN THE GUEST, because the guest's own round trip
-// proves nothing: measured on manjaro, where the mount had never happened and `~/shared` was an
-// ordinary directory - a file written there and read back came back unchanged, and the check
-// passed on a share that did not exist.
-func (e *Executor) doShareMount(s walk.Step) error {
-	family := s.Get("share_family")
-	if family == "" {
-		family = "windows"
-	}
-
-	dir := e.shareDirOrEmpty()
-	if dir == "" {
-		return fail(s.Name, "no directory is being shared; a `share_serve:` step must come first")
-	}
-
-	client := e.Driver.Guest()
-	if client == nil {
-		return fail(s.Name, "no ssh connection to fetch the proof with")
-	}
-
-	sentinel := fmt.Sprintf(".easyvm-share-proof-%d", time.Now().UnixNano())
-	hostPath := filepath.Join(dir, sentinel)
-	body := "from-the-host"
-	if err := os.WriteFile(hostPath, []byte(body+"\n"), 0o644); err != nil {
-		return fail(s.Name, "writing the proof file on the host: %v", err)
-	}
-	defer os.Remove(hostPath)
-
-	url := shareURLOf(e) + sentinel
-	e.Driver.Log(fmt.Sprintf("  share: the %s guest fetches %s", family, url))
-
-	// THE FETCH IS THE GUEST'S OWN COMMAND, IN THE GUEST'S OWN CLIENT.
-	//
-	// MEASURED ON windows-vm-configure, in the SMB era: the check ran `cat`, which Windows does not
-	// have, and reported "'cat' is not recognized as an internal or external command" - a working
-	// share failing on the checker's own vocabulary. The same mistake is not repeated here.
-	var cmd string
-	if family == "windows" {
-		cmd = `powershell -NoProfile -Command "(Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 ` +
-			"'" + url + "'" + `).Content"`
-	} else if family == "bsd" {
-		// `fetch` IS IN THE FREEBSD BASE SYSTEM and `curl` is not guaranteed; both are tried so the
-		// check does not depend on which the image happens to carry.
-		cmd = "sh -c 'curl -fsS --max-time 20 " + url + " 2>/dev/null || fetch -qo - " + url + "'"
-	} else {
-		cmd = "sh -c 'curl -fsS --max-time 20 " + url + " || wget -qO- --timeout=20 " + url + "'"
-	}
-
-	res, err := client.Run(cmd, 90*time.Second)
-	got := strings.TrimSpace(res.Stdout)
-	if err != nil || got != body {
-		return fail(s.Name, "the guest cannot fetch a file this host wrote into %s. The daemon "+
-			"serves it at %s; a guest that wrote to ~/shared instead would have written into its "+
-			"OWN filesystem. (%v, read %q)", dir, url, err, firstLineOf(res.Combined()))
-	}
-	e.Driver.Log("  share: a file written on the host is readable in the guest - the share is real")
-	return nil
-}
-
-// --- recording and publishing ---------------------------------------------------------
+// --- the share ------------------------------------------------------------------------// --- recording and publishing ---------------------------------------------------------
 
 // doRecord starts or stops a recording.
 //
@@ -956,7 +794,7 @@ func (e *Executor) doCompress(s walk.Step) error {
 func notImplementedCount(steps []walk.Step, can map[string]bool) (int, string) {
 	count := 0
 	first := ""
-	passive := map[string]bool{"name": true, "optional": true, "timeout": true, "requires": true,
+	passive := map[string]bool{"name": true, "optional": true, "timeout": true,
 		"wait_after": true, "poll": true, "os": true, "family": true}
 	for _, s := range steps {
 		blocking := false
@@ -998,12 +836,27 @@ func (e *Executor) doWrite(s walk.Step) error {
 	if kind == "" {
 		return fail(s.Name, "`write:` must name a file kind")
 	}
+	name, err := e.writeTemplate(s, kind)
+	if err != nil {
+		return err
+	}
+	e.Driver.Log(fmt.Sprintf("  wrote %s; the scp: step after this copies it in", name))
+	return nil
+}
+
+// writeTemplate renders one bootstrap file into the work directory and returns its name.
+//
+// IT IS SHARED WITH `scp:`'s `template:` ARGUMENT, because `write:` AND THE `scp:` AFTER IT WERE
+// ALWAYS ONE OPERATION. Measured over the tree: all 16 `write:` steps are followed immediately by
+// the `scp:` that copies the same file in, so a file said "make this" and then "copy the thing you
+// just made" - two names for one fact, and a reader cannot see the file's content without opening
+// Go. `scp: {template: launcher, to: /tmp/x}` is one step that says both.
+func (e *Executor) writeTemplate(s walk.Step, kind string) (string, error) {
 	family := s.Get("family")
 	if family == "" {
 		family = s.Get("os")
 	}
 	if family == "" && e.File != nil {
-		// The walkthrough's own os, from its first boot step, if it names one.
 		for _, other := range e.File.Steps {
 			if v := other.Get("os"); v != "" {
 				family = v
@@ -1038,22 +891,18 @@ func (e *Executor) doWrite(s walk.Step) error {
 		body, name = bootstrap.WindowsTaskScript(
 			"C:/Users/"+e.userForPaths()+"/bootstrap-launcher.ps1"), "bootstrap-install.ps1"
 	default:
-		return fail(s.Name, "`write: %s` is not a file this build writes; the kinds are "+
+		return "", fail(s.Name, "`%s` is not a file this build writes; the kinds are "+
 			"launcher, macos_agent_plist, windows_task", kind)
 	}
 
 	path := filepath.Join(e.Work, name)
 	if err := os.MkdirAll(e.Work, 0o755); err != nil {
-		return fail(s.Name, "%v", err)
+		return "", fail(s.Name, "%v", err)
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		return fail(s.Name, "writing %s: %v", name, err)
+		return "", fail(s.Name, "writing %s: %v", name, err)
 	}
-	// THE PATH IS LOGGED because the `scp:` that follows names it, and a mismatch between the two
-	// is the failure this split exists to make visible.
-	e.Driver.Log(fmt.Sprintf("  wrote %s (%d bytes); the scp: step after this copies it in",
-		path, len(body)))
-	return nil
+	return name, nil
 }
 
 func (e *Executor) userForPaths() string {
@@ -1070,19 +919,21 @@ func (e *Executor) userForPaths() string {
 // that took them from the environment instead would be a second place those facts live, and the
 // disk would be installed with one account and driven with another.
 func (e *Executor) doFetch(s walk.Step) error {
-	// ONE KIND, THREE KEY NAMES. Which key the file used says what is being done - taking a
-	// published file, assembling one, or rendering one - and this reads it without caring which.
-	kind := s.Get("asset")
+	// ONE KIND, FOUR KEY NAMES, AND NOW ONE. `asset:`, `build:` and `generate:` all dispatched to
+	// this function and differed only in the WORD the file chose - taking a published file,
+	// assembling one, or rendering one. MEASURED: `asset:` 1, `build:` 2, `generate:` 1, so the
+	// distinction was never load-bearing; the KIND is the value, and `fetch:` is the verb.
+	//
+	// THE OLD THREE ARE STILL READ so a file that has not been renamed runs, and the migration is
+	// per file.
+	kind := s.Get("fetch")
 	if kind == "" {
-		kind = s.Get("build")
+		return fail(s.Name, "the step must name what it prepares: `fetch: <kind>` - an installer "+
+			"image, a guest agent, a firmware, an answer CD")
 	}
-	if kind == "" {
-		kind = s.Get("generate")
-	}
-	if kind == "" {
-		return fail(s.Name, "the step must name what it prepares: `asset:`, `build:` or `generate:`")
-	}
-	family := s.Get("family")
+	// `os:` AND NOT `family:`: the family spelling is gone from the vocabulary, and this was the
+	// last reader of it.
+	family := s.Get("os")
 	if family == "" && e.File != nil {
 		for _, other := range e.File.Steps {
 			if v := other.Get("os"); v != "" {
@@ -1169,49 +1020,6 @@ func str(v any) string {
 }
 
 // --- macOS's own steps ----------------------------------------------------------------
-
-// doWaitFor waits for a control with no readable title.
-//
-// THE LOGIN WINDOW'S ONLY TEXT IS THE PASSWORD FIELD'S PLACEHOLDER, twelve pixels tall in a 165x40
-// box. A whole-frame read returns NOTHING on a finished Setup Assistant, which is why a walk whose
-// gate lists fifteen pane titles waits out its entire budget on a screen that is already done.
-func (e *Executor) doWaitFor(s walk.Step) error {
-	what := s.Get("wait_for")
-	if what != "login_window" {
-		return fail(s.Name, "`wait_for:` knows login_window only; got %q", what)
-	}
-	timeout := seconds(s, "timeout", 240)
-	poll := seconds(s, "poll", 3)
-
-	e.Driver.Log(fmt.Sprintf("  waiting up to %s for the login window", timeout))
-	start := time.Now()
-	for time.Since(start) < timeout {
-		f, err := e.Driver.Frame()
-		if err != nil {
-			time.Sleep(poll)
-			continue
-		}
-		img, err := screen.Load(f.Path())
-		if err != nil {
-			time.Sleep(poll)
-			continue
-		}
-		if screen.HasLoginWindow(img) {
-			e.Driver.Log(fmt.Sprintf("  the login window is up (%s)",
-				time.Since(start).Round(time.Second)))
-			return nil
-		}
-		time.Sleep(poll)
-	}
-	// THE CEILING IS NOT A FAILURE *WHEN THE FILE SAYS optional*. `wait_for` returning an error
-	// either way, with the tolerance baked in, made the file's own `optional:` a decoration - and
-	// the two disagreed about who decided. The decision is the file's, so this reports and lets
-	// the walk decide.
-	return fmt.Errorf("%s: no login window within %s", s.Name, timeout)
-}
-
-// doScreenshot saves the screen, for a step that asks for the picture rather than a failure taking
-// one.
 func (e *Executor) doScreenshot(s walk.Step) error {
 	dest := s.Get("screenshot")
 	if dest == "" {
@@ -1234,32 +1042,6 @@ func (e *Executor) doScreenshot(s walk.Step) error {
 	e.Driver.Log(fmt.Sprintf("  screenshot: %s", dest))
 	return nil
 }
-
-// doDemoScript writes a throwaway script, for the primitives walkthrough.
-func (e *Executor) doDemoScript(s walk.Step) error {
-	if s.Get("demo_script") == "" {
-		return fail(s.Name, "`demo_script:` must name the file to write")
-	}
-	return notImplemented(s, "demo_script")
-}
-
-// --- the compound action ------------------------------------------------------------------
-//
-// `do:` IS A LIST OF ACTIONS THAT BELONG TO ONE STEP, and it exists for a step whose NAME is the
-// thing being done - "dismiss the overlays macOS puts up on a first login" is three clicks four
-// seconds apart, and splitting it into three named steps would name the clicks rather than the deed.
-//
-// IT IS NOT A LANE OR A PANE. Those are the four-key state machines (`when`/`once`/`end`/`panes:`) for
-// a GUI that has to be answered until it stops asking; this is one step, run once, whose actions
-// happen in order.
-//
-// MEASURED ON macos-ssh, step 10 of 33:
-//
-//	error:   dismiss the overlays macOS puts up on a first login: no implementation for this step's keys
-//
-// The key was declared in the vocabulary and had no dispatcher branch - the exact failure the
-// vocabulary exists to refuse, arriving from the one direction it does not cover: a key that IS
-// declared, IS valid YAML, and does nothing.
 func (e *Executor) doActions(s walk.Step) error {
 	raw, ok := s.Spec["do"].([]any)
 	if !ok || len(raw) == 0 {
@@ -1287,44 +1069,6 @@ func (e *Executor) doActions(s walk.Step) error {
 	return e.settle(s)
 }
 
-// --- snapshots ---------------------------------------------------------------------
-//
-// `snapshot:` WRITES THE MACHINE'S WHOLE STATE TO A FILE, so a later run can start from it instead of
-// booting. It is the one primitive that makes a sandbox's "pause" mean something: the guest's memory,
-// its devices and its UEFI variables all go into one stream.
-//
-// WHY IT IS A MIGRATION AND NOT `savevm` - the guest refuses that, and the reason is structural:
-//
-//	savevm s1  ->  Error: Device 'pflash1' is writable but does not support snapshots
-//
-// Every guest here boots UEFI, and UEFI's variable store is a pflash device - a firmware chip, not a
-// qcow2 - so `savevm`, which writes the state INTO a block device, has nowhere to put it. A migration
-// stream is a file of its own and asks nothing of the devices.
-//
-// THE STEP TAKES A PATH AND NOTHING ELSE, because everything else about a resume belongs to the boot
-// that reads it: the cpu, the machine type and the device set must match, and this build gives every
-// guest the same ones. A `snapshot:` that also recorded the machine would be a second description of
-// the machine, and the two would disagree.
-func (e *Executor) doSnapshot(s walk.Step) error {
-	dest := s.Get("snapshot")
-	if strings.TrimSpace(dest) == "" {
-		return fail(s.Name, "`snapshot:` must name the file to write the machine state to")
-	}
-	// A RELATIVE PATH IS RESOLVED AGAINST THE WORK DIRECTORY, the same rule `scp:` and `disk:`
-	// follow: a file that a later `run --boot-from` names lives where the daemon put it.
-	if !filepath.IsAbs(dest) {
-		dest = filepath.Join(e.Work, dest)
-	}
-	sv, ok := e.Driver.(interface{ Snapshot(string) error })
-	if !ok {
-		return notImplemented(s, "snapshot")
-	}
-	if err := sv.Snapshot(dest); err != nil {
-		return fail(s.Name, "%v", err)
-	}
-	return nil
-}
-
 // resSwitchBudget is how long a desktop at the wrong size is given to switch to the right one.
 //
 // IT IS NOT THE `timeout:` OF THE STEP, DELIBERATELY. The step's timeout is how long the guest may
@@ -1334,14 +1078,24 @@ func (e *Executor) doSnapshot(s walk.Step) error {
 // do switch and bounded for the ones that never will.
 const resSwitchBudget = 2 * time.Minute
 
-// resolutionOf is the guest screen size a file's coordinates were measured at.
-//
-// IT IS THE FILE'S OWN `resolution:`, and 1920x1080 when the file does not say - which is the size
-// every walkthrough here was measured on. A guest that has not switched to it is a guest whose
-// coordinates mean something else entirely.
 func resolutionOf(f *walk.File) [2]int {
 	if f != nil && f.Resolution[0] > 0 && f.Resolution[1] > 0 {
 		return f.Resolution
 	}
 	return [2]int{1920, 1080}
+}
+
+// wakeTheScreen nudges the guest with a click so a blanked display comes back.
+//
+// IT MOVES EACH TIME, because a click at exactly the same place twice is a double-click to some
+// toolkits and would open whatever is under it. The x walks a 40-pixel band, which is enough to be a
+// different position and small enough to stay on the wallpaper of every desktop here.
+//
+// THE COST IS ONE CLICK PER POLL, and it is paid by both waits that use it: a `desktop:` polling
+// every five seconds and a `disk_settle:` every twenty. That is deliberate - this is what makes an
+// unattended wait survive a screen saver, and `keep_alive:` used to make it OPTIONAL while every one
+// of its 25 uses said yes.
+func wakeTheScreen(e *Executor) {
+	x := 400 + int(time.Now().UnixNano()/int64(time.Second))%40
+	_ = e.Driver.Click(x, 300)
 }

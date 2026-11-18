@@ -18,7 +18,7 @@ steps:
   # forty minutes into a run. Every one of these files is declared by this leg's
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
-  require:
+  needs:
   - popos.iso
 - name: start recording
   record: popos-install.mp4
@@ -33,18 +33,26 @@ steps:
 - name: wait for the live desktop
   desktop: linux/gnome
   timeout: 5400
-  poll: 5
-  keep_alive: true
 - name: open the installer from the dock
+  # 1390 IS 310 PIXELS BELOW THE BOTTOM OF A 1080 FRAME, so these numbers were taken on a taller
+  # screen and never rescaled. Found by the ported `TestEveryCoordinateFitsTheFrameItDeclares`
+  # (upstream `aac5fc0`), whose message is the one the daemon used to print at step 6 of 29 with the
+  # machine already booted:
+  #
+  #	open the installer from the dock: pointer to (1265, 1390): outside a 1920x1080 frame
+  #
+  # The dock was located by its own pixels on the 1920 frame: crop 700..1600 x 1020..1080 scaled 2x
+  # puts the installer ring at (700+1022/2, 1020+60/2) = (1211, 1050). The x range was already right,
+  # which is what makes this a height error rather than a typo.
   at_button:
-  - 1210
-  - 1340
-  - 1330
-  - 1450
+  - 1190
+  - 1030
+  - 1235
+  - 1070
   at_fallback:
-  - 1265
-  - 1390
-  wait_after: 20
+  - 1211
+  - 1050
+  settle: 20
 - name: the installer window is up
   loop:
     max: 100
@@ -52,18 +60,18 @@ steps:
     - click:
       - 420
       - 300
-      wait_after: 3
-    ocr:
+      settle: 3
+    see:
+      of: [text]
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -88,68 +96,68 @@ steps:
   - 755
   - 1430
   - 845
-  wait_after: 21
+  settle: 21
 - name: language variants
   at_button:
   - 1240
   - 755
   - 1430
   - 845
-  wait_after: 21
+  settle: 21
 - name: keyboard layout
   at_button:
   - 1240
   - 755
   - 1430
   - 845
-  wait_after: 21
+  settle: 21
 - name: keyboard variants
   at_button:
   - 1240
   - 755
   - 1430
   - 845
-  wait_after: 21
+  settle: 21
 - name: clean install
   click:
   - 1180
   - 456
-  wait_after: 8
+  settle: 8
 - name: install
   at_button:
   - 1240
   - 755
   - 1430
   - 845
-  wait_after: 21
+  settle: 21
 - name: select a drive
   click:
   - 1193
   - 498
-  wait_after: 8
+  settle: 8
 - name: erase and install
   at_button:
   - 1240
   - 755
   - 1430
   - 845
-  wait_after: 44
+  settle: 44
 - name: wait for the account pane
   loop:
     max: 45
     do:
-    - wait: 2
-    ocr:
+    - settle: 2
+    see:
+      of: [text]
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -167,33 +175,33 @@ steps:
   - 494
   type: VM User
   type_gap: 0.09
-  wait_after: 2
+  settle: 2
 - name: leave the field so it validates
   key: tab
-  wait_after: 2
+  settle: 2
 - name: create user account
   at_button:
   - 1240
   - 755
   - 1430
   - 845
-  wait_after: 22
+  settle: 22
 - name: wait for the password pane
   loop:
     max: 45
     do:
-    - wait: 2
-    ocr:
+    - settle: 2
+    see:
+      of: [text]
       name: screen
-      region:
+      rect:
       - 0
       - 0
       - 1920
       - 1080
-      region_at:
+      rect_at:
       - 1920
       - 1080
-      scale: 1
       wait: 0
     check:
       name: done
@@ -209,39 +217,37 @@ steps:
       fact: done
 - name: dismiss anything a stray click opened
   key: esc
-  wait_after: 2
+  settle: 2
 - name: type the password
   click:
   - 1350
   - 447
   type: '{{ password }}'
   type_gap: 0.09
-  wait_after: 2
+  settle: 2
 - name: confirm the password
   click:
   - 1350
   - 543
   type: '{{ password }}'
   type_gap: 0.09
-  wait_after: 2
+  settle: 2
 - name: account password next
   at_button:
   - 1240
   - 755
   - 1430
   - 845
-  wait_after: 25
+  settle: 25
 - name: drive encryption - don't encrypt
   click:
   - 1081
   - 808
-  wait_after: 35
+  settle: 35
 - name: the install is written
   disk_settle: 180
   disk_min_mb: 512
   timeout: 3600
-  poll: 20
-  keep_alive: true
 - name: stop the machine
   shutdown: kill
   timeout: 120

@@ -262,13 +262,18 @@ steps:
 // THE RULE IS THE ONE THE WHOLE DSL RESTS ON: one step does one thing. A reading and a decision are
 // two, and a vocabulary that accepts them together is a vocabulary that lets a file say something it
 // does not mean.
-func TestAnOCRStepCannotAlsoCheck(t *testing.T) {
+// A STEP THAT READS AND DECIDES IN ONE MAPPING IS REFUSED, because the dispatcher runs the first
+// branch it matches and returns - so the second half would never run, in a file that loaded.
+//
+// `see:` IS THE READING NOW (`ocr:` was the same operation restricted to a word list), and the rule
+// is unchanged: one step does one thing.
+func TestAReadingStepCannotAlsoCheck(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.yaml")
 	body := `name: probe
 steps:
 - name: read and decide
-  ocr: {name: screen, region: [0, 0, 100, 100], region_at: [1920, 1080], scale: 1, wait: 0}
+  see: {name: screen, of: [text], rect: [0, 0, 100, 100], rect_at: [1920, 1080], wait: 0}
   check: {name: done, from: screen, mode: says_any, words: [[ok]]}
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -276,8 +281,8 @@ steps:
 	}
 	_, err := Load(path, nil)
 	if err == nil {
-		t.Fatal("a step with both `ocr:` and `check:` loaded, and the `check:` would never run - the " +
-			"dispatcher calls `doOCR` and returns. Split it into two steps.")
+		t.Fatal("a step with both `see:` and `check:` loaded, and the `check:` would never run - the " +
+			"dispatcher takes the reading branch and returns. Split it into two steps.")
 	}
 	if !strings.Contains(err.Error(), "one thing") && !strings.Contains(err.Error(), "check") {
 		t.Fatalf("the error should say why: %v", err)

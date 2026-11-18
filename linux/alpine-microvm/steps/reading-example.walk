@@ -1,0 +1,13 @@
+walkthrough "what a reading looks like"
+  resolution 1920x1080
+
+  # ONE CAPTURE, TWO QUESTIONS ABOUT IT: the words in one place, the colour in another.
+  read the middle of the screen as "label"
+  read the bottom 4.5% of the screen as "panel"
+    measuring mean spread sat flat_rows
+
+  decide "the window is the installer" is:
+    label is similar to "Install now" within 0.85
+    panel mean is between 20 and 60
+    panel spread is less than 42
+    panel flat_rows is at least 3

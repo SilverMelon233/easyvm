@@ -146,11 +146,17 @@ func fmtStr(v any) string {
 // real tesseract, which would make this a slow test of OCR rather than a fast test of the executor.
 func TestALoopAssemblesItsPartsWithTheirKeys(t *testing.T) {
 	ocrRaw := map[string]any{
-		"name": "screen", "region": []any{0, 0, 1920, 1080},
-		"region_at": []any{1920, 1080}, "scale": 1, "wait": 0,
+		"name": "screen", "rect": []any{0, 0, 1920, 1080},
+		"rect_at": []any{1920, 1080}, "scale": 1, "wait": 0,
 	}
-	// THE SHAPE THE LOOP MUST BUILD. Built here the same way doLoop builds it.
-	ocrStep := walk.Step{Name: "probe [ocr]", Spec: map[string]any{"ocr": ocrRaw}}
+	// THE SHAPE THE LOOP MUST BUILD - AND IT IS BUILT BY THE LOOP.
+	//
+	// This test used to construct the sub-step itself, and so it asserted on its own copy of the
+	// shape rather than on the code that runs. When `doLoop` started handing `parseOCRStep` the `see:`
+	// mapping under a `see` key, this test still passed and EVERY LOOP IN EVERY WALKTHROUGH failed in
+	// a real run - measured on 44078798458, on a migrated `.walk`. A test that rebuilds the thing it
+	// is testing cannot see the thing change.
+	ocrStep, _, _ := loopParts(walk.Step{Index: 1, Name: "probe"}, "ocr", ocrRaw, nil, nil)
 	spec, err := parseOCRStep(ocrStep)
 	if err != nil {
 		t.Fatalf("a sub-step built as {ocr: {...}} is refused: %v", err)
@@ -180,5 +186,45 @@ func TestALoopAssemblesItsPartsWithTheirKeys(t *testing.T) {
 	}
 	if !ex.facts["done"] {
 		t.Fatal("the check did not bind its boolean")
+	}
+}
+
+// A LOOP'S `see:` IS A `see:`, AND IT MUST BE READ BY THAT VOCABULARY.
+//
+// THE TWO SPELLINGS ARE TWO VOCABULARIES, not two names for one: `see:` takes `of: [text]` and binds a
+// word list, while `ocr:` takes a region and no `of:` at all. A loop that canonicalised the key to
+// `ocr:` therefore refused every converted file with
+//
+//	wait for the installer window [ocr]: `ocr:` has unknown key "of"
+//
+// - MEASURED on run 44083524097, on `linux/ubuntu/steps/install.walk`, whose `see:` was correct. This
+// test builds the mapping from that file and requires the loop to accept it under either spelling.
+func TestALoopReadsSeeAsSeeAndOCRAsOCR(t *testing.T) {
+	ex, _ := newExec(&fakeDriver{})
+	gate := walk.Step{Index: 1, Name: "gate"}
+
+	// THE SHAPE EVERY CONVERTED FILE WRITES, taken from install.walk's step 6.
+	see := map[string]any{
+		"name": "screen", "of": []any{"text"},
+		"rect": []any{0, 0, 1920, 1080}, "rect_at": []any{1920, 1080},
+		"wait": float64(0),
+	}
+	reading, _, _ := loopParts(gate, "see", see, nil, nil)
+	if _, ok := reading.Spec["see"]; !ok {
+		t.Fatal("the reading was not handed over under `see`, so the wrong parser will run")
+	}
+	if err := ex.checkReading(reading); err != nil {
+		t.Fatalf("a loop's `see:` mapping was refused: %v", err)
+	}
+
+	// AND THE PRE-MERGE SPELLING STILL WORKS, because a file that has not been migrated must run.
+	ocr := map[string]any{"name": "pane", "rect": []any{0, 0, 100, 100},
+		"rect_at": []any{1920, 1080}, "wait": float64(0)}
+	old, _, _ := loopParts(gate, "ocr", ocr, nil, nil)
+	if _, ok := old.Spec["ocr"]; !ok {
+		t.Fatal("an `ocr:` reading was not handed over under `ocr`")
+	}
+	if err := ex.checkReading(old); err != nil {
+		t.Fatalf("a loop's `ocr:` mapping was refused: %v", err)
 	}
 }

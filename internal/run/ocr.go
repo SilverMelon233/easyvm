@@ -156,17 +156,25 @@ func parseOCRStep(s walk.Step) (ocrSpec, error) {
 		return ocrSpec{}, fail(s.Name, "`ocr:` must name what it read: `ocr: {name: menu, ...}`. "+
 			"A reading with no name cannot be asked about by `check:`")
 	}
-	region, ok := rectOfMapping(raw, "region")
+	// `rect:` / `rect_at:` ARE THE NAMES; `region:` / `region_at:` are what every file wrote
+	// before they were merged. ONE REGION, ONE NAME - 245 uses spelled it two ways.
+	region, ok := rectOfMapping(raw, "rect")
 	if !ok {
-		return ocrSpec{}, fail(s.Name, "`ocr:` must name its `region: [x0, y0, x1, y1]`. A read "+
+		region, ok = rectOfMapping(raw, "region")
+	}
+	if !ok {
+		return ocrSpec{}, fail(s.Name, "`ocr:` must name its `rect: [x0, y0, x1, y1]`. A read "+
 			"without one reads the whole screen, which is how a gate matched the title of the "+
 			"window it was waiting to open, and what made 47 of 70 steps read a full 1920x1080 frame")
 	}
 	spec.Region = region
-	at, ok := pairOfMapping(raw, "region_at")
+	at, ok := pairOfMapping(raw, "rect_at")
 	if !ok {
-		return ocrSpec{}, fail(s.Name, "`ocr:` must say `region_at: [width, height]` - the size "+
-			"its `region:` was measured at. Without it the crop cannot be scaled for a guest that "+
+		at, ok = pairOfMapping(raw, "region_at")
+	}
+	if !ok {
+		return ocrSpec{}, fail(s.Name, "`ocr:` must say `rect_at: [width, height]` - the size "+
+			"its `rect:` was measured at. Without it the crop cannot be scaled for a guest that "+
 			"draws at another size, which is the whole reason macOS recovery reads 640x480 while "+
 			"every coordinate in that file was measured at 1920x1080")
 	}
@@ -186,10 +194,10 @@ func parseOCRStep(s walk.Step) (ocrSpec, error) {
 	// rule the step vocabulary applies.
 	for k := range raw {
 		switch k {
-		case "name", "region", "region_at", "scale", "wait":
+		case "name", "rect", "rect_at", "region", "region_at", "scale", "wait":
 		default:
-			return ocrSpec{}, fail(s.Name, "`ocr:` has unknown key %q; it takes name, region, "+
-				"region_at, scale and wait", k)
+			return ocrSpec{}, fail(s.Name, "`ocr:` has unknown key %q; it takes name, rect, "+
+				"rect_at, scale and wait", k)
 		}
 	}
 	return spec, nil
