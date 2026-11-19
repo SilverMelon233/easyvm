@@ -32,28 +32,151 @@ import (
 	"time"
 )
 
-// Verdict is what happens to one connection.
-type Verdict int
+// Verdict is what happens to one connection, and — when it is proxied — through which upstream.
+//
+// IT USED TO BE AN ENUM AND THAT WAS ONE FIELD TOO FEW. "proxy" answered "yes" and left "through
+// what" to a single environment variable, so a guest could not send one destination through a fast
+// node and another through a different one. The upstream name is that missing field.
+type Verdict struct {
+	// Kind is what to do.
+	Kind Kind
+	// Upstream names an entry in the upstream table. Empty means the default upstream, which is what
+	// a rule written before this existed gets.
+	Upstream string
+}
+
+// Kind is the three things that can happen to a connection.
+type Kind int
 
 const (
-	// VerdictProxy sends the connection through the configured proxy. The default for a destination
-	// no rule names, and the behaviour this daemon had before rules existed.
-	VerdictProxy Verdict = iota
-	// VerdictDirect leaves this pod without the proxy.
-	VerdictDirect
-	// VerdictBlock closes the connection.
-	VerdictBlock
+	// KindProxy sends the connection through an upstream.
+	KindProxy Kind = iota
+	// KindDirect leaves this pod with no proxy in the path.
+	KindDirect
+	// KindBlock closes the connection.
+	KindBlock
 )
 
 func (v Verdict) String() string {
-	switch v {
-	case VerdictDirect:
+	switch v.Kind {
+	case KindDirect:
 		return "direct"
-	case VerdictBlock:
+	case KindBlock:
 		return "block"
-	default:
-		return "proxy"
 	}
+	if v.Upstream != "" {
+		return "proxy:" + v.Upstream
+	}
+	return "proxy"
+}
+
+// Equal is used by tests and by the UI's "did anything change" check.
+func (v Verdict) Equal(o Verdict) bool { return v.Kind == o.Kind && v.Upstream == o.Upstream }
+
+// ---------------------------------------------------------------- upstreams
+
+// Upstream is one proxy this daemon may send traffic through.
+//
+// TWO ADDRESSES PER ENTRY, AND THEY ARE NOT INTERCHANGEABLE. TCP goes through an HTTP CONNECT proxy
+// (mihomo's 7890); UDP goes through a SOCKS5 relay (its 7891), because CONNECT cannot carry a
+// datagram. A named upstream that omits UDP still works for TCP and leaves UDP on the default - which
+// is a choice a person can make, not an error.
+type Upstream struct {
+	Name string
+	// HTTP is the CONNECT proxy, host:port.
+	HTTP string
+	// SOCKS5 is the UDP relay, host:port. Empty means this upstream carries no UDP.
+	SOCKS5 string
+}
+
+// An upstream table, loaded from the environment and replaceable at run time by the rules API.
+var (
+	upstreamsMu sync.RWMutex
+	upstreams   = DefaultUpstreams()
+	defaultUp   string
+)
+
+// DefaultUpstreams builds the table from the two variables this daemon has always had.
+//
+// THE DEFAULT NAME IS `default`, and it is what an unnamed verdict means. That keeps every rule
+// written before this feature working unchanged, which is the only way adding a feature to a policy
+// language is not a breaking change.
+func DefaultUpstreams() []Upstream {
+	http := osGetenv(proxyEnv)
+	socks := osGetenv(udpRelayUpstreamEnv)
+	if http == "" && socks == "" {
+		return nil
+	}
+	return []Upstream{{Name: "default", HTTP: http, SOCKS5: socks}}
+}
+
+// SetUpstreams installs a table from the rules API.
+//
+// THE ENVIRONMENT IS STILL THE FLOOR: an entry named `default` with an empty HTTP inherits the one
+// from `EASYVM_TRANSPARENT_PROXY`, so a UI cannot accidentally leave a guest with no way out.
+func SetUpstreams(list []Upstream) error {
+	seen := map[string]bool{}
+	for _, u := range list {
+		if u.Name == "" {
+			return fmt.Errorf("an upstream needs a name")
+		}
+		if seen[u.Name] {
+			return fmt.Errorf("two upstreams are named %q", u.Name)
+		}
+		seen[u.Name] = true
+		if u.HTTP == "" && u.SOCKS5 == "" {
+			return fmt.Errorf("upstream %q has no address", u.Name)
+		}
+		for _, a := range []string{u.HTTP, u.SOCKS5} {
+			if a == "" {
+				continue
+			}
+			if _, _, err := net.SplitHostPort(a); err != nil {
+				return fmt.Errorf("upstream %q: %q is not host:port", u.Name, a)
+			}
+		}
+	}
+	upstreamsMu.Lock()
+	upstreams = list
+	upstreamsMu.Unlock()
+	return nil
+}
+
+// UpstreamsCopy returns the table, for the API to display.
+func UpstreamsCopy() []Upstream {
+	upstreamsMu.RLock()
+	defer upstreamsMu.RUnlock()
+	return append([]Upstream(nil), upstreams...)
+}
+
+// httpFor returns the CONNECT proxy an upstream name refers to.
+func httpFor(name string) (string, bool) {
+	upstreamsMu.RLock()
+	defer upstreamsMu.RUnlock()
+	for _, u := range upstreams {
+		if u.Name == name && u.HTTP != "" {
+			return u.HTTP, true
+		}
+	}
+	return "", false
+}
+
+// socksFor returns the SOCKS5 relay an upstream name refers to. An unnamed verdict that names an
+// upstream WITHOUT a socks5 address falls back to the default upstram, so UDP keeps working.
+func socksFor(name string) (string, bool) {
+	upstreamsMu.RLock()
+	defer upstreamsMu.RUnlock()
+	for _, u := range upstreams {
+		if u.Name == name && u.SOCKS5 != "" {
+			return u.SOCKS5, true
+		}
+	}
+	for _, u := range upstreams {
+		if u.Name == "default" && u.SOCKS5 != "" {
+			return u.SOCKS5, true
+		}
+	}
+	return "", false
 }
 
 // Policy is the whole configuration: a default for unmatched traffic, plus rules.
@@ -87,7 +210,7 @@ type Rule struct {
 // and a `proxy` default, which is exactly the behaviour before it existed.
 var (
 	egressMu  sync.RWMutex
-	egress    = &resolvedPolicy{policy: Policy{Default: VerdictProxy}}
+	egress    = &resolvedPolicy{policy: Policy{Default: Verdict{Kind: KindProxy}}}
 	egressGen uint64 // bumped on every apply, so a resolver knows its work is stale
 )
 
@@ -121,8 +244,14 @@ type resolvedPolicy struct {
 // "did this work" - and returning before the names resolved would mean the UI reports success for a
 // rule that matches nothing.
 func SetEgress(p Policy) error {
-	if p.Default != VerdictProxy && p.Default != VerdictDirect && p.Default != VerdictBlock {
+	if p.Default.Kind != KindProxy && p.Default.Kind != KindDirect && p.Default.Kind != KindBlock {
 		return fmt.Errorf("default must be proxy, direct or block")
+	}
+	if p.Default.Kind == KindProxy && p.Default.Upstream != "" {
+		if _, ok := httpFor(p.Default.Upstream); !ok {
+			return fmt.Errorf("the default names upstream %q, which has no http address",
+				p.Default.Upstream)
+		}
 	}
 	rp := resolvePolicy(p)
 	egressMu.Lock()

@@ -753,7 +753,49 @@ function connectTerm() {
 // COMMENT LINES AND BLANK LINES ARE KEPT. A policy that cannot be annotated is one people stop
 // understanding, and `#` costs three lines here.
 
-const EG_ACTIONS = ["proxy", "direct", "block"];
+// `proxy` AND `proxy:NAME` ARE BOTH ACTIONS. The second reaches a named upstream from the table
+// below; the first uses `default`. Parsing the colon here rather than in a separate field is what
+// keeps `direct:something` from being expressible at all.
+function egValidAction(a) {
+  return a === "proxy" || a === "direct" || a === "block" || /^proxy:[\w.-]+$/.test(a);
+}
+
+// The upstream table, one row per line: `name http://host:port socks5://host:port`. Both addresses
+// are optional and either may be omitted - an entry with only HTTP carries TCP.
+function parseUpstreams(text) {
+  const out = [];
+  const problems = [];
+  text.split("\n").forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) return;
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) {
+      problems.push(`upstreams line ${i + 1}: need "<name> <address>"`);
+      return;
+    }
+    const u = { name: parts[0] };
+    for (const a of parts.slice(1)) {
+      if (a.startsWith("socks5://")) u.socks5 = a.slice("socks5://".length);
+      else if (a.startsWith("http://")) u.http = a.slice("http://".length);
+      else if (a.startsWith("https://")) u.http = a.slice("https://".length);
+      else problems.push(`upstreams line ${i + 1}: "${a}" is not http:// or socks5://`);
+    }
+    out.push(u);
+  });
+  return { upstreams: out, problems };
+}
+
+function renderUpstreams(state) {
+  const lines = (state.upstreams || []).map((u) => {
+    const parts = [u.name];
+    if (u.http) parts.push("http://" + u.http);
+    if (u.socks5) parts.push("socks5://" + u.socks5);
+    return parts.join(" ");
+  });
+  // A DAEMON STARTED FROM THE ENVIRONMENT HAS ONE ENTRY CALLED `default`, and showing it is what
+  // makes the placeholder text true rather than aspirational.
+  $("egUpstreams").value = lines.join("\n");
+}
 
 function parseEgressRules(text) {
   const rules = [];
@@ -767,8 +809,8 @@ function parseEgressRules(text) {
       return;
     }
     const [target, action] = parts;
-    if (!EG_ACTIONS.includes(action)) {
-      problems.push(`line ${i + 1}: action must be ${EG_ACTIONS.join(", ")}`);
+    if (!egValidAction(action)) {
+      problems.push(`line ${i + 1}: action must be proxy, proxy:<name>, direct or block`);
       return;
     }
     // `host:port` IS SPLIT ONLY WHEN THE COLON IS NOT PART OF A CIDR. A bare IPv6 address would need
@@ -784,7 +826,11 @@ function parseEgressRules(text) {
         ports = [parseInt(maybePort, 10)];
       }
     }
-    rules.push({ match, action, ports });
+    // `proxy:name` SPLITS INTO THE TWO FIELDS THE API HAS, so a person writes one word and the wire
+    // form stays explicit.
+    let act = action, upstream;
+    if (action.startsWith("proxy:")) { act = "proxy"; upstream = action.slice(6); }
+    rules.push({ match, action: act, upstream, ports });
   });
   return { rules, problems };
 }
@@ -809,6 +855,7 @@ async function loadEgress() {
     const state = await r.json();
     $("egressPanel").hidden = false;
     renderEgressRules(state);
+    renderUpstreams(state);
     showUnresolved(state.unresolved);
     badge($("egState"), "loaded", "");
   } catch (e) {
@@ -825,9 +872,11 @@ function showUnresolved(list) {
 
 async function applyEgress() {
   const { rules, problems } = parseEgressRules($("egRules").value);
-  if (problems.length) {
+  const up = parseUpstreams($("egUpstreams").value);
+  const all = problems.concat(up.problems);
+  if (all.length) {
     badge($("egState"), "fix the rules", "err");
-    showUnresolved(problems);
+    showUnresolved(all);
     return;
   }
   badge($("egState"), "applying…", "warn");
@@ -835,7 +884,7 @@ async function applyEgress() {
     const r = await fetch("/api/egress", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ default: $("egDefault").value, rules }),
+      body: JSON.stringify({ default: $("egDefault").value, rules, upstreams: up.upstreams }),
     });
     const state = await r.json();
     if (!r.ok || state.error) {
@@ -844,6 +893,7 @@ async function applyEgress() {
       return;
     }
     renderEgressRules(state);
+    renderUpstreams(state);
     showUnresolved(state.unresolved);
     // A RULE THAT DID NOT RESOLVE IS NOT A SUCCESS, so the badge says how many did.
     const n = (state.unresolved || []).length;
