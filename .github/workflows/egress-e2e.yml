@@ -72,21 +72,29 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: the host tools the rootfs script needs
-        run: |
-          set -eux
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends e2fsprogs qemu-utils
+      # THE ROOT FILESYSTEM IS DOWNLOADED, NOT BUILT - see `microvm-rootfs.yml`, which publishes it.
+      # This job used to run the build script itself, ten minutes of work that another workflow had
+      # already done from the same script.
+      - name: the alpine root filesystem
+        id: rootfs
+        uses: easydev-org/easyactions/oci-pull@main
+        with:
+          tag: rootfs-alpine
+          repository: ${{ github.repository }}
+          dest: /tmp/alpine-out
+          path: rootfs-alpine.tar
+          token: ${{ github.token }}
 
-      - name: build the alpine root filesystem
+      - name: unpack it
         run: |
           set -eux
-          mkdir -p /tmp/alpine-out
-          sudo sh .github/alpine-rootfs.sh /tmp/alpine-out
-          sudo chown -R "$(id -u):$(id -g)" /tmp/alpine-out
+          cd /tmp/alpine-out
+          tar -xf "${{ steps.rootfs.outputs.path }}"
+          rm -f "${{ steps.rootfs.outputs.path }}"
           for f in alpine-vmlinuz alpine-initramfs alpine.qcow2; do
-            test -s "/tmp/alpine-out/$f"
+            test -s "$f"
           done
+          ls -l
 
       # THE CONTAINERFILE COPYs `dist/easyvm` RATHER THAN COMPILING IT, so the binary is produced here
       # the same way the release workflow produces it.
