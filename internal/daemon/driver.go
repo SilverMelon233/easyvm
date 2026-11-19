@@ -798,10 +798,20 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		// chardev feeds ONE serial line to SEVERAL consumers, so the log keeps being written -
 		// `ConsoleState` still measures its size and idle time, and a failed run still has its
 		// evidence - while the same bytes also go to a unix socket that `/api/console/ws` follows.
-		"-chardev", "file,id=serial-log,path=" + filepath.Join(d.work, "console.log"),
-		"-chardev", "socket,id=serial-web,path=" + filepath.Join(d.work, "console.sock") + ",server=on,wait=off",
-		"-chardev", "mux,id=serial-mux,chardev=serial-log,chardev=serial-web",
-		"-serial", "chardev:serial-mux",
+		// `mux` DOES NOT FEED A FILE BACKEND, AND THAT WAS MEASURED RATHER THAN ASSUMED: the
+		// argument list below was built, qemu started, and `console.log` stayed at 0 bytes for the
+		// life of the boot while the machine ran fine. A mux forwards to its ACTIVE child, and a
+		// file is not one it switches to.
+		//
+		// `logfile=` IS ORTHOGONAL TO WHERE THE DATA GOES, which is exactly what is wanted: the
+		// socket carries the live stream to `/api/console/ws`, and the same chardev appends every
+		// byte to `console.log` on its own. MEASURED on the same command: 17826 bytes in the log
+		// after 12 seconds of boot.
+		//
+		// `logappend=on` because a restart must not truncate the record a failed run needs.
+		"-chardev", "socket,id=serial,path=" + filepath.Join(d.work, "console.sock") +
+			",server=on,wait=off,logfile=" + filepath.Join(d.work, "console.log") + ",logappend=on",
+		"-serial", "chardev:serial",
 	}
 	// THE CONSOLE SOCKET MAY ALREADY EXIST FROM A PREVIOUS RUN, and qemu refuses to bind a path that
 	// is there: `Failed to bind socket: Address already in use`. The log file is appended by qemu on
