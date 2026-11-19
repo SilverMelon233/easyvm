@@ -678,6 +678,47 @@ StandardError=journal+console
 WantedBy=multi-user.target
 UNIT
 
+# --- 4c2. THE BROWSER'S TWO EXPECTATIONS, NEITHER OF WHICH THIS MACHINE MEETS ------------------
+#
+# MEASURED in the guest's Chromium, on every HTTPS page:
+#
+#	ContextResult::kFatalFailure: WebGL1 blocklisted
+#	handshake failed; returned -1, SSL error code 1, net_error -100
+#
+# THE FIRST IS HARMLESS AND THE SECOND IS NOT.
+#
+# WebGL is blocklisted because a microvm has no GPU - no `/dev/dri`, no adapter. Chromium falls back
+# to software rendering and the desktop, the terminal and the file manager are unaffected; only a
+# page that needs 3D notices. Nothing is set for it here: forcing WebGL on a machine without a GPU
+# trades a console line for a slower, broken one.
+#
+# `net_error -100` IS HTTP/3. A server answers over TCP with `alt-svc: h3=":443"`, so the browser
+# tries QUIC on UDP 443 - and the guest's egress is a transparent CONNECT tunnel, which is a TCP
+# protocol and cannot carry a datagram. The packet leaves and nothing answers, so each page spends
+# its QUIC timeout before falling back, and the console fills with that line while it waits.
+#
+# THE EGRESS SIDE IS FIXED IN `internal/net/proxy.go` (UDP 443 is redirected to a closed port, so the
+# refusal is immediate). This is the CLIENT side of the same fact, and it is here because the daemon
+# cannot know which browser a person will install: `/etc/chromium.d/` is Debian's own mechanism, every
+# file in it is sourced before `chromium` runs, and `CHROMIUM_FLAGS` is APPENDED to rather than
+# assigned - assigning it here would erase the flags the package already sets, which MEASURED as
+# `Running as root without --no-sandbox is not supported` on a browser that used to start.
+if [ -d "$ROOT/etc/chromium.d" ]; then
+	cat > "$ROOT/etc/chromium.d/50-easyvm-no-quic" <<'CHROME'
+# QUIC CANNOT WORK THROUGH THIS MACHINE'S EGRESS, AND TRYING COSTS A TIMEOUT PER PAGE.
+#
+# The guest reaches the internet through a transparent HTTP CONNECT tunnel over TCP. QUIC is UDP, so
+# the attempt goes nowhere: MEASURED as `net_error -100` (ERR_CONNECTION_CLOSED) repeated on every
+# HTTPS load while the browser waited out its QUIC retry before falling back to TCP.
+#
+# THIS EXTENDS `CHROMIUM_FLAGS`; IT DOES NOT REPLACE IT. A bare assignment here drops whatever the
+# distribution set, and the failure is not subtle - the browser refuses to run as root without
+# `--no-sandbox`, which is one of the flags that would vanish.
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --disable-quic"
+CHROME
+	chmod 0644 "$ROOT/etc/chromium.d/50-easyvm-no-quic"
+fi
+
 # --- 4d. GROW INTO THE DISK, ONCE, BECAUSE THE IMAGE SIZE IS A GUESS AND THE DISK IS NOT -----
 #
 # THE PROBLEM THIS SOLVES: the image is written with a fixed 8 GiB of headroom, which is a guess about
