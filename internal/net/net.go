@@ -328,6 +328,7 @@ func Down() {
 	// makes the next `-N` fail with "already exists" for a chain nobody can see.
 	StopTransparentProxy()
 	StopUDPRelay()
+	StopDNS()
 	for _, chain := range []string{"PREROUTING", "OUTPUT"} {
 		for {
 			if _, err := run("iptables", "-t", "nat", "-D", chain, "-s", spec,

@@ -207,7 +207,16 @@ dhcp-leasefile=%s
 #
 # server= IS THE UPLINK AND no-resolv STOPS dnsmasq ALSO READING /etc/resolv.conf, which would put
 # the same servers first and make the explicit line meaningless.
-port=53
+# port=0 IS NOT "NO DNS" - IT MEANS dnsmasq DOES NOT LISTEN ON 53 AT ALL.
+#
+# MEASURED as the reason this changed: a rule about a NAME cannot be enforced by something that only
+# sees addresses, and this daemon's proxy sees addresses. mihomo gets around it by running its own
+# resolver in the same process as its proxy, so the answer youtube.com -> 142.250.1.1 is in the same
+# memory as the later connection to 142.250.1.1. That is now the arrangement here too: dns.go binds
+# 53, answers, and remembers what it learned.
+#
+# DHCP STAYS HERE. It works, every boot tests it, and it does not touch names.
+port=0
 no-resolv
 # ONE server= LINE PER UPSTREAM. A comma-separated server=a,b IS NOT two servers - dnsmasq reads it as
 # one address and refuses it:
@@ -336,6 +345,22 @@ func applyNAT() error {
 	} else if relay != nil {
 		udpRelay = relay
 	}
+
+	// THE GUEST'S RESOLVER, AND THE REASON NAME RULES EXIST AT ALL.
+	//
+	// dnsmasq now answers DHCP only (`port=0`), so 53 is free and this binds it. Every A/AAAA answer
+	// it forwards is recorded against the address, which is what lets the proxy say "this connection
+	// was to youtube.com" - something it could not do while the answer was in another process.
+	//
+	// IT IS FATAL RATHER THAN BEST-EFFORT, UNLIKE THE UDP RELAY. A guest with no DNS has no
+	// repositories, no hostnames and no updates; and unlike UDP, which is an optimisation over a
+	// working TCP path, this IS the path. A failure here is a broken machine and `Up` should say so.
+	StopDNS()
+	dns, err := StartDNS(ResolverUpstreams())
+	if err != nil {
+		return fmt.Errorf("starting the guest's resolver: %w", err)
+	}
+	dnsServer = dns
 
 	// MSS CLAMPING, WHICH IS THE SECOND HALF OF THE MTU FIX AND THE HALF THAT SURVIVES A GUEST THAT
 	// IGNORES THE LEASE.

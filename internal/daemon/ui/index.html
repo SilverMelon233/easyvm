@@ -204,7 +204,7 @@
         </div>
         <div class="egrow">
           <textarea id="egRules" spellcheck="false" rows="6"
-            placeholder="github.com proxy&#10;deb.debian.org direct&#10;doubleclick.net block&#10;10.0.0.0/8 direct&#10;142.250.1.1:443 block"></textarea>
+            placeholder=".doubleclick.net block&#10;ads block&#10;github.com direct&#10;10.0.0.0/8 direct&#10;142.250.1.1:443 block"></textarea>
         </div>
         <div class="egrow">
           <button id="egApply">apply</button>
@@ -215,9 +215,11 @@
              behaves like a silent allow. -->
         <div id="egUnresolved" class="egwarn" hidden></div>
         <p class="egnote">
-          Matched by <b>address</b>, because that is all a connection carries. A name is resolved when
-          you apply and again every five minutes; a program that dials an address without asking DNS,
-          or uses its own resolver, is not covered by a name rule.
+          <b>.example.com</b> covers the domain and every subdomain · <b>ads</b> matches any name
+          containing it · <b>example.com</b> is that host and its addresses · <b>10.0.0.0/8</b> is a
+          range. Name rules work because this daemon now answers the guest's DNS itself, so it sees
+          which address a name became — a program that uses its own resolver, or dials a literal
+          address, is covered only by an address rule.
         </p>
       </div>
     </div>
