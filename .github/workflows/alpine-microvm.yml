@@ -53,27 +53,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # THESE ARE THE HOST TOOLS `alpine-rootfs.sh` RUNS OUTSIDE ITS CHROOT. `mke2fs -d` needs
-      # e2fsprogs, `qemu-img` comes from qemu-utils, and the rest are in a stock runner image.
+      # THE ROOT FILESYSTEM IS DOWNLOADED, NOT BUILT.
       #
-      # `qemu-system-x86_64` IS NOT NEEDED HERE - the daemon runs inside the testing image below - but
-      # `qemu-img` is, because the script converts the raw filesystem to qcow2 so the engine can boot
-      # it on an overlay.
-      - name: the host tools the rootfs script needs
+      # MEASURED: this job used to run `.github/alpine-rootfs.sh` itself - ten minutes of apk, chroot
+      # and mke2fs - while `microvm-rootfs.yml` publishes exactly the same bytes from exactly the same
+      # script. A test that boots a guest should not spend most of its budget producing the disk it
+      # boots, and the two builds could drift silently if the script changed between them.
+      #
+      # THE PULL IS BY TAG, AND THE TAG CARRIES NO VERSION: a rootfs is a build of THIS COMMIT's
+      # scripts. A consumer on a different commit that needs a different rootfs is a case this cannot
+      # detect, so the publish workflow is path-filtered to the scripts - the artifact only changes
+      # when the thing that makes it does.
+      - name: the alpine root filesystem
+        id: rootfs
+        uses: easydev-org/easyactions/oci-pull@main
+        with:
+          tag: rootfs-alpine
+          repository: ${{ github.repository }}
+          dest: /tmp/alpine-out
+          # THE PUBLISHED FILE IS A TARBALL OF THE THREE FILES, because `oci-push` mirrors one file and
+          # a kernel without its initramfs does not boot. The name is fixed so this cannot drift from
+          # the publisher's.
+          path: rootfs-alpine.tar
+          token: ${{ github.token }}
+
+      - name: unpack the three files
         run: |
           set -eux
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends e2fsprogs qemu-utils
+          cd /tmp/alpine-out
+          tar -xf "${{ steps.rootfs.outputs.path }}"
+          rm -f "${{ steps.rootfs.outputs.path }}"
+          ls -l
 
-      - name: build the alpine root filesystem
-        run: |
-          set -eux
-          mkdir -p /tmp/alpine-out
-          sudo sh .github/alpine-rootfs.sh /tmp/alpine-out
-          ls -l /tmp/alpine-out
-
-      # THE THREE FILES ARE ASSERTED RATHER THAN ASSUMED. A build that "succeeded" with an empty disk
-      # would otherwise fail later as a boot timeout, which reads as a qemu problem.
+      # THE THREE FILES ARE ASSERTED RATHER THAN ASSUMED. An artifact that arrived truncated would
+      # otherwise fail later as a boot timeout, which reads as a qemu problem.
       - name: the three files a microvm boots
         run: |
           set -eux
