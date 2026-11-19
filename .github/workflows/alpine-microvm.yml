@@ -1,0 +1,253 @@
+name: alpine-microvm
+
+# BUILD AN ALPINE MICROVM, BOOT IT, AND PROVE THE TUN DEVICE ITS UDP EGRESS NEEDS.
+#
+# ---------------------------------------------------------------------------------------------------
+# WHY THIS WORKFLOW EXISTS AT ALL
+#
+# `linux/alpine-microvm/steps/console.walk` has been in the tree since the microvm work started and
+# NOTHING HAS EVER RUN IT IN CI. Measured: `grep -rl alpine-microvm .github/workflows/` returned
+# nothing. So the first of the three headless microvms - the one the other two were modelled on - was
+# verified by hand and never again.
+#
+# THE TUN DEVICE IS THE OTHER REASON, AND IT IS THE PART THAT CANNOT BE UNIT-TESTED. Creating one needs
+# `/dev/net/tun` and `CAP_NET_ADMIN`; a test that mocked those would prove nothing about the ioctl
+# that actually matters. Everything else in this daemon has a Go test; this needs a kernel.
+#
+# ---------------------------------------------------------------------------------------------------
+# WHAT IS AND IS NOT PROVEN HERE
+#
+# PROVEN: the root filesystem builds, the guest boots to a login, the daemon creates its tun device,
+# addresses it, raises it, installs the policy rule that sends THIS guest's UDP into it, and removes
+# every one of those when the machine goes away.
+#
+# NOT PROVEN: that a datagram reaches the internet. A GitHub runner has no proxy, so
+# `EASYVM_UDP_PROXY` points at a SOCKS5 echo compiled from `ci/socks5-udp-echo` - which exercises the
+# whole path inside this daemon (greeting, UDP ASSOCIATE, the request framing, the reply framing and
+# the rewrite back into the tun) and forwards to nothing. The last hop - a real proxy, a real node, a
+# real QUIC handshake - was measured against the cluster and is quoted in `internal/net/udprelay.go`.
+#
+# THAT DISTINCTION IS THE POINT OF THE ASSERTIONS BELOW: they check the machinery, and they do not
+# pretend to check the internet.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: alpine-microvm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # THE ROOT FILESYSTEM IS FETCHED FROM dl-cdn.alpinelinux.org and the packages from a mirror; there
+  # is no proxy on a runner, which is exactly the direct-connect case the daemon's two proxy variables
+  # must tolerate being unset.
+  ALPINE_VERSION: "3.21"
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      # THESE ARE THE HOST TOOLS `alpine-rootfs.sh` RUNS OUTSIDE ITS CHROOT. `mke2fs -d` needs
+      # e2fsprogs, `qemu-img` comes from qemu-utils, and the rest are in a stock runner image.
+      #
+      # `qemu-system-x86_64` IS NOT NEEDED HERE - the daemon runs inside the testing image below - but
+      # `qemu-img` is, because the script converts the raw filesystem to qcow2 so the engine can boot
+      # it on an overlay.
+      - name: the host tools the rootfs script needs
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends e2fsprogs qemu-utils
+
+      - name: build the alpine root filesystem
+        run: |
+          set -eux
+          mkdir -p /tmp/alpine-out
+          sudo sh .github/alpine-rootfs.sh /tmp/alpine-out
+          ls -l /tmp/alpine-out
+
+      # THE THREE FILES ARE ASSERTED RATHER THAN ASSUMED. A build that "succeeded" with an empty disk
+      # would otherwise fail later as a boot timeout, which reads as a qemu problem.
+      - name: the three files a microvm boots
+        run: |
+          set -eux
+          for f in alpine-vmlinuz alpine-initramfs alpine.qcow2; do
+            test -s "/tmp/alpine-out/$f"
+          done
+          qemu-img info /tmp/alpine-out/alpine.qcow2 | tee /tmp/disk-info
+          grep -q 'file format: qcow2' /tmp/disk-info
+
+      # THE TESTING IMAGE, WHICH IS THE ONE THAT HAS THE TOOLCHAIN AND THE DAEMON'S OWN TESTS. Building
+      # it here rather than pulling `latest` is what makes this job test the COMMIT rather than a
+      # published artifact.
+      - name: build the testing image
+        run: |
+          set -eux
+          docker build -f Containerfile --target tester -t easyvm-ci:local .
+
+      - name: build the socks5 udp echo
+        run: |
+          set -eux
+          # A SEPARATE MODULE, because `ci/` is not part of the daemon's tree and its own `go.mod`
+          # keeps it out of `go build ./...`.
+          docker run --rm -v "$PWD/ci/socks5-udp-echo:/src" -w /src \
+            golang:1.26-alpine \
+            sh -c 'go mod init echo >/dev/null 2>&1 || true; CGO_ENABLED=0 go build -o /src/echo .'
+          ls -l ci/socks5-udp-echo/echo
+
+      # -------- the machine, with the daemon that owns it --------
+      #
+      # THE TUN DEVICE AND THE NETWORK CAPABILITY ARE THE WHOLE POINT. Without `/dev/net/tun` the
+      # daemon reports `the udp relay's tun device: no such file or directory` and the assertions
+      # below fail with a sentence instead of a silent absence - which is deliberate, see udprelay.go.
+      - name: start the daemon, with a tun device and the echo as its socks5 upstream
+        run: |
+          set -eux
+          work=$(mktemp -d)
+          echo "WORK=$work" >> "$GITHUB_ENV"
+
+          # THE ECHO LISTENS ON THE RUNNER, so the container reaches it at the docker bridge gateway.
+          # `host-gateway` maps a name to that address without hard-coding a subnet.
+          docker run -d --name udp-echo --network host \
+            -v "$PWD/ci/socks5-udp-echo:/src" \
+            golang:1.26-alpine \
+            sh -c 'cd /src && ./echo :7891'
+          for i in $(seq 1 30); do
+            if ss -lnt 2>/dev/null | grep -q ':7891 '; then break; fi
+            sleep 1
+          done
+          ss -lnt | grep ':7891 '
+
+          cp /tmp/alpine-out/* "$work"/
+
+          docker run -d --name easyvm \
+            --cap-add NET_ADMIN \
+            --device /dev/net/tun:/dev/net/tun \
+            --add-host upstream:host-gateway \
+            -e EASYVM_UDP_PROXY=upstream:7891 \
+            -v "$work:/work" \
+            easyvm-ci:local serve --work /work --http :8080
+
+          # `serve` PRINTS `[easyvm] listening on http://.../` ONLY AFTER IT HAS THE LOCK, so waiting
+          # for that line is waiting for readiness rather than sleeping. Sixty seconds because the
+          # first start in a cold image makes every syscall for the first time.
+          for i in $(seq 1 60); do
+            if docker logs easyvm 2>&1 | grep -q 'listening on'; then break; fi
+            sleep 1
+          done
+          docker logs easyvm 2>&1 | tail -20
+          curl -fsS --max-time 5 http://127.0.0.1:8080/healthz
+
+      # THE GUEST ITSELF, THROUGH THE WALKTHROUGH INTERFACE. This is the file that has never run.
+      #
+      # `create` RATHER THAN `run`, AND THAT IS WHAT MAKES THE TUN ASSERTIONS POSSIBLE. `run` executes
+      # every step and then stops the machine - and the tun device, its address and its route all go
+      # away with it. `create` boots and STAYS UP, so the device exists while the steps below look at
+      # it. Tearing it down is its own step at the end, which is also where the cleanup is asserted.
+      - name: boot the alpine microvm, and leave it up
+        run: |
+          set -eux
+          docker cp linux/alpine-microvm/steps/console.walk easyvm:/work/console.walk
+          docker exec easyvm easyvm create /work/console.walk --work /work
+          docker exec easyvm easyvm status --work /work | tail -5
+
+      # -------- the tun device, asserted from outside the guest --------
+      #
+      # THE ASSERTIONS ARE READ FROM THE NAMESPACE THE DAEMON LIVES IN, not from the walkthrough: a
+      # walk speaks to a machine, and this device belongs to the network the machine is attached to.
+      # Reading it here is the only place the claim can be checked.
+      - name: the tun device exists, is addressed, and carries a route
+        run: |
+          set -eux
+          ip link show easyvm-udp
+          # UP IS NOT ENOUGH ON ITS OWN: a device that is UP but has no address would still accept the
+          # route and blackhole everything it captured. Both are checked.
+          ip -4 addr show easyvm-udp | grep -q '10.99.0.1/24'
+          ip link show easyvm-udp | grep -q 'state UP\|,UP'
+          ip route show table 511 | grep -q 'default dev easyvm-udp'
+
+      # THE POLICY RULE IS THE HALF THAT KEEPS TCP OFF THIS DEVICE. Without `ipproto udp` every guest
+      # connection would arrive in the tun instead of at the CONNECT proxy that already carries it, and
+      # the symptom would be a guest with no TCP at all.
+      - name: policy routing sends this guest's UDP, and only UDP
+        run: |
+          set -eux
+          ip rule show | tee /tmp/rules
+          grep -q 'from 172.30.0.2 ipproto udp lookup 511' /tmp/rules
+          # AND NOTHING BROADER. A rule without `ipproto udp` would take the guest's TCP too.
+          if grep -E 'from 172\.30\.0\.2 lookup 511$' /tmp/rules; then
+            echo "::error::a rule sends ALL of the guest's traffic to the udp relay"
+            exit 1
+          fi
+
+      # THE DAEMON NEVER SAID IT COULD NOT BUILD THE RELAY, AND THAT IS THE ASSERTION.
+      #
+      # `StartUDPRelay` PRINTS ONE LINE AND CONTINUES when it fails, deliberately: a guest whose UDP
+      # cannot be relayed should still boot with a working TCP egress rather than have no network at
+      # all. The line is
+      #
+      #	udp relay: <reason> (the guest's UDP will not be proxied)
+      #
+      # so its ABSENCE is the statement that the device was created, addressed and routed - which the
+      # steps above then confirm directly. Checking for the absence as well means a future change that
+      # swallows the error gets caught here rather than by a QUIC timeout inside a guest.
+      # AND THE DEVICE IS GONE WHEN THE MACHINE IS. MEASURED as a real failure mode in the lab: a
+      # daemon killed while a run was in progress left `qemutap0` attached to the bridge, and the next
+      # run could not start at all. The same would be true of a tun device whose route outlived it -
+      # every later run would send the guest's UDP into a table pointing at nothing.
+      - name: destroying the machine removes every trace of the relay
+        run: |
+          set -eux
+          docker exec easyvm easyvm destroy --work /work
+          sleep 3
+          if ip link show easyvm-udp 2>/dev/null; then
+            echo "::error::the tun device outlived the machine"
+            exit 1
+          fi
+          if ip rule show | grep -q 'lookup 511'; then
+            echo "::error::the policy rule outlived the machine"
+            exit 1
+          fi
+
+      - name: the relay did not report a failure
+        run: |
+          set -eux
+          docker logs easyvm 2>&1 | tee /tmp/serve.log
+          if grep -q 'udp relay:' /tmp/serve.log; then
+            echo "::error::the udp relay failed to start; see the line above"
+            exit 1
+          fi
+
+      - name: announce what was proven
+        if: always()
+        run: |
+          echo "### alpine microvm" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| claim | how it was checked |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| the root filesystem builds | \`alpine-rootfs.sh\` produced three non-empty files |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| the guest boots to a login | \`console.walk\`, which had never run in CI |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| the tun device is created and raised | \`ip link show easyvm-udp\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| it is addressed | \`ip -4 addr\` shows 10.99.0.1/24 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| only UDP is routed into it | \`ip rule\` names \`ipproto udp\`, and no broader rule exists |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Not proven here:** that a datagram reaches the internet. A runner has no proxy; the" >> "$GITHUB_STEP_SUMMARY"
+          echo "socks5 echo in \`ci/socks5-udp-echo\` exercises this daemon's framing and forwards to nothing." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: the daemon's log, always
+        if: always()
+        run: |
+          docker logs easyvm 2>&1 | tail -60 || true
+          echo "--- echo ---"
+          docker logs udp-echo 2>&1 | tail -20 || true
+
+      - name: clean up
+        if: always()
+        run: |
+          docker rm -f easyvm udp-echo 2>/dev/null || true
