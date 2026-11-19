@@ -143,6 +143,20 @@ log "installing the kernel and initramfs-tools (about 90 MiB)"
 # first error it hits is about the duplicated one. The published file is correct, so it is used and
 # `sources.list` is left empty.
 : > "$ROOT/etc/apt/sources.list"
+
+# THE ORIGINAL SOURCES ARE KEPT, BECAUSE THE MIRROR IS FOR THIS BUILD AND NOT FOR THE IMAGE.
+#
+# A guest is a system that upgrades itself. `mirrors.ustc.edu.cn` is fast FROM THIS BUILD HOST - it
+# says nothing about the network the guest will run on, and baking it in would leave a machine whose
+# `apt-get upgrade` is pointed at a mirror chosen for somebody else's route. So the file is copied
+# aside here and put back after the install, below.
+ORIG_SOURCES="$WORK/orig-debian.sources"
+if [ -f "$ROOT/etc/apt/sources.list.d/debian.sources" ]; then
+	cp "$ROOT/etc/apt/sources.list.d/debian.sources" "$ORIG_SOURCES"
+	: > "$WORK/orig-had-sources"
+else
+	rm -f "$WORK/orig-had-sources"
+fi
 if [ ! -f "$ROOT/etc/apt/sources.list.d/debian.sources" ]; then
 	printf 'deb %s/debian %s main\n' "$MIRROR" "$V" > "$ROOT/etc/apt/sources.list"
 	printf 'deb %s/debian %s-updates main\n' "$MIRROR" "$V" >> "$ROOT/etc/apt/sources.list"
@@ -272,6 +286,20 @@ env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_p
 		command -v lsinitramfs >/dev/null && lsinitramfs /boot/initrd.img-* | grep -q virtio_blk \
 			|| echo "WARNING: virtio_blk is not in the generated initramfs"
 	'
+
+# AND THE MIRROR GOES BACK TO WHAT THE IMAGE SHIPPED, because it was for this build only.
+#
+# MEASURED: the difference is 26 MB/s against 34 kB/s HERE, which is the difference between minutes
+# and hours for 500 MB of packages - and zero difference to a guest on another network. Leaving
+# `mirrors.ustc.edu.cn` in the tree would make every future `apt` the guest runs depend on a host
+# chosen for this build machine's route.
+if [ -f "$WORK/orig-had-sources" ]; then
+	cp "$ORIG_SOURCES" "$ROOT/etc/apt/sources.list.d/debian.sources"
+	log "apt sources restored to the image's own"
+else
+	rm -f "$ROOT/etc/apt/sources.list.d/debian.sources" "$ROOT/etc/apt/sources.list"
+	log "apt sources removed, because the image shipped none"
+fi
 
 # --- 4b. THE DESKTOP, AND THE STREAM THAT CARRIES IT ----------------------------------------
 #
@@ -439,7 +467,27 @@ Requires=dbus.service
 After=sound.target dbus.service
 
 [Service]
-Type=simple
+# `Type=notify`, BECAUSE `Type=simple` ANNOUNCES "READY" AT `fork()` AND THE SOCKET IS NOT UP YET.
+#
+# MEASURED, and it is why `audio: pulse probe -> false` came back on a guest whose PulseAudio was
+# configured correctly: `vsink.service` requires `pulseaudio.service`, so systemd started `pactl`
+# the instant the process existed - and the console shows the order plainly.
+#
+#	3.032  Started pulseaudio.service
+#	3.070  pulseaudio[316]: authkey.c: Failed to open cookie file ...    <- still initialising
+#	3.3    Failed to start vsink.service - a null sink named vsink       <- pactl, too early
+#	3.487  (pulseaudio finishes loading its modules)
+#
+# `pactl` could not connect, the null sink was never created, `parec --device=vsink.monitor` recorded
+# nothing, and `audio.rs` reported a backend that is "present but produced no data" - which names the
+# audio system for a missing socket. `Requires=` orders STARTUP, not READINESS.
+#
+# THE BINARY DOES SEND THE NOTIFICATION, so this is not a guess: MEASURED, `strings
+# /usr/bin/pulseaudio` contains `sd_notify` and `READY=1`, and it is linked against `libsystemd.so.0`
+# precisely so it can. `NotifyAccess=all` is needed because the notification does not come from the
+# main process in every version; it costs nothing when it does.
+Type=notify
+NotifyAccess=all
 # SYSTEM MODE IS THE POINT: a microvm runs no login session, so there is no user daemon to connect
 # to and no XDG_RUNTIME_DIR. `--exit-idle-time=-1` keeps it alive with no clients.
 ExecStart=/usr/bin/pulseaudio --system --disallow-exit --disallow-module-loading=0 --exit-idle-time=-1 --no-cpu-limit
@@ -516,6 +564,11 @@ RemainAfterExit=yes
 # PULSE_SERVER NAMES THE SYSTEM DAEMON'S SOCKET. Without it `pactl` tries a per-user socket that does
 # not exist and answers "Connection refused", which reads as "pulseaudio is not running".
 Environment=PULSE_SERVER=unix:/run/pulse/native
+# `pactl`'s REFUSAL MUST REACH THE CONSOLE. MEASURED: without this the unit failed with
+# `See 'systemctl status vsink.service' for details` and the reason - a connection error - existed
+# only in the journal, which on this guest is not readable while the machine is booting.
+StandardOutput=journal+console
+StandardError=journal+console
 ExecStart=/usr/bin/pactl load-module module-null-sink sink_name=vsink sink_properties=device.description=vsink
 
 [Install]
