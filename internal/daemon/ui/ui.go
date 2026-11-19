@@ -18,6 +18,27 @@ var Index []byte
 //go:embed app.js
 var App []byte
 
+// EstIndex is the full-window est page, served at `/est.html`.
+//
+// IT IS THE PUBLISHED easystream-webui, VENDORED AT `ui/vendor/easystream-webui` AND NOT REWRITTEN,
+// because it is the implementation that has been running against this protocol the longest: zoom and
+// pan, touch gestures, audio, the clipboard bridge, quality presets and a virtual keyboard. The
+// dashboard's own est panel is a canvas and an input path; this page is the client for someone who
+// wants to USE the guest rather than glance at it, which is the same relationship `/vnc.html` has
+// with the embedded noVNC frame.
+//
+// ONE EDIT WAS REQUIRED, and it is documented at the call site in est.js: the token moved from the
+// WebSocket subprotocol list to a `0x03` Auth frame, because a browser closes a socket whose offered
+// protocols the server does not echo and `/est/ws` only ever negotiates `est`.
+//
+//go:embed est.html
+var EstIndex []byte
+
+// EstApp is that page's script.
+//
+//go:embed est.js
+var EstApp []byte
+
 // ContentType makes a handler's response unambiguous.
 const (
 	ContentTypeHTML = "text/html; charset=utf-8"
