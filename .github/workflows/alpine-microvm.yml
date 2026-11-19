@@ -198,7 +198,10 @@ jobs:
           kvm=""
           echo "--- /dev/kvm on this runner ---"
           ls -l /dev/kvm 2>&1 || echo "(absent)"
-          if [ -e /dev/kvm ] && [ -r /dev/kvm ]; then
+          # `-e`, NOT `-e && -r`. MEASURED: the device is `crw-rw---- root:kvm`, and a job container
+          # whose user is not in the `kvm` group fails `-r` while root inside it can open the device
+          # perfectly well - so the stricter test silently chose TCG on every runner that has KVM.
+          if [ -e /dev/kvm ]; then
             kvm="--device /dev/kvm:/dev/kvm"
             echo "::notice::using kvm"
           else

@@ -65,34 +65,30 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # THE JOB RUNS INSIDE THE IMAGE, NOT BESIDE IT, AND THAT IS WHAT MAKES KVM AVAILABLE.
+    # THE JOB RUNS ON THE HOST AND STARTS THE DAEMON DIRECTLY, NOT IN A NESTED CONTAINER.
     #
-    # MEASURED: the first version of this job ran `docker run` from the host and probed `/dev/kvm`
-    # there - where it is absent, so every guest ran under TCG and the alpine boot took longer than the
-    # step's own wait. Every other workflow in this repository that boots a guest declares the devices
-    # at the JOB level (`sandbox.yml`, `stage.yml`, `vocab-image.yml`):
+    # TWO MEASUREMENTS DECIDED THIS, AND THE FIRST ONE WAS WRONG TWICE:
     #
-    #	options: --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN
+    #   the device exists. `sandbox.yml`, `stage.yml` and `vocab-image.yml` all pass `--device /dev/kvm`
+    #   unconditionally, and a one-minute probe confirmed it:
     #
-    # and `stage.yml` says why in one line: without `/dev/kvm` "every other guest runs fifty times
-    # slower". A job that runs `docker run` FROM the host cannot pass what the host does not have.
-    container:
-      # LOWERCASED, BECAUSE A REGISTRY REFERENCE IS CASE-SENSITIVE AND A USERNAME IS NOT.
-      #
-      # MEASURED:
-      #	invalid reference format: repository name (SilverMelon233/easyvm) must be lowercase
-      # and the job never started - `Initialize containers` failed before checkout, so every step below
-      # was skipped. `sandbox.yml` and `stage.yml` use `${{ github.repository }}` too and work because
-      # they run under `easydev-org`, which is already lower case; a fork does not have that luxury.
-      image: ghcr.io/${{ github.repository }}:latest
-      # `github.repository` CANNOT BE LOWERCASED IN AN EXPRESSION - there is no `lower()` - so the
-      # alternative is a job that dies in `Initialize containers` before its first step. The image is
-      # referenced by the org-level name instead, which is what every other workflow here uses and
-      # which the fork also publishes to.
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      options: --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN
+    #	host:      crw-rw---- root:kvm   10, 232  /dev/kvm
+    #	in a job:  --device /dev/kvm  ->  crw-rw---- root 991  /dev/kvm
+    #
+    #   an EARLIER VERSION OF THIS FILE PROBED WITH `[ -e /dev/kvm ] && [ -r /dev/kvm ]` and the
+    #   device is `crw-rw---- root:kvm` - so `-r` is false for any user outside the `kvm` group, and
+    #   the stricter test silently chose TCG on a runner that has hardware acceleration.
+    #
+    #   `container:` CANNOT WORK HERE. MEASURED with `image: ghcr.io/${{ github.repository }}:latest`:
+    #
+    #	invalid reference format: repository name (SilverMelon233/easyvm) must be lowercase
+    #
+    #   and the job died in `Initialize containers` before its first step. There is no `lower()` in a
+    #   GitHub expression, and hard-coding an image name would make this depend on a package a fork may
+    #   not have pushed.
+    #
+    # SO `docker run --device /dev/kvm` FROM THE HOST IS THE SHAPE, and the host has the device. The
+    # probe that made it look absent was asking the wrong question.
     permissions:
       contents: read
       packages: read
@@ -153,9 +149,9 @@ jobs:
       # that is what makes `/dev/kvm` available - so a second container cannot be started, and
       # installing 3proxy on every run would depend on a Debian archive being reachable.
       #
-      # BOTH LISTEN ON `0.0.0.0`, SO THE GUEST CAN REACH THEM. The guest's route out is this
-      # container's bridge (`172.30.0.1`), and a proxy bound to loopback would be invisible to it -
-      # MEASURED as `Connection reset by peer` in an earlier attempt.
+      # BOTH LISTEN ON `0.0.0.0`, SO THE GUEST CAN REACH THEM. The guest's route out is the daemon's
+      # bridge (`172.30.0.1`), so a proxy bound to loopback would be invisible to it - MEASURED as
+      # `Connection reset by peer` in an earlier attempt at this test.
       - name: start the two upstream proxies
         run: |
           set -eux
@@ -181,9 +177,9 @@ jobs:
 
       # -------- the daemon and its guest --------
       #
-      # THE DAEMON RUNS IN THIS CONTAINER, NOT IN A NESTED ONE. `docker run` from inside a `container:`
-      # job is not available, and every other workflow here runs `easyvm serve` directly for the same
-      # reason (`stage.yml` does exactly this).
+      # THE DAEMON RUNS ON THE RUNNER HOST, LIKE `stage.yml` RUNS IT. No container wrapper: the job
+      # needs `/dev/kvm` (present on the host) and `/dev/net/tun` (present), and `sandbox.yml`'s own
+      # comment names the three devices a guest needs. `easyvm serve` opens them itself.
       #
       # `EASYVM_HTTP` IS SET FOR THE CLIENTS BELOW, because `client.Dial(work)` reads that variable and
       # ignores its `work` argument - MEASURED as `connection refused` on :8080 while the daemon was on
