@@ -207,6 +207,17 @@ function ensureCanvas() {
   estCtx = estCanvas.getContext("2d", { alpha: false });
 }
 
+// controlToken reads the token from the URL, the same place easystream's own UI reads it
+// (`?token=` or `#token=`). A CONTROL connection needs one; a viewer does not, and a guest with no
+// token configured treats every connection as control (`auth.rs: is_open`).
+function controlToken() {
+  const q = new URLSearchParams(location.search);
+  const t = q.get("token");
+  if (t) return t;
+  if (location.hash.startsWith("#token=")) return decodeURIComponent(location.hash.slice(7));
+  return "";
+}
+
 function startEst() {
   stopEst();
   const why = estUnavailableReason();
@@ -222,10 +233,23 @@ function startEst() {
   // `view=1` WITHHOLDS THE CONTROL TOKEN, so the daemon treats this connection as a viewer and
   // refuses mutations at the SERVER rather than in the browser. The read-only switch therefore
   // means the same thing on both transports instead of being a client-side courtesy on one.
-  const url = proto + "//" + location.host + "/est/ws" + (state.readOnly ? "?view=1" : "");
+  // `/est/est/ws` IS NOT A TYPO AND THE DOUBLING IS THE MOUNT. This daemon serves easystream under
+  // `/est/`, stripping that prefix before forwarding - so `/est/est/ws` reaches the guest as
+  // `/est/ws`, which is where easystream keeps its byte pipe. The vendor UI builds the same URL for
+  // itself, because its app.js resolves `est/ws` against `location.pathname`.
+  //
+  // READ-ONLY IS "NO TOKEN", NOT A FLAG. easystream's `authorize` maps a missing or wrong token to
+  // VIEW and refuses every mutation for it (EST.md, and `auth.rs`), so a viewer that sends no
+  // subprotocol is read-only BY THE SERVER'S OWN RULE. Inventing `?view=1` here would have been a
+  // parameter easystream never reads - a switch that looked wired and changed nothing.
+  const url = proto + "//" + location.host + "/est/est/ws";
   badge($("estState"), "est: connecting", "warn");
 
-  estWS = new WebSocket(url, ["est"]);
+  // THE CONTROL TOKEN GOES IN THE SUBPROTOCOL LIST, which is where easystream reads it
+  // (`token_from`: the second entry after `est`). Listing only `est` is the viewer.
+  estWS = state.readOnly
+    ? new WebSocket(url, ["est"])
+    : new WebSocket(url, ["est", controlToken()]);
   estWS.binaryType = "arraybuffer";
   estGotKey = false;
 

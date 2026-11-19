@@ -106,16 +106,17 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 	// THE CONSTITUENT SURFACES, EACH AT ITS OWN PATH SO THE DASHBOARD CAN LINK TO IT.
 	mux.HandleFunc("/console", d.handleConsoleWS)
 	mux.HandleFunc("/api/shell", d.handleShellWS)
-	// THE est STREAM AND ITS OWN UI, BOTH THROUGH THE SSH DOOR.
+	// ALL OF easystream, UNDER ONE PREFIX.
 	//
-	// easystream listens on the GUEST's loopback, so neither the pod nor a browser can reach it;
-	// the daemon's ssh connection is the only route, and it is the same one the shell uses.
+	// ITS `/est/ws` IS THE STREAM AND IT IS SERVED ON 48080, which is the address the guest exposes
+	// (`http on 0.0.0.0:48080`) and the only one the bridge can reach. The stream socket itself,
+	// 48079, is bound to the guest's own loopback - easystream connects to it from the inside, so
+	// there is nothing for this daemon to bridge.
 	//
-	// THE TWO PATHS DO DIFFERENT THINGS AND MUST NOT COLLAPSE INTO ONE. `/est/ws` is the WebSocket
-	// this dashboard's est panel decodes; `/est/` is easystream's own page and its `/a11y/*` API,
-	// proxied so a person can open the vendor UI alongside this one.
-	mux.HandleFunc(estStreamPath, d.handleEstWS)
-	mux.HandleFunc(estViewerPath, d.handleEstViewer)
+	// A REVERSE PROXY IS ENOUGH BECAUSE THE VENDOR UI IS MOUNT-RELATIVE: its app.js resolves
+	// `est/ws` and `capabilities` against `location.pathname`, so it works under any prefix without
+	// a byte being rewritten.
+	mux.HandleFunc(estPrefix, d.handleEst)
 	// NOVNC'S OWN PAGE AND EVERYTHING IT ASKS FOR: app/, core/, vendor/, images/.
 	//
 	// A REQUEST THAT IS NOT THE DASHBOARD AND NOT AN API FALLS THROUGH TO HERE, which is why this is
