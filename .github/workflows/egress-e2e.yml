@@ -1,0 +1,277 @@
+name: egress-e2e
+
+# DOES EACH CONNECTION TAKE THE PATH THE EGRESS RULES CHOSE?
+#
+# ---------------------------------------------------------------------------------------------------
+# THE QUESTION THIS JOB EXISTS FOR, AND WHY IT NEEDS A REAL PROXY
+#
+# `block` is easy to assert: the guest gets nothing back. `direct` and `proxy:NAME` both SUCCEED, so a
+# passing check proves nothing about which path was taken. The only way to tell them apart from outside
+# is to have each upstream record what it carried - and then assert on the RECORD rather than on the
+# response.
+#
+# SO THERE ARE TWO 3PROXY CONTAINERS, `primary` and `backup`, each logging every request with its
+# destination. The rules name one of them, and the assertion is:
+#
+#	proxy:primary   the destination appears in primary's log, and NOT in backup's
+#	proxy:backup    the reverse
+#	direct          it appears in NEITHER log
+#	block           nothing arrives at all
+#
+# THAT IS A STRONGER CLAIM THAN A MARKER IN THE RESPONSE. A marker proves the guest received something;
+# the log proves WHICH UPSTREAM CARRIED IT - and the "appears in neither" case is what makes `direct`
+# checkable at all, since a direct connection leaves no trace in a proxy by definition.
+#
+# ---------------------------------------------------------------------------------------------------
+# WHY 3PROXY AND NOT mihomo
+#
+# mihomo's value is a rule engine and subscription handling. Both would be a second implementation of
+# what is being tested, and its config is far larger than the thing under test. 3proxy is an HTTP
+# CONNECT server, a SOCKS5 server and a log - which is exactly the surface needed. MEASURED on its
+# README: "SOCKSv5 UDP and BIND support" is documented, which matters because the UDP half of the relay
+# speaks SOCKS5 UDP ASSOCIATE and HTTP CONNECT cannot carry a datagram.
+#
+# ---------------------------------------------------------------------------------------------------
+# WHAT RUNS, IN ORDER
+#
+#	build the daemon, the tester image, and the alpine root filesystem
+#	start primary and backup 3proxy, each on its own port pair (8080 CONNECT, 1080 SOCKS)
+#	start the daemon with the guest's TCP proxy pointing at primary and UDP at primary's SOCKS
+#	boot an alpine microvm and wait for ssh
+#	apply a policy that uses all four outcomes
+#	make requests FROM THE GUEST and assert against the proxies' logs
+#
+# THE GUEST IS DRIVEN THROUGH `/api/exec`, NOT `/api/shell`: the shell requests a pty, which echoes the
+# command it is sent, and every attempt to read a result from that stream was a guess about how much
+# noise to strip. `/api/exec` returns stdout, stderr and an exit status.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: egress-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ALPINE_VERSION: "3.21"
+  # THE TWO UPSTREAM NAMES THE TEST USES, so a failure message can say which one was expected.
+  PRIMARY_PORT: "18090"
+  BACKUP_PORT: "18091"
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: the host tools the rootfs script needs
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends e2fsprogs qemu-utils
+
+      - name: build the alpine root filesystem
+        run: |
+          set -eux
+          mkdir -p /tmp/alpine-out
+          sudo sh .github/alpine-rootfs.sh /tmp/alpine-out
+          sudo chown -R "$(id -u):$(id -g)" /tmp/alpine-out
+          for f in alpine-vmlinuz alpine-initramfs alpine.qcow2; do
+            test -s "/tmp/alpine-out/$f"
+          done
+
+      # THE CONTAINERFILE COPYs `dist/easyvm` RATHER THAN COMPILING IT, so the binary is produced here
+      # the same way the release workflow produces it.
+      - name: build the daemon and the testing image
+        run: |
+          set -eux
+          mkdir -p dist
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/easyvm ./cmd/easyvm
+          docker build -f Containerfile --target tester -t easyvm-ci:local .
+
+      # -------- the two upstreams --------
+      #
+      # `--network host` IS NOT A SHORTCUT. MEASURED on 3proxy's own README: SOCKSv5 UDP ASSOCIATE
+      # "requires access to ephemeral port", which a bridge network's NAT breaks. Host networking is
+      # what makes the UDP half of this test possible at all.
+      #
+      # THEY DIFFER ONLY IN PORT, which is what makes "which one carried this" a question with two
+      # possible answers rather than one.
+      - name: start the two upstream proxies
+        run: |
+          set -eux
+          mkdir -p /tmp/log-primary /tmp/log-backup
+          sudo chmod 777 /tmp/log-primary /tmp/log-backup
+
+          sed "s/^proxy -p8080/proxy -p$PRIMARY_PORT/; s/^socks -p1080/socks -p$((PRIMARY_PORT+1000))/" \
+            ci/3proxy.cfg > /tmp/3proxy-primary.cfg
+          sed "s/^proxy -p8080/proxy -p$BACKUP_PORT/; s/^socks -p1080/socks -p$((BACKUP_PORT+1000))/" \
+            ci/3proxy.cfg > /tmp/3proxy-backup.cfg
+
+          docker run -d --name primary --network host \
+            -v /tmp/3proxy-primary.cfg:/etc/3proxy/3proxy.cfg:ro \
+            -v /tmp/log-primary:/var/log/3proxy \
+            3proxy/3proxy:0.9.9.3
+          docker run -d --name backup --network host \
+            -v /tmp/3proxy-backup.cfg:/etc/3proxy/3proxy.cfg:ro \
+            -v /tmp/log-backup:/var/log/3proxy \
+            3proxy/3proxy:0.9.9.3
+
+          for i in $(seq 1 30); do
+            if ss -lnt 2>/dev/null | grep -q ":$PRIMARY_PORT " &&
+               ss -lnt 2>/dev/null | grep -q ":$BACKUP_PORT "; then break; fi
+            sleep 1
+          done
+          ss -lnt | grep -E ":$PRIMARY_PORT |:$BACKUP_PORT "
+          sleep 2
+          docker logs primary 2>&1 | tail -10
+          docker logs backup 2>&1 | tail -10
+
+      # -------- the daemon and its guest --------
+      - name: start the daemon with its proxies
+        run: |
+          set -eux
+          work=$(mktemp -d)
+          echo "WORK=$work" >> "$GITHUB_ENV"
+          cp /tmp/alpine-out/alpine-vmlinuz /tmp/alpine-out/alpine-initramfs \
+             /tmp/alpine-out/alpine.qcow2 "$work"/
+
+          # BOTH PROXY VARIABLES POINT AT `primary`. The rules then move individual destinations to
+          # `backup` or to `direct`, which is the thing under test - a policy that started somewhere
+          # else would prove less.
+          kvm=""
+          if [ -e /dev/kvm ] && [ -r /dev/kvm ]; then kvm="--device /dev/kvm:/dev/kvm"; fi
+
+          docker run -d --name easyvm \
+            --entrypoint easyvm \
+            --network host \
+            --cap-add NET_ADMIN \
+            $kvm \
+            --device /dev/net/tun:/dev/net/tun \
+            -e EASYVM_TRANSPARENT_PROXY="127.0.0.1:$PRIMARY_PORT" \
+            -e EASYVM_UDP_PROXY="127.0.0.1:$((PRIMARY_PORT+1000))" \
+            -e EASYVM_EGRESS_RULES=1 \
+            -v "$work:/work" \
+            easyvm-ci:local serve --work /work --http :8081
+
+          for i in $(seq 1 60); do
+            if docker logs easyvm 2>&1 | grep -q 'listening on'; then break; fi
+            sleep 1
+          done
+          docker logs easyvm 2>&1 | tail -20
+          curl -fsS --max-time 5 http://127.0.0.1:8081/healthz
+
+      # THE ALPINE WALKTHROUGH, WHICH ALSO PROVES THE MACHINE BOOTS. `create` rather than `run` because
+      # the machine has to stay up for the requests below.
+      - name: boot the alpine microvm
+        run: |
+          set -eux
+          docker cp linux/alpine-microvm/steps/console.walk easyvm:/work/console.walk
+          docker exec easyvm /usr/local/bin/easyvm create /work/console.walk --work /work
+          for i in $(seq 1 90); do
+            st=$(curl -s --max-time 5 http://127.0.0.1:8081/api/state || true)
+            if echo "$st" | grep -q '"ssh_ready":true'; then break; fi
+            sleep 2
+          done
+          curl -s http://127.0.0.1:8081/api/state | head -c 400; echo
+
+      # -------- the rules --------
+      #
+      # FOUR OUTCOMES, ONE POLICY. `default block` is deliberate: an unmatched destination must be
+      # refused, which is the half that catches a rule engine silently allowing what it did not
+      # understand.
+      #
+      # THE DESTINATION ADDRESSES ARE LITERALS. A name would make the assertion depend on a resolver,
+      # and the rule here is about the PATH rather than about DNS - name rules have their own unit
+      # tests and their own measured behaviour.
+      - name: apply a policy with all four outcomes
+        run: |
+          set -eux
+          python3 ci/apply-policy.py "$PRIMARY_PORT" "$BACKUP_PORT"
+
+      # THE REQUESTS COME FROM INSIDE THE GUEST, because that is what makes the rules apply: the table
+      # is consulted when a connection crosses this pod's proxy, and a curl run on the pod would never
+      # touch it.
+      #
+      # 203.0.113.0/24 IS TEST-NET-3 (RFC 5737), reserved for documentation and guaranteed not to be a
+      # real destination - so a connection to it cannot accidentally succeed through some other route.
+      - name: make the requests, from inside the guest
+        run: |
+          set -eux
+          python3 ci/guest-curl.py http://127.0.0.1:8081 203.0.113.10
+          python3 ci/guest-curl.py http://127.0.0.1:8081 203.0.113.20
+          python3 ci/guest-curl.py http://127.0.0.1:8081 203.0.113.30
+          python3 ci/guest-curl.py http://127.0.0.1:8081 203.0.113.40
+
+      # -------- the assertions, on what the proxies CARRIED --------
+      #
+      # THE LOG IS THE EVIDENCE. A `direct` connection cannot appear in either log, which is the only
+      # way to prove it did not go through a proxy - a response alone says nothing, because a proxied
+      # connection also gets one.
+      - name: the paths the rules chose
+        run: |
+          set -eux
+          echo "=== primary's log ==="; cat /tmp/log-primary/access.log 2>/dev/null || echo "(empty)"
+          echo "=== backup's log ===";  cat /tmp/log-backup/access.log 2>/dev/null || echo "(empty)"
+
+          P=$(cat /tmp/log-primary/access.log 2>/dev/null || true)
+          B=$(cat /tmp/log-backup/access.log 2>/dev/null || true)
+
+          fail() { echo "::error::$*"; exit 1; }
+
+          echo "$P" | grep -q '203.0.113.10' \
+            || fail "proxy:primary did not carry 203.0.113.10 - primary's log has no such line"
+          echo "$B" | grep -q '203.0.113.20' \
+            || fail "proxy:backup did not carry 203.0.113.20 - backup's log has no such line"
+
+          # AND THE CROSS-CHECK, WHICH IS THE HALF THAT PROVES THE RULE DECIDED. Without it, a bug that
+          # sent everything to primary would satisfy the first assertion.
+          echo "$B" | grep -q '203.0.113.10' \
+            && fail "203.0.113.10 was carried by BACKUP as well as primary"
+          echo "$P" | grep -q '203.0.113.20' \
+            && fail "203.0.113.20 was carried by PRIMARY as well as backup"
+
+          # DIRECT LEAVES NO TRACE, BY DEFINITION.
+          echo "$P$B" | grep -q '203.0.113.30' \
+            && fail "a direct destination appears in a proxy log"
+
+          # THE BLOCKED DESTINATION REACHED NOBODY.
+          echo "$P$B" | grep -q '203.0.113.40' \
+            && fail "a blocked destination reached a proxy"
+
+          echo "all four outcomes took the path the rules chose"
+
+      - name: always, the logs
+        if: always()
+        run: |
+          echo "=== daemon ==="; docker logs easyvm 2>&1 | tail -40 || true
+          echo "=== primary ==="; docker logs primary 2>&1 | tail -20 || true
+          echo "=== backup ===";  docker logs backup 2>&1 | tail -20 || true
+          echo "=== primary access ==="; cat /tmp/log-primary/access.log 2>/dev/null | tail -20 || true
+          echo "=== backup access ===";  cat /tmp/log-backup/access.log 2>/dev/null | tail -20 || true
+
+      - name: summary
+        if: always()
+        run: |
+          echo "### egress e2e" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Two 3proxy upstreams, one alpine microvm, four rules." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| rule | assertion |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`proxy:primary\` | 203.0.113.10 appears in primary's log and NOT backup's |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`proxy:backup\` | 203.0.113.20 appears in backup's log and NOT primary's |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`direct\` | 203.0.113.30 appears in NEITHER log |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| \`default block\` | 203.0.113.40 reaches neither log |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: clean up
+        if: always()
+        run: docker rm -f easyvm primary backup 2>/dev/null || true
