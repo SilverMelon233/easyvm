@@ -167,12 +167,30 @@ func (d *Daemon) bootSandbox(req Request, work string, done chan struct{}) {
 // A `boot:` WITH `os:` IS A BOOT, as the dispatcher already says. Anything else - a `disk:`, a
 // `share_serve:` that the boot depends on, a `fetch:` of the ISO - is NOT run by `create`: those are
 // things a walkthrough does on the way to a boot, and a sandbox file states its boot whole.
+// bootSteps is every step `create` runs: THE ONES THAT PREPARE A MACHINE, AND THE ONE THAT STARTS IT.
+//
+// IT USED TO BE ONLY THE `boot:` STEP, AND THAT WAS WRONG IN A WAY THAT LOOKED LIKE A PARSE ERROR.
+// MEASURED on the deployed pod, `easyvm create /work/xfce.walk`:
+//
+//	step 1/2 "create the machine's disk"   ->  failed: `disk_gb:` must be a positive number, got 0
+//
+// The `disk: debian.qcow2` step was skipped because it is not a boot step, so the boot step found no
+// disk and the executor filled in its own default - an empty 128 GB image - which the file had never
+// asked for. A sandbox that cannot prepare its own disk is a sandbox that only works for a file
+// whose disk already exists somewhere else.
+//
+// SO THE RULE IS "EVERYTHING BEFORE THE BOOT, AND THE BOOT". Steps AFTER it stay out: they are the
+// assertions a `run` makes, and a sandbox exists to be looked at rather than measured.
 func bootSteps(f *walk.File) []walk.Step {
 	var out []walk.Step
 	for _, s := range f.Steps {
 		if s.Has("boot") || s.Has("boot_from") {
 			out = append(out, s)
+			// STOP AT THE FIRST BOOT: anything later is an assertion, not preparation.
+			break
 		}
+		// PREPARATION BEFORE THE MACHINE: `needs:`, `disk:`, `make a disk`, the media.
+		out = append(out, s)
 	}
 	return out
 }
