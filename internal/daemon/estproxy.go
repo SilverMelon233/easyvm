@@ -38,6 +38,19 @@ func (d *Daemon) handleEstWS(w http.ResponseWriter, r *http.Request) {
 		// THE PAGE IS SERVED BY THIS SAME SERVER. The daemon cannot know the name a Service
 		// publishes it under, so the origin check is off; the socket carries the guest's screen.
 		InsecureSkipVerify: true,
+		// THE SUBPROTOCOL MUST BE ECHOED, OR THE BROWSER CLOSES THE SOCKET ITSELF.
+		//
+		// MEASURED: the dashboard showed `est: closed` and no picture. What a browser does when it
+		// offers `Sec-WebSocket-Protocol: est` and the 101 response does not name one is FAIL the
+		// connection - the close does not come from this handler, so nothing here logged a reason,
+		// and `onclose` could only say "closed".
+		//
+		// `Subprotocols: []string{"est"}` makes Accept select it, which is all the client needs to
+		// stop treating the socket as broken. The CONTROL TOKEN IS NOT A SUBPROTOCOL and never was:
+		// est carries it in a `0x03` Auth FRAME (EST.md, `dispatch` -> `T_AUTH`), which `app.js`
+		// now sends after opening. Putting it in the protocol list made a browser reject the whole
+		// handshake for offering a name the server did not know.
+		Subprotocols: []string{"est"},
 	})
 	if err != nil {
 		return // Accept has already written the failure.
