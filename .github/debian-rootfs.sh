@@ -43,6 +43,10 @@ set -eu
 V="${DEBIAN_VERSION:-trixie}"
 OUT="${1:-.}"
 WORK="${OUT}/debian-build"
+# SEE THE `DEBIAN_MIRROR` BLOCK BELOW THE SOURCES FOR THE MEASUREMENT. `DEBIAN_MIRROR=` (empty)
+# keeps the image's own `deb.debian.org`, which is the right default for anyone not behind this
+# lab's proxy; the default here is the mirror that measured 26 MB/s from it.
+MIRROR="${DEBIAN_MIRROR-http://mirrors.ustc.edu.cn}"
 
 log() { printf '  %s\n' "$*"; }
 mkdir -p "$WORK" "$OUT"
@@ -140,9 +144,57 @@ log "installing the kernel and initramfs-tools (about 90 MiB)"
 # `sources.list` is left empty.
 : > "$ROOT/etc/apt/sources.list"
 if [ ! -f "$ROOT/etc/apt/sources.list.d/debian.sources" ]; then
-	printf 'deb http://deb.debian.org/debian %s main\n' "$V" > "$ROOT/etc/apt/sources.list"
-	printf 'deb http://deb.debian.org/debian %s-updates main\n' "$V" >> "$ROOT/etc/apt/sources.list"
-	printf 'deb http://deb.debian.org/debian-security %s-security main\n' "$V" >> "$ROOT/etc/apt/sources.list"
+	printf 'deb %s/debian %s main\n' "$MIRROR" "$V" > "$ROOT/etc/apt/sources.list"
+	printf 'deb %s/debian %s-updates main\n' "$MIRROR" "$V" >> "$ROOT/etc/apt/sources.list"
+	printf 'deb %s/debian-security %s-security main\n' "$MIRROR" "$V" >> "$ROOT/etc/apt/sources.list"
+fi
+
+# THE MIRROR IS AN OPTION BECAUSE THE IMAGE'S DEFAULT IS 200x SLOWER FROM HERE THAN THE ALTERNATIVE.
+#
+# MEASURED, 10 s each through the lab's proxy, same file (`dists/trixie/main/binary-amd64/Packages.xz`):
+#
+#	deb.debian.org (HTTP)                34 kB/s   <- what the image's debian.sources names
+#	mirrors.tuna.tsinghua.edu.cn        3.1 MB/s
+#	mirrors.aliyun.com                  415 kB/s
+#	mirrors.ustc.edu.cn                  26 MB/s
+#
+# The install is ~90 MiB of index plus ~400 MiB of packages, so at 34 kB/s it is HOURS - and the
+# first run of this file sat in `apt-get update` with 4.4 MB of `Packages.xz` on disk after five
+# minutes, which reads exactly like a hang. The sources are rewritable, so they are rewritten.
+#
+# IT STAYS `http://`, AND THAT IS THE OFFICIAL ARRANGEMENT RATHER THAN A COMPROMISE.
+#
+# `debian:trixie` SHIPS NO `ca-certificates`: MEASURED, `/etc/ssl` does not exist in the layer and
+# `ca-certificates` is absent from its dpkg database. That is why the image's own
+# `debian.sources` names `http://deb.debian.org/debian` and not https - there is nothing to verify a
+# certificate with until apt has installed one, and apt cannot install one over a transport that
+# needs it. Rewriting these sources to `https://` (which an earlier version of this block did) makes
+# every fetch fail with
+#
+#	SSL connection failed: error:0A000086:SSL routines::certificate verify failed
+#
+# and, because `apt-get update` only WARNS, the install then proceeds against an empty package list
+# and fails with fifty `Unable to locate package` lines that name the wrong cause.
+#
+# THE `Signed-By` LINE IS KEPT FROM THE IMAGE rather than written here: the keyring path is what makes
+# apt accept the archive at all, and it authenticates the CONTENT rather than the transport. A mirror
+# is a copy of the same signed archive, so an unencrypted fetch of it is verified exactly as the
+# encrypted one would be.
+if [ -n "$MIRROR" ]; then
+	cat > "$ROOT/etc/apt/sources.list.d/debian.sources" <<SOURCES
+Types: deb
+URIs: ${MIRROR}/debian
+Suites: ${V} ${V}-updates
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+
+Types: deb
+URIs: ${MIRROR}/debian-security
+Suites: ${V}-security
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.pgp
+SOURCES
+	log "apt mirror: ${MIRROR}"
 fi
 cp /etc/resolv.conf "$ROOT/etc/resolv.conf" 2>/dev/null || true
 
@@ -157,6 +209,29 @@ chmod 1777 "$ROOT/tmp"
 mount --bind /dev  "$ROOT/dev"  2>/dev/null || true
 mount --bind /proc "$ROOT/proc" 2>/dev/null || true
 mount --bind /sys  "$ROOT/sys"  2>/dev/null || true
+# `apt` WANTS A PTY AND A CONTAINER MAY NOT BE ABLE TO GIVE ONE, AND THE FAILURE IS SILENT.
+#
+# MEASURED, and it cost two builds. apt prints
+#
+#	E: Can not write log (Is /dev/pts mounted?) - posix_openpt (2: No such file or directory)
+#
+# and then STOPS - after unpacking some packages. The image looks built, `dpkg -l` counts a couple of
+# the new names, and the ones at the END of the list are simply absent. The first build of this file
+# ended its list with `xclip pulseaudio at-spi2-core` and shipped with none of them.
+#
+# A bind mount of /dev does not bring /dev/pts (it is its own filesystem), and in THIS pod a separate
+# `mount --bind /dev/pts` fails anyway:
+#
+#	mount: /tmp: bind /dev/pts failed.
+#
+# - the container has no SYS_ADMIN. So the pty is not the fix; telling apt not to ask for one is.
+# `DPkg::Use-Pty=0` makes dpkg run maintainer scripts without a pty, which is exactly what a chroot
+# without /dev/pts needs, and it changes nothing else.
+mkdir -p "$ROOT/etc/apt/apt.conf.d"
+cat > "$ROOT/etc/apt/apt.conf.d/99no-pty" <<'APTCONF'
+// No pty is available in this chroot, and dpkg's pty is only for capturing maintainer-script output.
+DPkg::Use-Pty "false";
+APTCONF
 
 env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_proxy"} \
 	DEBIAN_FRONTEND=noninteractive \
@@ -169,9 +244,26 @@ env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_p
 			linux-image-amd64 initramfs-tools udev systemd-sysv \
 			iproute2 iputils-ping ca-certificates tzdata openssh-server \
 			xvfb xfce4 xfce4-terminal dbus-x11 xauth x11-utils x11-apps \
-			libx264-164 libyuv0 libxcb-xtest0 libpipewire-0.3-0t64 curl ca-certificates
-		# `initramfs-tools` DOES NOT PULL virtio_mmio on its own: a normal machine boots from SATA.
-		# All three are named so the dependency chain is explicit and `update-initramfs` records it.
+			libx264-164 libyuv0 libxcb-xtest0 libpipewire-0.3-0t64 curl ca-certificates \
+			xclip at-spi2-core pulseaudio pulseaudio-utils dbus
+
+		# AND WHY THOSE LAST FOUR.
+		#
+		#	xclip             makes the clipboard readable rather than absent. probe.rs looks for
+		#	                  xclip or xsel on PATH, and the first build had neither - so a desktop
+		#	                  with a working clipboard reported clipboard: None.
+		#	at-spi2-core      the a11y bus. probe.rs reports Atspi LAZILY - it does not probe, because
+		#	                  org.a11y.Bus only appears once a client asks - so without this package
+		#	                  the claim is made and nothing answers it.
+		#	pulseaudio        the audio backend. There is no sound device on a microvm; the null sink
+		#	pulseaudio-utils  built further down is the device, and pacat is what keeps it mixing.
+		#	dbus              NOT the same package as dbus-x11. MEASURED: `dbus-x11` brings the
+		#	                  daemon binary but not the configuration, so starting it answers
+		#	                    Failed to open "/usr/share/dbus-1/system.conf": No such file
+		#	                  and pulseaudio --system then cannot register - which reads as an
+		#	                  audio failure and is a missing system bus.
+		# initramfs-tools DOES NOT PULL virtio_mmio on its own: a normal machine boots from SATA.
+		# All three are named so the dependency chain is explicit and update-initramfs records it.
 		for m in virtio virtio_ring virtio_mmio virtio_pci virtio_blk ext4; do
 			grep -qx "$m" /etc/initramfs-tools/modules 2>/dev/null || echo "$m" >> /etc/initramfs-tools/modules
 		done
@@ -194,19 +286,36 @@ env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_p
 #
 # NOTHING HERE NEEDS A GPU, AND `x11vnc` IS DELIBERATELY ABSENT: easystream is the thing that reads
 # the screen, and two clients competing for the same display is one more process to explain.
-# THE BINARY IS A RELEASE ASSET, NOT A PACKAGE. Debian carries no `easystream`, and building it here
-# would mean a Rust toolchain plus libx264 headers in the middle of a shell script.
+# THE DEBIAN 13 PACKAGE, NOT THE UNIVERSAL BINARY.
 #
-# THE ABI IS WHY THIS ONE AND NOT A DIFFERENT ONE. libx264 puts its version in the SONAME *and* in
-# every exported symbol, so a binary linked against 165 cannot load against 164 whatever symlink it
-# is given. This asset is built on Ubuntu 24.04 (glibc 2.39, x264 164) and Debian 13 ships glibc 2.41
-# with x264 164 - the ABI matches and the glibc is newer, which is the direction that works. The
-# `-nixos` variant is for glibc 2.44 + x264 165 and would fail here with
-# `undefined symbol: x264_encoder_open_164`.
+# `release-matrix.yml` BUILDS ONE PACKAGE PER LIBRARY BASE and publishes every one of them. The
+# reason is in that file and it is not a preference: libx264 puts its ABI in the SONAME *and* in every
+# exported symbol, and glibc is a second, independent floor. A binary built on Ubuntu 24.04 links
+# against glibc 2.39 and x264 164; Debian 13 has glibc 2.41 and x264 164, so it happens to load - and
+# "happens to" is the whole problem, because the next base that moves breaks it silently, at symbol
+# resolution, on a guest that boots to a dead frame.
+#
+# SO THE ARTIFACT NAMES ITS BASE and we take ours. `easystream_<ver>_amd64-debian-13.deb` is built in
+# `debian:13` against that image's own apt, which is the only way to be sure the two agree.
+#
+# IT IS A PACKAGE RATHER THAN A BARE FILE because nfpm also records `Depends:` - libx264-164,
+# libyuv0, libxcb-xtest0 - so a missing library is a install error here instead of a loader error in
+# the guest. The packages the unit files need are installed by the apt line above.
+# THE FILENAME IS DERIVED FROM THE VERSION, AND IT CHANGED. `nfpm` writes
+# `easystream_<version>_amd64.deb`; `ci/package.sh` then appends the base, giving
+# `easystream_0.10.2_amd64-debian-13.deb`. The old name here was
+# `easystream_main_amd64-debian-13.deb`, from the bare-executable era, and it 404s against every
+# release after v0.10.2 - so the version is stripped of its leading `v` and interpolated rather
+# than written out twice.
+ES_VERSION="${EAZYSTREAM_VERSION:-v0.10.2}"
+ES_DEB="easystream_${ES_VERSION#v}_amd64-debian-13.deb"
 if [ ! -x "$ROOT/usr/bin/easystream" ]; then
 	curl -fsSL --retry 3 --max-time 300 \
-		-o "$ROOT/usr/bin/easystream" \
-		"https://github.com/easydev-org/easystream/releases/download/v0.9.0/easystream-linux-amd64"
+		-o "$WORK/$ES_DEB" \
+		"https://github.com/easydev-org/easystream/releases/download/${ES_VERSION}/${ES_DEB}"
+	# `dpkg-deb -x` INTO THE TREE, which is how the package's `/usr/bin/easystream` lands where the
+	# unit expects it without an apt database to install against.
+	dpkg-deb -x "$WORK/$ES_DEB" "$ROOT"
 	chmod 0755 "$ROOT/usr/bin/easystream"
 fi
 # AND THE PROOF IT CAN ACTUALLY LOAD, taken here rather than discovered on a guest that boots to a
@@ -280,10 +389,218 @@ StandardError=journal+console
 WantedBy=multi-user.target
 UNIT
 
-for unit in xvfb xfce easystream; do
+# --- 4c. THE SOUND CARD A MICROVM DOES NOT HAVE ------------------------------------------------
+#
+# A microvm has no audio device, and `pcie=off` means no HDA controller either - so `audio.rs` would
+# find no backend and every Hello would say `hasAudio = 0`. MEASURED on the first build:
+#
+#	easystream[314]: audio: no working capture backend
+#
+# PULSEAUDIO'S NULL SINK IS THE DEVICE. It is a sink that mixes into nothing and exposes the mix as
+# `vsink.monitor` - which is exactly the source name `audio.rs` looks for by default
+# (`EAZYSTREAM_AUDIO_SOURCE`, defaulting to "vsink.monitor").
+#
+# AND THE MONITOR MUST BE MIXING SOMETHING. A null sink with no input has no mix, and
+# `parec --device=vsink.monitor` blocks without producing a byte; `audio.rs` proves a backend by
+# reading one 20 ms frame within 4 seconds, so it would report "present but produced no data" and
+# fall through to None. `pacat` playing /dev/zero keeps the mix alive, and any real audio the desktop
+# later produces sums into the same one.
+# THE SYSTEM BUS, WHICH `pulseaudio --system` REQUIRES AND A BARE IMAGE DOES NOT START.
+cat > "$ROOT/etc/systemd/system/dbus.service" <<'UNIT'
+[Unit]
+Description=the system message bus
+[Service]
+Type=simple
+ExecStart=/usr/bin/dbus-daemon --system --nofork --nopidfile
+Restart=always
+RestartSec=2
+StandardOutput=journal+console
+StandardError=journal+console
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat > "$ROOT/etc/systemd/system/pulseaudio.service" <<'UNIT'
+[Unit]
+Description=PulseAudio in system mode, because there is no session and no seat
+# D-BUS IS NOT OPTIONAL FOR --system, AND ITS ABSENCE LOOKS LIKE AN AUDIO PROBLEM.
+#
+# MEASURED on the first build with pulseaudio installed:
+#
+#	pulseaudio[312]: authkey.c: Failed to open cookie file ...
+#	pulseaudio[312]: main.c: Unable to contact D-Bus:
+#	                 org.freedesktop.DBus.Error.FileNotFound: Failed to connect to socket
+#	                 /run/dbus/system_bus_socket: No such file or directory
+#
+# The daemon starts and then cannot register, so `pactl` has no server to talk to, the null sink is
+# never created, `parec` records nothing, and `audio.rs` reports "present but produced no data".
+# Every one of those messages points at audio; the cause is the bus.
+Requires=dbus.service
+After=sound.target dbus.service
+
+[Service]
+Type=simple
+# SYSTEM MODE IS THE POINT: a microvm runs no login session, so there is no user daemon to connect
+# to and no XDG_RUNTIME_DIR. `--exit-idle-time=-1` keeps it alive with no clients.
+ExecStart=/usr/bin/pulseaudio --system --disallow-exit --disallow-module-loading=0 --exit-idle-time=-1 --no-cpu-limit
+Restart=always
+RestartSec=2
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# `--system` REFUSES A CLIENT THAT IS NOT IN `pulse-access`, AND THAT READS AS A DEAD DAEMON.
+#
+# MEASURED BEHAVIOUR of PulseAudio in system mode: `pactl` answers
+#
+#	Connection failure: Access denied
+#
+# while `systemctl status pulseaudio` says active (running). Root is not special here - the check is
+# group membership - so the group has to be stated. The package creates it; this puts root in it.
+# `gpasswd` HERE WOULD EDIT THE HOST'S /etc/group, NOT THE IMAGE'S.
+#
+# The first version ran it in the outer shell and it silently did nothing to "$ROOT": `gpasswd`
+# resolves its group file from the running system. MEASURED after that build:
+#
+#	pulseaudio[311]: protocol-native.c: Denied access to client with invalid authentication data
+#
+# from `pactl` - the daemon was up, the socket existed, and the client was refused because root was
+# not in the image's pulse-access group. The edit has to happen against the tree being built.
+chroot "$ROOT" gpasswd -a root pulse-access >/dev/null 2>&1 || true
+
+# THE UNIX SOCKET MUST ACCEPT AN ANONYMOUS CLIENT, AND THE DEFAULT DOES NOT.
+#
+# MEASURED, after dbus and the group were both sorted:
+#
+#	pulseaudio[311]: protocol-native.c: Denied access to client with invalid authentication data
+#
+# `system.pa` ships `load-module module-native-protocol-unix` with no `auth-anonymous`, which means
+# the daemon wants a cookie - and a cookie is per-user session state that a system daemon and a root
+# `pactl` do not share. `auth-anonymous=1` is the documented setting for exactly this case: a socket
+# that is only reachable by processes already inside the machine.
+#
+# IT IS NOT A SECURITY RELAXATION WORTH ARGUING ABOUT HERE. The socket lives at /run/pulse/native
+# inside a microvm whose only console is the one easyvm owns; anyone who can open it can already read
+# the disk.
+python3 - "$ROOT" <<'PYSETUP'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+pa = root / "etc/pulse/system.pa"
+if pa.exists():
+    t = pa.read_text()
+    if "auth-anonymous=1" not in t:
+        t = t.replace("load-module module-native-protocol-unix",
+                      "load-module module-native-protocol-unix auth-anonymous=1", 1)
+        pa.write_text(t)
+PYSETUP
+
+# THE SINK AND THE SILENCE ARE TWO UNITS, BECAUSE THEY HAVE TWO LIFETIMES.
+#
+# `pactl load-module` returns as soon as the module is loaded and the sink lives inside the daemon -
+# so a unit that only loads it is a ONESHOT that stays "active (exited)" forever, which is correct.
+# `pacat` is the opposite: it must keep RUNNING or the monitor stops mixing. Folding the two into one
+# oneshot was written first and is wrong - systemd would consider the unit finished while its
+# ExecStart had a child that never exits.
+cat > "$ROOT/etc/systemd/system/vsink.service" <<'UNIT'
+[Unit]
+Description=a null sink named vsink
+After=pulseaudio.service
+Requires=pulseaudio.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# PULSE_SERVER NAMES THE SYSTEM DAEMON'S SOCKET. Without it `pactl` tries a per-user socket that does
+# not exist and answers "Connection refused", which reads as "pulseaudio is not running".
+Environment=PULSE_SERVER=unix:/run/pulse/native
+ExecStart=/usr/bin/pactl load-module module-null-sink sink_name=vsink sink_properties=device.description=vsink
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat > "$ROOT/etc/systemd/system/vsink-silence.service" <<'UNIT'
+[Unit]
+Description=silence into vsink, so its monitor has a mix to record
+After=vsink.service
+Requires=vsink.service
+
+[Service]
+Type=simple
+Environment=PULSE_SERVER=unix:/run/pulse/native
+# A MONITOR WITH NOTHING PLAYING PRODUCES NO BYTES, and `audio.rs` proves a backend by reading one
+# 20 ms frame within 4 seconds. Without this stream the probe times out and the daemon advertises
+# `audio: None` on a guest whose sink is perfectly configured.
+#
+# `--raw /dev/zero`: pacat reads a file rather than a pipe, so the child throttles itself against the
+# sink instead of against a writer in this image that would have to remember to keep writing.
+ExecStart=/usr/bin/pacat --device=vsink --format=s16le --rate=48000 --channels=2 --raw /dev/zero
+Restart=always
+RestartSec=3
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+for unit in dbus xvfb xfce easystream pulseaudio vsink vsink-silence; do
 	ln -sf "/etc/systemd/system/$unit.service" \
 		"$ROOT/etc/systemd/system/multi-user.target.wants/$unit.service"
 done
+
+
+# --- 4a. THE GUEST'S NETWORK ------------------------------------------------------------------
+#
+# A GUEST WITH NO NETWORK CONFIGURATION GETS NO ADDRESS, AND THAT IS WHAT HAPPENED.
+#
+# MEASURED on the deployed pod: the tap was up, dnsmasq was running, and the bridge's ARP table
+# showed
+#
+#	172.30.0.2 FAILED
+#
+# because nothing inside the guest ever asked for a lease. The console had no network line at all,
+# while `easystream` had been listening on 0.0.0.0:48080 the whole time - with no address for anyone
+# to reach it on.
+#
+# THE DEBIAN CONTAINER IMAGE SHIPS NO NETWORK CONFIG ON PURPOSE: a container is handed an interface
+# by its runtime. A VM is not. Its tap is a bare ethernet segment and the guest has to run DHCP over
+# it.
+#
+# THIS SITS OUTSIDE THE `chroot ... -c '...'` ABOVE ON PURPOSE: that block is a single-quoted shell
+# string, and a heredoc inside it closes the quote early and turns the rest of the script into
+# commands. It did, and the symptom was a line of prose being executed:
+#
+#	# `Xvfb` renders into the processs: not found
+mkdir -p "$ROOT/etc/systemd/network"
+cat > "$ROOT/etc/systemd/network/20-wired.network" <<'NET'
+[Match]
+Name=en* eth*
+
+[Network]
+DHCP=yes
+
+[DHCPv4]
+UseDNS=yes
+NET
+
+# `systemctl enable` CANNOT RUN IN A CHROOT WITH NO /proc AND NO PID 1: it prints
+# `/proc/ is not mounted. This is not a supported mode of operation.` and does nothing. These are the
+# links it would have made, written directly - which is what the rest of this script already does for
+# its own units.
+mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" \
+         "$ROOT/etc/systemd/system/sockets.target.wants"
+ln -sf /usr/lib/systemd/system/systemd-networkd.service \
+	"$ROOT/etc/systemd/system/multi-user.target.wants/systemd-networkd.service"
+ln -sf /usr/lib/systemd/system/systemd-networkd.socket \
+	"$ROOT/etc/systemd/system/sockets.target.wants/systemd-networkd.socket"
+ln -sf /usr/lib/systemd/system/systemd-resolved.service \
+	"$ROOT/etc/systemd/system/multi-user.target.wants/systemd-resolved.service"
+# AND THE RESOLVER, because networkd writes /etc/resolv.conf only when it owns it.
+ln -sf /run/systemd/resolve/stub-resolv.conf "$ROOT/etc/resolv.conf" 2>/dev/null || true
 
 umount "$ROOT/sys" 2>/dev/null || true
 umount "$ROOT/proc" 2>/dev/null || true
