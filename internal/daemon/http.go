@@ -216,6 +216,7 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 		_, _ = io.WriteString(w, "ok\n")
 	})
 	mux.HandleFunc("/api/state", d.handleState)
+	mux.HandleFunc("/api/egress", d.handleEgress)
 	mux.HandleFunc("/api/screen", d.handleScreenJSON)
 	mux.HandleFunc("/screen.png", d.handleScreenPNG)
 	mux.HandleFunc("/api/click", d.handleClick)

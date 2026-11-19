@@ -176,6 +176,9 @@ type relaySession struct {
 	sock  *net.UDPConn
 	last  time.Time
 	mu    sync.Mutex
+	// direct says this flow bypasses the proxy: `ctl` is nil and `sock` is CONNECTED to the
+	// destination rather than to a relay, so a reply from any other peer is filtered by the kernel.
+	direct bool
 }
 
 // ---------------------------------------------------------------- the tun side
@@ -221,6 +224,20 @@ func (r *UDPRelay) readTun() {
 }
 
 func (r *UDPRelay) forward(k relayKey, payload []byte) error {
+	// THE SAME RULES THE TCP PROXY USES, APPLIED TO A DATAGRAM.
+	//
+	// `block` drops it: there is no RST in UDP, so the guest's QUIC client simply times out, which is
+	// what a filtered UDP port looks like everywhere. `direct` sends it from this pod with no proxy -
+	// a plain UDP socket to the destination, and a reader that writes the reply back into the tun the
+	// same way the proxied path does.
+	dstIP := net.IP(k.dstIP[:])
+	switch VerdictFor(dstIP, int(k.dstPort)) {
+	case VerdictBlock:
+		return nil
+	case VerdictDirect:
+		return r.forwardDirect(k, dstIP, payload)
+	}
+
 	s, err := r.sessionFor(k)
 	if err != nil {
 		return err
@@ -230,6 +247,49 @@ func (r *UDPRelay) forward(k relayKey, payload []byte) error {
 	_, err = s.sock.WriteToUDP(framed, s.relay)
 	s.mu.Unlock()
 	return err
+}
+
+// forwardDirect sends a datagram without the proxy, and arranges for the reply.
+//
+// A DIRECT FLOW NEEDS ITS OWN SOCKET, because a reply must be matched to the guest's endpoint. The
+// session table holds it under the same key as a proxied flow - so `strictly first match wins` is the
+// rules' business, not the table's, and a flow cannot be both.
+func (r *UDPRelay) forwardDirect(k relayKey, dstIP net.IP, payload []byte) error {
+	r.mu.Lock()
+	existing, ok := r.sessions[k]
+	if !ok {
+		sock, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: dstIP, Port: int(k.dstPort)})
+		if err != nil {
+			r.mu.Unlock()
+			return err
+		}
+		existing = &relaySession{sock: sock, last: time.Now(), direct: true}
+		r.sessions[k] = existing
+		go r.drainDirect(k, existing)
+	}
+	existing.last = time.Now()
+	r.mu.Unlock()
+
+	_, err := existing.sock.Write(payload)
+	return err
+}
+
+// drainDirect reads replies on a direct socket and writes them into the tun.
+func (r *UDPRelay) drainDirect(k relayKey, s *relaySession) {
+	buf := make([]byte, 65535)
+	for {
+		n, err := s.sock.Read(buf)
+		if err != nil {
+			return
+		}
+		// THE SOURCE IS THE DESTINATION THE GUEST ASKED FOR. A connected UDP socket answers only for
+		// that peer, so the address in the packet is always k.dst - stated rather than re-read,
+		// because a reply from anywhere else would have been filtered by the kernel already.
+		pkt := buildIPv4UDP(net.IP(k.dstIP[:]), k.dstPort, k.guestIP[:], k.guestPort, buf[:n])
+		if _, err := r.tun.Write(pkt); err != nil {
+			return
+		}
+	}
 }
 
 // sessionFor returns the session for a flow, creating one on first use.
@@ -392,8 +452,13 @@ func newRelaySession(upstream string) (*relaySession, error) {
 }
 
 func (s *relaySession) close() {
-	_ = s.sock.Close()
-	_ = s.ctl.Close()
+	if s.sock != nil {
+		_ = s.sock.Close()
+	}
+	// A DIRECT SESSION HAS NO CONTROL CONNECTION; closing a nil interface would panic.
+	if s.ctl != nil {
+		_ = s.ctl.Close()
+	}
 }
 
 // socksUDPRequest frames a payload the way SOCKS5 wants it: RSV(2) FRAG(1) ATYP(1) ADDR PORT DATA.
