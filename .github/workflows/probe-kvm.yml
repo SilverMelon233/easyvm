@@ -1,0 +1,22 @@
+name: probe-kvm
+on: workflow_dispatch
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - name: does the runner have /dev/kvm
+        run: |
+          echo "=== host ==="
+          ls -l /dev/kvm 2>&1 || echo "(absent on host)"
+          echo "kvm module: $(lsmod 2>/dev/null | grep -c kvm)"
+          echo "cpuinfo vmx: $(grep -c -E 'vmx|svm' /proc/cpuinfo)"
+  container:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:13
+      options: --device /dev/kvm
+    steps:
+      - name: does the job container have /dev/kvm
+        run: |
+          echo "=== container with --device /dev/kvm ==="
+          ls -l /dev/kvm 2>&1 || echo "(absent in container)"
