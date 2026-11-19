@@ -227,8 +227,18 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || inputs.platforms == '' || inputs.platforms == 'linux/amd64'
         run: |
           set -euo pipefail
-          docker run --rm --entrypoint /usr/local/bin/easyvm \
-            "${{ env.IMAGE }}:latest" versions
+          # THE TAG FROM `metadata-action`, NOT `env.IMAGE`. MEASURED on run 44449434442, after the
+          # build and the push had both SUCCEEDED:
+          #
+          #	docker: invalid reference format: repository name (SilverMelon233/easyvm) must be
+          #	lowercase
+          #
+          # `env.IMAGE` is `ghcr.io/${{ github.repository }}` and the owner here is capitalised, so
+          # it is not a legal reference. `metadata-action` lowercases what it emits, which is why the
+          # push worked and this did not - the two were reading different strings for the same image.
+          ref=$(printf '%s' '${{ steps.meta.outputs.tags }}' | head -1)
+          echo "running $ref"
+          docker run --rm --entrypoint /usr/local/bin/easyvm "$ref" versions
 
       - name: the CPU model is the one every guest uses
         # THE ONE ASSERTION THAT MATTERS MOST, ASKED OF THE BUILT IMAGE RATHER THAN THE BUILDER.
@@ -250,8 +260,10 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || inputs.platforms == '' || inputs.platforms == 'linux/amd64'
         run: |
           set -euo pipefail
-          models=$(docker run --rm --entrypoint qemu-system-x86_64 \
-            "${{ env.IMAGE }}:latest" -cpu help 2>&1)
+          # THE SAME LOWERCASE FIX AS THE STEP ABOVE, for the same reason: a capitalised owner is
+          # not a legal docker reference, and `metadata-action` is the thing that lowercases it.
+          ref=$(printf '%s' '${{ steps.meta.outputs.tags }}' | head -1)
+          models=$(docker run --rm --entrypoint qemu-system-x86_64 "$ref" -cpu help 2>&1)
           printf '%s\n' "$models" | grep 'Skylake-Client-v4'
           echo "the image knows -cpu Skylake-Client-v4"
 
