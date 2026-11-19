@@ -145,10 +145,29 @@ jobs:
           done
           ss -lnt | grep ':7891 '
 
+          # THE FILES ARE ROOT-OWNED, BECAUSE THE SCRIPT RAN UNDER `sudo`. MEASURED without this:
+          #   cp: cannot open '/tmp/alpine-out/alpine-initramfs' for reading: Permission denied
+          # The script needs root for `mke2fs` and the chroot; the job does not, so the ownership is
+          # transferred rather than the whole job escalated.
+          sudo chown -R "$(id -u):$(id -g)" /tmp/alpine-out
           cp /tmp/alpine-out/* "$work"/
+
+          # KVM WHEN THE RUNNER HAS IT, AND TCG WHEN IT DOES NOT. `ubuntu-latest` exposes
+          # `/dev/kvm` on some runners and not others, and a job that assumed it would fail on the
+          # ones that do not - so the flag is conditional rather than unconditional.
+          #
+          # THE GUEST'S BOOT TIMEOUT IS 180s IN `console.walk` AND THAT IS A TCG BUDGET. Under TCG a
+          # small microvm still reaches a login in well under a minute; under KVM it is seconds.
+          kvm=""
+          if [ -e /dev/kvm ] && [ -r /dev/kvm ]; then
+            kvm="--device /dev/kvm:/dev/kvm"
+          else
+            echo "::notice::no /dev/kvm on this runner; the guest boots under tcg"
+          fi
 
           docker run -d --name easyvm \
             --cap-add NET_ADMIN \
+            $kvm \
             --device /dev/net/tun:/dev/net/tun \
             --add-host upstream:host-gateway \
             -e EASYVM_UDP_PROXY=upstream:7891 \
