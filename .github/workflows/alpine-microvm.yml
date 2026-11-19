@@ -86,6 +86,26 @@ jobs:
       # THE TESTING IMAGE, WHICH IS THE ONE THAT HAS THE TOOLCHAIN AND THE DAEMON'S OWN TESTS. Building
       # it here rather than pulling `latest` is what makes this job test the COMMIT rather than a
       # published artifact.
+      # THE CONTAINERFILE EXPECTS `dist/easyvm` TO ALREADY EXIST: it COPYs the binary rather than
+      # compiling it, because the real build compiles once with CGO disabled and hands the result to
+      # every stage. MEASURED without this step:
+      #
+      #	ERROR: failed to build: failed to compute cache key: "/dist/easyvm": not found
+      #
+      # so the binary is produced here the same way the release workflow produces it.
+      # THE PIN IS `go.mod`'S. A runner's preinstalled Go moves with the image, and a toolchain older
+      # than a directive the code uses fails as a compile error in a file nobody changed.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: build the daemon
+        run: |
+          set -eux
+          mkdir -p dist
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o dist/easyvm ./cmd/easyvm
+          ls -l dist/easyvm
+
       - name: build the testing image
         run: |
           set -eux
