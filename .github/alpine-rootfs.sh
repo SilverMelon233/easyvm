@@ -131,6 +131,57 @@ tty1::respawn:/sbin/getty -L tty1 38400 vt100
 ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100
 EOF
 
+# --- 4b. THE RESOLVER, WHICH WAS THE CONTAINER'S AND NOT THE GUEST'S -----------------------
+#
+# MEASURED: step 2 copies `/etc/resolv.conf` into the tree so `apk` can fetch packages inside the
+# chroot, and NOTHING REPLACED IT. That file is the CONTAINER's:
+#
+#	nameserver 172.18.0.10
+#
+# 172.18.0.10 is the cluster's resolver, on a network the guest has no route to - its only route is
+# `172.30.0.0/24` out of the bridge. So every name in the guest failed to resolve, permanently, on an
+# image that had been built successfully.
+#
+# THE BRIDGE ANSWERS DNS ITSELF. easyvm runs dnsmasq on `172.30.0.1` with `port=53`, binding only
+# `qemubr0`, forwarding to an upstream that works - so the address to name is the bridge, which is
+# also what the DHCP lease already tells the guest (`dhcp-option=option:dns-server`).
+#
+# IT IS WRITTEN OUT RATHER THAN LEARNED, AND THAT IS SAFE BECAUSE THE ADDRESS IS A CONSTANT in
+# easyvm (`net.BridgeIP = "172.30.0.1"`, beside `GuestIP`): one guest per container, fixed
+# addressing, no allocation to coordinate. If that constant ever moves, this line and the DHCP option
+# move with it - they are the same fact stated in two places, and a guest that finds one right and the
+# other wrong is a failure mode worth naming.
+as_root tee "$ROOT/etc/resolv.conf" >/dev/null <<'RESOLV'
+# The bridge runs dnsmasq for this guest; it forwards to the cluster's resolver, which the guest
+# cannot reach itself.
+nameserver 172.30.0.1
+RESOLV
+
+# AND THE INTERFACE, BECAUSE A GUEST WITH NO CONFIGURATION GETS NO ADDRESS.
+#
+# MEASURED: `alpine-base` brings the `networking` service and `udhcpc`, but ships no
+# `/etc/network/interfaces` and enables nothing - a container gets its interface from its runtime and
+# the image has no reason to configure one. A VM is the opposite: its tap is a bare ethernet segment
+# and SOMETHING INSIDE has to ask for a lease.
+#
+# The same failure was measured on the Debian guest and is written up in debian-rootfs.sh: the bridge
+# ARP table showed `172.30.0.2 FAILED` while dnsmasq ran and the tap was up, because nothing ever
+# sent a DHCPREQUEST. `eth0` is the name the kernel gives the virtio-net device.
+as_root mkdir -p "$ROOT/etc/network"
+as_root tee "$ROOT/etc/network/interfaces" >/dev/null <<'IFACE'
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
+IFACE
+
+# `networking` IS IN THE `boot` RUNLEVEL, WHICH IS ONE OF THE `openrc` LINES ABOVE. Without the
+# symlink the service is installed and never started, which looks identical to a network that cannot
+# come up.
+as_root mkdir -p "$ROOT/etc/runlevels/boot"
+as_root ln -sf /etc/init.d/networking "$ROOT/etc/runlevels/boot/networking"
+
 # --- 5. write the disk --------------------------------------------------------------------
 # `mke2fs -d` WRITES A DIRECTORY INTO AN IMAGE WITHOUT A LOOP DEVICE, which is what a container
 # allows. This is the same step Firecracker's getting-started guide uses (`mkfs.ext4 -d`).

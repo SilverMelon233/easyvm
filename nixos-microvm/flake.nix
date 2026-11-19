@@ -71,6 +71,41 @@
             # ---------------------------- THE MACHINE ----------------------------
             networking.hostName = "nixos-microvm";
 
+            # THE GUEST HAS A NETWORK, WHICH IT DID NOT HAVE BEFORE THIS.
+            #
+            # MEASURED: this configuration declared a hostname and nothing else - no networkd, no DHCP
+            # client, no resolver. `console.walk` only asserts on serial output, so an image with no
+            # IP address passed every walkthrough it had; the moment anything inside the guest wants
+            # a name (`nix`, `curl`, a package) it would fail with no clue why.
+            #
+            # A CONTAINER GETS ITS INTERFACE FROM ITS RUNTIME AND A VM DOES NOT. The tap is a bare
+            # ethernet segment, so something inside has to ask for a lease - the same failure measured
+            # on the Debian guest, where the bridge's ARP table showed `172.30.0.2 FAILED` while
+            # dnsmasq ran and the tap was up.
+            #
+            # THE BRIDGE IS THE ONLY ADDRESS THE GUEST CAN REACH: `172.30.0.0/24` is its whole
+            # network, and easyvm runs dnsmasq on `172.30.0.1` answering DNS and handing out the
+            # lease. The cluster resolver (`172.18.0.10`) is outside that /24 with no route from
+            # here, which is why `networking.nameservers` names the bridge rather than anything that
+            # looks like a real DNS server.
+            systemd.network.enable = true;
+            networking.useDHCP = false;              # networkd does it, not dhcpcd
+            systemd.network.networks."20-wired" = {
+              matchConfig.Name = "en* eth*";
+              networkConfig.DHCP = "yes";
+              # `UseDNS=false` BECAUSE THE RESOLVER IS WRITTEN BELOW AND MUST HAVE ONE WRITER.
+              # The lease's DNS option is the same 172.30.0.1, so this changes nothing today - it
+              # keeps a second writer from appearing if the lease ever changes.
+              dhcpV4Config.UseDNS = false;
+            };
+            # WRITTEN AS A REAL FILE rather than left to `resolvconf`, for the reason the Debian
+            # image documents at length: a resolver that has to start before the file that names it
+            # is a bootstrap that can deadlock, and `stub-resolv.conf` was exactly that.
+            environment.etc."resolv.conf".text = ''
+              # The bridge runs dnsmasq for this guest; it forwards to the cluster's resolver.
+              nameserver 172.30.0.1
+            '';
+
             # NO BOOTLOADER. A microvm has no firmware to read a boot sector, so qemu is handed the
             # kernel and the initramfs directly with `-kernel`/`-initrd`. GRUB would be a disk
             # partition nothing ever reads.

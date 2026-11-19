@@ -668,7 +668,14 @@ Name=en* eth*
 DHCP=yes
 
 [DHCPv4]
-UseDNS=yes
+# `UseDNS=no` BECAUSE `/etc/resolv.conf` IS WRITTEN ONCE AND NAMES THE BRIDGE.
+#
+# networkd rewrites `/etc/resolv.conf` when DHCP hands it DNS servers, and the lease's `dns-server`
+# option IS 172.30.0.1 - so with `yes` the file would be rewritten to the same address and nothing
+# would break. It is `no` anyway so that there is exactly ONE writer: a static file the image
+# controls. Two things writing the same file is how the original kept the dangling symlink: the
+# image's link stayed because networkd did not consider itself its owner.
+UseDNS=no
 NET
 
 # `systemctl enable` CANNOT RUN IN A CHROOT WITH NO /proc AND NO PID 1: it prints
@@ -681,10 +688,29 @@ ln -sf /usr/lib/systemd/system/systemd-networkd.service \
 	"$ROOT/etc/systemd/system/multi-user.target.wants/systemd-networkd.service"
 ln -sf /usr/lib/systemd/system/systemd-networkd.socket \
 	"$ROOT/etc/systemd/system/sockets.target.wants/systemd-networkd.socket"
-ln -sf /usr/lib/systemd/system/systemd-resolved.service \
-	"$ROOT/etc/systemd/system/multi-user.target.wants/systemd-resolved.service"
-# AND THE RESOLVER, because networkd writes /etc/resolv.conf only when it owns it.
-ln -sf /run/systemd/resolve/stub-resolv.conf "$ROOT/etc/resolv.conf" 2>/dev/null || true
+# THE RESOLVER IS STATIC AND NAMES THE BRIDGE, BECAUSE `systemd-resolved` CANNOT BOOTSTRAP HERE.
+#
+# MEASURED: this image shipped `systemd-resolved.service` enabled plus
+# `/etc/resolv.conf -> /run/systemd/resolve/stub-resolv.conf`. `stub-resolv.conf` is written BY
+# resolved once it is up, and resolved reads `/etc/resolv.conf` for its upstream list - which was the
+# dangling symlink to its own output. The result on every boot was `cannot resolve host` for every
+# name, while the pod beside it resolved normally.
+#
+# IT IS ALSO NOT NEEDED. The bridge runs dnsmasq, which answers the guest's queries and forwards them
+# to the cluster resolver it was configured with (see `/tmp/easyvm-dnsmasq.conf`); so the DHCP lease
+# already tells the guest `option:dns-server 172.30.0.1` and the only thing missing was a file naming
+# it. A static file cannot fail to start, and it cannot depend on a daemon whose output it feeds.
+#
+# THE ADDRESS IS THE BRIDGE AND NOT A PUBLIC RESOLVER, because it is the only DNS the guest can
+# reach: 172.18.0.10 (the cluster's) is outside the guest's /24 and has no route from it.
+rm -f "$ROOT/etc/systemd/system/multi-user.target.wants/systemd-resolved.service"
+rm -f "$ROOT/etc/resolv.conf"
+cat > "$ROOT/etc/resolv.conf" <<'RESOLV'
+# The bridge runs dnsmasq for this guest; it forwards to the cluster's resolver, which the guest
+# cannot reach itself. See easyvm's dnsmasq configuration for why.
+nameserver 172.30.0.1
+options edns0
+RESOLV
 
 umount "$ROOT/sys" 2>/dev/null || true
 umount "$ROOT/proc" 2>/dev/null || true
