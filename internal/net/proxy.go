@@ -43,14 +43,17 @@ import (
 // copies bytes in both directions. The guest sees an ordinary TCP connection to port 443 and never
 // learns that anything happened.
 //
-// WHAT IS DELIBERATELY NOT PROXIED:
+// WHAT IS DELIBERATELY NOT PROXIED HERE:
 //
 //	the guest's traffic to this container (172.30.0.0/24)   a NAT rule that caught it would break
 //	                                                        the daemon's own ssh and screen calls
-//	DNS on port 53                                          UDP, and mihomo's proxy port is TCP-only;
-//	                                                        the DHCP lease already gives the guest a
-//	                                                        resolver, and a redirected TCP :53 would
-//	                                                        be a DNS query the proxy cannot answer
+//	DNS on port 53                                          a redirected TCP :53 would be a DNS query
+//	                                                        this tunnel cannot answer; the DHCP lease
+//	                                                        already gives the guest a resolver
+//
+// UDP IS NOT ABSENT, IT IS SOMEWHERE ELSE: `udprelay.go` carries it through a tun device and a SOCKS5
+// relay, because CONNECT cannot. The two are kept apart on purpose - this chain matches `-p tcp`
+// only, so a guest's datagrams never arrive at a listener that would read them as garbage.
 //
 // AND CI HAS NONE OF THIS. `EASYVM_TRANSPARENT_PROXY` is unset on a runner, so no listener starts and
 // no iptables rule is added: the guest uses the internet directly, exactly as it does on a desk.
