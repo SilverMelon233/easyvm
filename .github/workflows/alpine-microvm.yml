@@ -195,6 +195,7 @@ jobs:
             --add-host upstream:host-gateway \
             -e EASYVM_UDP_PROXY=upstream:7891 \
             -v "$work:/work" \
+            -p 8080:8080 \
             easyvm-ci:local serve --work /work --http :8080
 
           # `serve` PRINTS `[easyvm] listening on http://.../` ONLY AFTER IT HAS THE LOCK, so waiting
