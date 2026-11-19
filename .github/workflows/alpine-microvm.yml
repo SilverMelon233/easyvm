@@ -177,7 +177,18 @@ jobs:
           fi
           echo "kvm arg: [$kvm]"
 
+          # `--entrypoint easyvm` IS NOT OPTIONAL, AND ITS ABSENCE READS AS A BROKEN BINARY.
+          #
+          # MEASURED:
+          #	go serve: unknown command
+          #	Run 'go help' for usage.
+          #
+          # The `tester` stage's ENTRYPOINT is `/usr/local/go/bin/go` with a default `CMD` of
+          # `test ./...` - it is the image a person runs the Go tests in - so `docker run ... serve`
+          # appended an argument to GO, not to the daemon. The daemon is still at
+          # `/usr/local/bin/easyvm`, inherited from the runtime stage; the entrypoint is what changed.
           docker run -d --name easyvm \
+            --entrypoint easyvm \
             --cap-add NET_ADMIN \
             $kvm \
             --device /dev/net/tun:/dev/net/tun \
@@ -206,8 +217,8 @@ jobs:
         run: |
           set -eux
           docker cp linux/alpine-microvm/steps/console.walk easyvm:/work/console.walk
-          docker exec easyvm easyvm create /work/console.walk --work /work
-          docker exec easyvm easyvm status --work /work | tail -5
+          docker exec easyvm /usr/local/bin/easyvm create /work/console.walk --work /work
+          docker exec easyvm /usr/local/bin/easyvm status --work /work | tail -5
 
       # -------- the tun device, asserted from outside the guest --------
       #
@@ -256,7 +267,7 @@ jobs:
       - name: destroying the machine removes every trace of the relay
         run: |
           set -eux
-          docker exec easyvm easyvm destroy --work /work
+          docker exec easyvm /usr/local/bin/easyvm destroy --work /work
           sleep 3
           if ip link show easyvm-udp 2>/dev/null; then
             echo "::error::the tun device outlived the machine"
