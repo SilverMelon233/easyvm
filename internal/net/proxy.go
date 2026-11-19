@@ -196,11 +196,19 @@ func (p *TransparentProxy) tunnel(conn net.Conn, dst string) {
 	// firewall looks like from inside and is the honest answer. `direct` dials the destination from
 	// THIS pod with no proxy in the path - the same code, one branch, and the copy loop below is
 	// shared so neither path can drift from the other.
+	// THE UPSTREAM IS THE RULE'S DECISION WHEN A RULE MATCHED, AND THE DEFAULT OTHERWISE.
+	//
+	// `defaultUpstream` IS READ ONCE AT STARTUP AND IS WHAT p.Upstream WAS: the address this daemon
+	// was told about by `EASYVM_TRANSPARENT_PROXY`. A rule that names an upstream only changes this
+	// one thing - which proxy is dialled - so the CONNECT framing, the refusal handling and the copy
+	// loop below are all shared by every upstream, and a new one cannot behave differently.
+	upstream := p.Upstream
 	if ip, port, err := splitDst(dst); err == nil {
-		switch VerdictFor(ip, port) {
-		case VerdictBlock:
+		v := VerdictFor(ip, port)
+		switch v.Kind {
+		case KindBlock:
 			return
-		case VerdictDirect:
+		case KindDirect:
 			up, err := net.DialTimeout("tcp", dst, 15*time.Second)
 			if err != nil {
 				return
@@ -210,12 +218,23 @@ func (p *TransparentProxy) tunnel(conn net.Conn, dst string) {
 			copyBoth(conn, up, up)
 			return
 		}
+		if v.Upstream != "" {
+			// A NAMED UPSTREAM THAT HAS NO HTTP ADDRESS CANNOT CARRY TCP. Dialling the default in
+			// that case would be a rule that silently did something other than what it says, so the
+			// connection is refused instead - and the rules API validates the name at apply time, so
+			// this is the case of a table that changed underneath a rule.
+			if addr, ok := httpFor(v.Upstream); ok {
+				upstream = addr
+			} else {
+				return
+			}
+		}
 	}
 
 	// `CONNECT host:port HTTP/1.1` IS THE WHOLE PROTOCOL. There is no TLS to negotiate here: the
 	// guest's TLS runs end to end THROUGH this tunnel, which is why the proxy needs no certificate
 	// and cannot read the traffic.
-	up, err := net.DialTimeout("tcp", p.Upstream, 15*time.Second)
+	up, err := net.DialTimeout("tcp", upstream, 15*time.Second)
 	if err != nil {
 		return
 	}

@@ -179,6 +179,9 @@ type relaySession struct {
 	// direct says this flow bypasses the proxy: `ctl` is nil and `sock` is CONNECTED to the
 	// destination rather than to a relay, so a reply from any other peer is filtered by the kernel.
 	direct bool
+	// upstream is the SOCKS5 address this session was opened against, so a rule change can be
+	// noticed when the same flow next uses it.
+	upstream string
 }
 
 // ---------------------------------------------------------------- the tun side
@@ -231,14 +234,25 @@ func (r *UDPRelay) forward(k relayKey, payload []byte) error {
 	// a plain UDP socket to the destination, and a reader that writes the reply back into the tun the
 	// same way the proxied path does.
 	dstIP := net.IP(k.dstIP[:])
-	switch VerdictFor(dstIP, int(k.dstPort)) {
-	case VerdictBlock:
+	v := VerdictFor(dstIP, int(k.dstPort))
+	switch v.Kind {
+	case KindBlock:
 		return nil
-	case VerdictDirect:
+	case KindDirect:
 		return r.forwardDirect(k, dstIP, payload)
 	}
 
-	s, err := r.sessionFor(k)
+	// A NAMED UPSTREAM WITH NO SOCKS5 ADDRESS FALLS BACK TO THE ONE THAT HAS IT, which is the UDP
+	// half of the same decision the TCP path makes: an upstream configured for CONNECT only still
+	// works for TCP and leaves UDP on the default rather than dropping it.
+	upstream := r.upstream
+	if v.Upstream != "" {
+		if addr, ok := socksFor(v.Upstream); ok {
+			upstream = addr
+		}
+	}
+
+	s, err := r.sessionFor(k, upstream)
 	if err != nil {
 		return err
 	}
@@ -293,7 +307,7 @@ func (r *UDPRelay) drainDirect(k relayKey, s *relaySession) {
 }
 
 // sessionFor returns the session for a flow, creating one on first use.
-func (r *UDPRelay) sessionFor(k relayKey) (*relaySession, error) {
+func (r *UDPRelay) sessionFor(k relayKey, upstream string) (*relaySession, error) {
 	r.mu.Lock()
 	if s, ok := r.sessions[k]; ok {
 		s.last = time.Now()
@@ -302,7 +316,7 @@ func (r *UDPRelay) sessionFor(k relayKey) (*relaySession, error) {
 	}
 	r.mu.Unlock()
 
-	s, err := newRelaySession(r.upstream)
+	s, err := newRelaySession(upstream)
 	if err != nil {
 		return nil, err
 	}
@@ -448,7 +462,7 @@ func newRelaySession(upstream string) (*relaySession, error) {
 		ctl.Close()
 		return nil, err
 	}
-	return &relaySession{ctl: ctl, relay: relayAddr, sock: sock, last: time.Now()}, nil
+	return &relaySession{ctl: ctl, relay: relayAddr, sock: sock, last: time.Now(), upstream: upstream}, nil
 }
 
 func (s *relaySession) close() {

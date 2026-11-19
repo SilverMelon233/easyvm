@@ -202,6 +202,20 @@
             <option value="block">block</option>
           </select>
         </div>
+        <!-- UPSTREAMS ARE NAMED SO A RULE CAN SAY WHICH ONE. A row is `name http://host:port
+             socks5://host:port`, and either address may be omitted - an upstream with only an HTTP
+             address carries TCP and leaves UDP on the default, which is a choice rather than an
+             error. -->
+        <details id="egUpstreamsBox">
+          <summary>upstreams</summary>
+          <textarea id="egUpstreams" spellcheck="false" rows="3"
+            placeholder="default http://mihomo.develop.svc:7890 socks5://mihomo.develop.svc:7891&#10;fast    http://other:7890"></textarea>
+          <p class="egnote">
+            <b>name http://host:port socks5://host:port</b> — one per line. A rule says
+            <b>proxy:name</b> to use one; plain <b>proxy</b> uses <b>default</b>. An upstream with no
+            socks5 address leaves UDP on the default upstream.
+          </p>
+        </details>
         <div class="egrow">
           <textarea id="egRules" spellcheck="false" rows="6"
             placeholder=".doubleclick.net block&#10;ads block&#10;github.com direct&#10;10.0.0.0/8 direct&#10;142.250.1.1:443 block"></textarea>
