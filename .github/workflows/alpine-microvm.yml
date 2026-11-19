@@ -80,6 +80,13 @@ jobs:
       - name: unpack the three files
         run: |
           set -eux
+          # WHERE DID IT GO. MEASURED: `oci-pull` reported `rootfs-alpine.tar complete` and the file
+          # was not in `dest`, so the next line could only guess. A listing costs one line and turns
+          # "not there" into a fact about where it IS.
+          echo "--- what the pull left behind ---"
+          find /tmp/alpine-out -maxdepth 1 2>/dev/null || true
+          find "$GITHUB_WORKSPACE" -maxdepth 1 -name 'rootfs-*' 2>/dev/null || true
+          ls -l rootfs-alpine.tar 2>/dev/null || true
           cd /tmp/alpine-out
           # THE FILENAME IS THE ONE `path:` ABOVE ASKS FOR, not the action's output.
           #
