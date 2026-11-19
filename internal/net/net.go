@@ -327,6 +327,7 @@ func Down() {
 	// running would keep a port open for a bridge that no longer exists, and a chain left referenced
 	// makes the next `-N` fail with "already exists" for a chain nobody can see.
 	StopTransparentProxy()
+	StopUDPRelay()
 	for _, chain := range []string{"PREROUTING", "OUTPUT"} {
 		for {
 			if _, err := run("iptables", "-t", "nat", "-D", chain, "-s", spec,

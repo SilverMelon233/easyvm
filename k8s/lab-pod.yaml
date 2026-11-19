@@ -41,6 +41,19 @@ spec:
     # way, which is why the guest's DNS is answered by dnsmasq on `172.30.0.1` instead of being
     # forwarded - the two halves are one design, not two fixes.
     - {name: EASYVM_TRANSPARENT_PROXY, value: "mihomo.develop.svc.cluster.local:7890"}
+    # THE UDP HALF, AND IT IS A DIFFERENT PORT ON THE SAME HOST.
+    #
+    # `EASYVM_TRANSPARENT_PROXY` names an HTTP proxy whose port speaks CONNECT, which cannot carry a
+    # datagram. mihomo's SOCKS5 listener is 7891 - a separate port, published by the `mihomo` Service
+    # as both TCP (the control connection that UDP ASSOCIATE rides on) and UDP (the relay itself).
+    #
+    # MEASURED with this set, inside the guest: `curl --http3-only https://cloudflare-quic.com`
+    # answered `HTTP/3 200`. Without it every QUIC attempt inside the guest waits out its timeout,
+    # which the browser reports as `net_error -100` on every HTTPS page.
+    #
+    # IT IS SEPARATE FROM THE HTTP VARIABLE RATHER THAN DERIVED. Adding one to a port number is a
+    # guess that happens to be right for mihomo and wrong for the next proxy anyone uses.
+    - {name: EASYVM_UDP_PROXY, value: "mihomo.develop.svc.cluster.local:7891"}
     # `/work` IS AN `emptyDir`, SO A RESTART LOSES IT. The guest files and the daemon binary are
     # staged from the PVC on every start, which is also how a rebuilt image reaches a running pod
     # without pushing a new one.
