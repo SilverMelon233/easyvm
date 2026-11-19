@@ -1046,7 +1046,19 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	if tmpl == "" {
 		tmpl = "/usr/share/OVMF/OVMF_VARS_4M.fd"
 	}
-	if !guestOS.IsMacOS() {
+	// A MICROVM HAS NO FIRMWARE, SO IT MUST NOT BE ASKED FOR ONE.
+	//
+	// `FirmwareArgs` returns nothing for a microvm - there is no pflash, no boot order and no UEFI to
+	// read - but this function used to call `TouchOvmfVars` UNCONDITIONALLY first, which copies the
+	// template into the work directory and fails when the template is absent. MEASURED on a GitHub
+	// runner, which has no `ovmf` package installed:
+	//
+	//	boot: firmware variables template /usr/share/OVMF/OVMF_VARS_4M.fd:
+	//	      open /usr/share/OVMF/OVMF_VARS_4M.fd: no such file or directory
+	//
+	// for a guest that boots a kernel handed to it by the host and could not use the file if it were
+	// there. The two decisions belong together, so the condition is the same one `FirmwareArgs` uses.
+	if !boot.MicroVM && !guestOS.IsMacOS() {
 		if err := machine.TouchOvmfVars(tmpl, ovmfVars); err != nil {
 			return err
 		}
