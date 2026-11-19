@@ -1,0 +1,99 @@
+# THE LAB POD: one `easyvm serve` in front of one guest, reachable over a Service.
+#
+# THIS IS THE DEPLOYMENT THIS REPOSITORY KEEPS REDISCOVERING BY HAND. Every measurement in the
+# commits that built the dashboard, the est bridge and the rootfs fixes was taken from a pod shaped
+# like this one, and each time it was reassembled from memory. It is here so the next person starts
+# from a file.
+#
+# WHAT IT IS NOT: a production manifest. There is no Deployment, no resource tuning for a real
+# workload and no TLS - the Service is plain HTTP on port 80, and the HTTPS a browser needs for
+# WebCodecs comes from the cluster's own reverse proxy (`*.develop.10.199.64.20.nip.io`), not from
+# here.
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mvm-easyvm
+  namespace: develop
+  labels: {app: mvm-easyvm}
+spec:
+  restartPolicy: Never
+  containers:
+  - name: "e"
+    # THE IMAGE THIS BRANCH BUILT. The upstream image serves the old redirect to /vnc.html and has no
+    # dashboard at `/`; if that is what answers, the tag is wrong rather than the code.
+    image: ghcr.io/silvermelon233/easyvm:latest
+    imagePullPolicy: Always
+    env:
+    # THE GUEST'S TCP GOES THROUGH mihomo, AND IT IS THE DIFFERENCE BETWEEN MINUTES AND HOURS.
+    #
+    # MEASURED inside the guest, same file (`dists/trixie/main/binary-amd64/Packages.xz`):
+    #
+    #	direct   deb.debian.org       20 kB/s
+    #	via      mihomo:7890        13.5 MB/s
+    #
+    # The daemon implements this itself (`internal/net/proxy.go`): it starts a CONNECT tunnel bound to
+    # the bridge and installs a NAT chain that sends the guest's TCP through it.
+    # `EASYVM_TRANSPARENT_PROXY` is the only switch, and it is UNSET ON A CI RUNNER ON PURPOSE - a
+    # direct-connect runner must not be handed a proxy it cannot reach.
+    #
+    # IT COVERS TCP ONLY. mihomo's port speaks HTTP CONNECT and a UDP query cannot be tunnelled that
+    # way, which is why the guest's DNS is answered by dnsmasq on `172.30.0.1` instead of being
+    # forwarded - the two halves are one design, not two fixes.
+    - {name: EASYVM_TRANSPARENT_PROXY, value: "mihomo.develop.svc.cluster.local:7890"}
+    # `/work` IS AN `emptyDir`, SO A RESTART LOSES IT. The guest files and the daemon binary are
+    # staged from the PVC on every start, which is also how a rebuilt image reaches a running pod
+    # without pushing a new one.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        cp /guest/debian-vmlinuz /guest/debian-initramfs /guest/debian.qcow2 /work/
+        cp /disks/xfce.walk /work/ 2>/dev/null || true
+        exec /disks/bin-easyvm serve --work /work --http :8080
+    volumeMounts:
+    # TWO DIRECTORIES WITH TWO JOBS, WHICH IS WHY THEY ARE SEPARATE.
+    #
+    #   /work   the daemon's own scratch: its socket, its frames, its overlay, its logs. Container-local
+    #           on purpose - none of it survives the pod and none of it should.
+    #   /guest  the three files a `run` boots. Read-only, because a microvm boots on a QCOW2 OVERLAY
+    #           over its disk - the base is never written, and a read-only mount makes that a property
+    #           of the filesystem rather than a promise.
+    - {name: work, mountPath: /work}
+    - {name: guest, mountPath: /guest, readOnly: true, subPath: lab/xfce-guest}
+    - {name: disks, mountPath: /disks}
+    - {name: kvm, mountPath: /dev/kvm}
+    - {name: tun, mountPath: /dev/net/tun}
+    # `NET_ADMIN` IS FOR THE BRIDGE AND THE NAT RULES; `SYS_ADMIN` IS FOR THE MOUNTS A CHROOT NEEDS.
+    securityContext:
+      capabilities: {add: ["NET_ADMIN", "SYS_ADMIN"]}
+    resources:
+      # THE SQUAT RESOURCES ARE THE LAB'S SCHEDULER CONTRACT for its KVM and TUN devices.
+      limits: {cpu: "8", memory: "16Gi", squat.ai/kvm: "1", squat.ai/tun: "1"}
+      requests: {cpu: "2", memory: "4Gi", squat.ai/kvm: "1", squat.ai/tun: "1"}
+  volumes:
+  - name: work
+    emptyDir: {}
+  - name: guest
+    persistentVolumeClaim: {claimName: easyvm-disks}
+  - name: disks
+    persistentVolumeClaim: {claimName: easyvm-disks}
+  - name: kvm
+    hostPath: {path: /dev/kvm}
+  - name: tun
+    hostPath: {path: /dev/net/tun}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mvm-easyvm
+  namespace: develop
+spec:
+  # PORT 80 IN FRONT OF THE DAEMON'S 8080, so a person types `http://mvm-easyvm.develop.svc/` and
+  # gets the page rather than a port number.
+  selector: {app: mvm-easyvm}
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
