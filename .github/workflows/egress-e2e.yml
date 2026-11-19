@@ -191,7 +191,27 @@ jobs:
         run: |
           set -eux
           docker cp linux/alpine-microvm/steps/console.walk easyvm:/work/console.walk
-          docker exec easyvm /usr/local/bin/easyvm create /work/console.walk --work /work
+
+          # THE FILE HAS TO BE VISIBLE TO THE DAEMON, AND THE FIRST THING TO CHECK IS THAT IT IS.
+          # MEASURED: `create` exited 1 with no output at all, which is the least diagnosable shape a
+          # failure can take - so this lists the work directory and the file before asking for a
+          # machine, and captures the client's own stderr rather than letting `set -e` swallow it.
+          echo "--- /work before create ---"
+          docker exec easyvm ls -l /work
+          docker exec easyvm test -s /work/console.walk
+
+          echo "--- create ---"
+          set +e
+          docker exec easyvm /usr/local/bin/easyvm create /work/console.walk --work /work 2>&1 | tee /tmp/create.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "create exited $rc"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::easyvm create failed with $rc"
+            docker logs easyvm 2>&1 | tail -30
+            exit 1
+          fi
+
           for i in $(seq 1 90); do
             st=$(curl -s --max-time 5 http://127.0.0.1:8081/api/state || true)
             if echo "$st" | grep -q '"ssh_ready":true'; then break; fi
