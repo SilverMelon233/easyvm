@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>easyvm</title>
+<style>
+  /* A DASHBOARD, NOT A FULL-SCREEN VIEWER.
+   *
+   * easystream's own UI is the opposite shape on purpose: `#screen` fills the viewport and the
+   * toolbar hides behind an 8px hot zone, because its target is a phone driving a computer-use
+   * agent. This page has a different job - it has to show EVERY way into the machine at once, so
+   * the screen is one panel among several and nothing is hidden behind a gesture.
+   *
+   * Colours follow easystream's palette (`--bar`, `--fg`, `--bd`, `--acc`) so the two do not look
+   * like different products when a person opens both. */
+  :root{
+    --bg:#0f1012; --panel:#16181d; --bar:#101010d9; --fg:#eee; --fg2:#9aa0a6;
+    --bd:#2a2d34; --acc:#fab283; --ok:#4ade80; --err:#f87171; --warn:#fbbf24;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font:13px/1.45 ui-sans-serif,system-ui,-apple-system,sans-serif}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* ---- the status strip ---------------------------------------------------- */
+  #status{display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+    padding:7px 10px;background:var(--bar);border-bottom:1px solid var(--bd);
+    position:sticky;top:0;z-index:20;backdrop-filter:blur(8px)}
+  #status b{letter-spacing:.3px}
+  .badge{border-radius:4px;padding:1px 7px;font:11px/1.6 var(--mono);white-space:nowrap;
+    background:#ffffff10;border:1px solid var(--bd);color:var(--fg2)}
+  .badge.ok{background:#4ade8022;color:var(--ok);border-color:#4ade8055}
+  .badge.err{background:#f8717122;color:var(--err);border-color:#f8717155}
+  .badge.warn{background:#fbbf2422;color:var(--warn);border-color:#fbbf2455}
+  .grow{flex:1}
+
+  /* ---- layout -------------------------------------------------------------- */
+  #main{display:grid;grid-template-columns:1fr 300px;gap:1px;background:var(--bd);
+    height:calc(100% - 42px - 34px)}
+  @media (max-width:900px){#main{grid-template-columns:1fr;height:auto}}
+  .panel{background:var(--panel);display:flex;flex-direction:column;min-width:0;min-height:0}
+
+  /* ---- the screen panel ---------------------------------------------------- */
+  #screenbar{display:flex;gap:6px;align-items:center;padding:6px 8px;
+    border-bottom:1px solid var(--bd);flex-wrap:wrap}
+  button{background:#ffffff12;color:var(--fg);border:1px solid var(--bd);border-radius:7px;
+    padding:5px 10px;font:inherit;cursor:pointer;white-space:nowrap}
+  button:hover{background:#ffffff22}
+  button.on{background:var(--acc);color:#000;border-color:var(--acc)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  #frame{flex:1;min-height:320px;background:#000;position:relative;overflow:hidden}
+  #frame iframe,#frame video,#frame canvas{position:absolute;inset:0;width:100%;height:100%;
+    border:0;object-fit:contain}
+  #frameVnc{background:#000}
+  #noScreen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--fg2);font:12px/1.6 var(--mono);text-align:center;padding:20px;white-space:pre-wrap}
+
+  /* ---- the right column: every way in -------------------------------------- */
+  #links{padding:8px 10px;overflow:auto}
+  #links h4{margin:12px 0 5px;font:600 11px/1 var(--mono);text-transform:uppercase;
+    letter-spacing:.8px;color:var(--fg2)}
+  #links h4:first-child{margin-top:2px}
+  .link{display:block;padding:4px 0;font:11px/1.5 var(--mono);color:var(--fg2);
+    word-break:break-all;border-bottom:1px dotted #ffffff10}
+  .link:last-child{border-bottom:0}
+  .link .k{color:var(--acc)}
+  .link .v{color:var(--fg)}
+  .link.off .v{color:#666;text-decoration:line-through}
+
+  /* ---- the tabbed lower area ----------------------------------------------- */
+  #tabs{display:flex;gap:1px;background:var(--bd);border-top:1px solid var(--bd)}
+  #tabs button{border:0;border-radius:0;background:var(--panel);flex:0 0 auto;
+    border-bottom:2px solid transparent}
+  #tabs button.on{background:var(--panel);border-bottom-color:var(--acc);color:var(--acc)}
+  #termwrap{height:34px;display:none}
+  #termwrap.show{display:block;height:280px;border-top:1px solid var(--bd);background:#0b0c0e}
+  #term{width:100%;height:100%;padding:8px 10px;margin:0;overflow:auto;resize:none;border:0;
+    background:transparent;color:#d7dae0;font:12px/1.45 var(--mono);outline:none;white-space:pre-wrap}
+  #termhint{position:absolute;color:var(--fg2);font:11px var(--mono);padding:8px 10px;
+    pointer-events:none}
+</style>
+</head>
+<body>
+
+<div id="status">
+  <b>easyvm</b>
+  <span class="badge" id="bStatus">…</span>
+  <span class="badge" id="bQemu">qemu: —</span>
+  <span class="badge" id="bGuest">guest: —</span>
+  <span class="badge" id="bSsh">ssh: —</span>
+  <span class="badge" id="bDisk">disk: —</span>
+  <span class="badge" id="bRec">rec: —</span>
+  <span class="grow"></span>
+  <span class="badge" id="bStep">—</span>
+  <span class="badge" id="bTick">—</span>
+</div>
+
+<div id="main">
+  <!-- ======== the screen ======== -->
+  <div class="panel">
+    <div id="screenbar">
+      <button id="mBtn" class="on" data-mode="vnc">VNC</button>
+      <span class="badge" id="estState" style="display:none">est: —</span>
+      <span class="grow"></span>
+      <button id="roBtn" class="on" title="view-only: input is dropped before it reaches the guest">Read-only</button>
+      <button id="shotBtn" title="download one PNG of the current screen">Screenshot</button>
+      <a href="/vnc.html" target="_blank" rel="noopener"><button>noVNC ↗</button></a>
+    </div>
+    <div id="frame">
+      <!-- NOVNC FIRST, BECAUSE IT IS THE ONE THAT WORKS TODAY. `vnc.html` is the distro's own page
+           and `/websockify` carries the VNC bytes; nothing here reimplements that. -->
+      <iframe id="frameVnc" src="/vnc.html?autoconnect=1&resize=scale&reconnect=1&view_only=1"
+              allow="clipboard-read; clipboard-write"></iframe>
+      <!-- EST IS A CANVAS, FILLED BY WebCodecs.
+           `VideoDecoder` hands back VideoFrames, which no <img> or <video> can accept, so app.js
+           creates the canvas and draws each frame as it decodes. The element is added at runtime
+           rather than declared here because a page with no secure context never creates one. -->
+      <!-- id="frameCanvas" is created by startEst() -->
+      <div id="noScreen" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- ======== every way in ======== -->
+  <div class="panel">
+    <div id="links">
+      <h4>screen</h4>
+      <div class="link"><span class="k">noVNC</span> <span class="v"><a href="/vnc.html" target="_blank">/vnc.html</a></span></div>
+      <div class="link"><span class="k">est</span> <span class="v"><a href="/est/" target="_blank">/est/</a></span></div>
+      <div class="link"><span class="k">png</span> <span class="v"><a href="/screen.png" target="_blank">/screen.png</a></span></div>
+
+      <h4>guest</h4>
+      <div class="link" id="lSsh"><span class="k">ssh</span> <span class="v">—</span></div>
+      <div class="link"><span class="k">serial</span> <span class="v"><a href="/console" target="_blank">/console</a></span></div>
+      <div class="link"><span class="k">shell</span> <span class="v"><a href="#" id="lTerm">open below ↓</a></span></div>
+
+      <h4>files</h4>
+      <div class="link"><span class="k">shared</span> <span class="v"><a href="/shared/" target="_blank">/shared/</a></span></div>
+      <div class="link"><span class="k">guest fs</span> <span class="v" id="lWorker">—</span></div>
+
+      <h4>api</h4>
+      <div class="link"><span class="k">state</span> <span class="v"><a href="/api/state" target="_blank">/api/state</a></span></div>
+      <div class="link"><span class="k">screen</span> <span class="v"><a href="/api/screen" target="_blank">/api/screen</a></span></div>
+      <div class="link"><span class="k">healthz</span> <span class="v"><a href="/healthz" target="_blank">/healthz</a></span></div>
+    </div>
+  </div>
+</div>
+
+<div id="tabs">
+  <button class="on" data-tab="serial">Serial</button>
+  <button data-tab="shell">Guest shell (ssh)</button>
+  <span class="grow"></span>
+</div>
+
+<div id="termwrap">
+  <textarea id="term" spellcheck="false" readonly></textarea>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
