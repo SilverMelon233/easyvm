@@ -793,8 +793,21 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		//
 		// `-serial file:` rather than a chardev socket: the reader is a step that polls a file,
 		// and a socket would need its own owner.
-		"-serial", "file:" + filepath.Join(d.work, "console.log"),
+		//
+		// THAT REASON IS STILL TRUE AND IT IS NO LONGER THE WHOLE REQUIREMENT. A file can be read
+		// after the fact but never live, and a page showing a console needs live. qemu's `mux`
+		// chardev feeds ONE serial line to SEVERAL consumers, so the log keeps being written -
+		// `ConsoleState` still measures its size and idle time, and a failed run still has its
+		// evidence - while the same bytes also go to a unix socket that `/api/console/ws` follows.
+		"-chardev", "file,id=serial-log,path=" + filepath.Join(d.work, "console.log"),
+		"-chardev", "socket,id=serial-web,path=" + filepath.Join(d.work, "console.sock") + ",server=on,wait=off",
+		"-chardev", "mux,id=serial-mux,chardev=serial-log,chardev=serial-web",
+		"-serial", "chardev:serial-mux",
 	}
+	// THE CONSOLE SOCKET MAY ALREADY EXIST FROM A PREVIOUS RUN, and qemu refuses to bind a path that
+	// is there: `Failed to bind socket: Address already in use`. The log file is appended by qemu on
+	// its own, but the socket is not - so it is removed before the argument list is used.
+	_ = os.Remove(filepath.Join(d.work, "console.sock"))
 	// THE GUEST'S OWN DEVICES, IN THE ORDER THE GUEST READS THEM. This is where the three-way split
 	// between a Windows disk boot, a Windows ISO boot and a macOS boot lives - all of it in
 	// internal/machine, none of it here.

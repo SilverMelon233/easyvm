@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/easydev-org/easyvm/internal/daemon/ui"
 	"image"
 	"image/png"
 	"io"
@@ -76,32 +77,58 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 	//
 	// A DAEMON WITH NO MACHINE STILL HAS TO ANSWER SOMETHING, and it says so rather than showing a
 	// console that cannot connect. `d.console()` is nil until a guest has booted.
+	// THE DASHBOARD IS THE ROOT, AND NOVNC IS ONE OF ITS PANELS.
+	//
+	// THIS USED TO REDIRECT `/` TO `/vnc.html`, WHICH WAS THE WHOLE PAGE. That was right while the
+	// only thing a person could do was watch the screen, and it stopped being right the moment the
+	// daemon grew OTHER WAYS IN - a serial console, an ssh shell, a share, guest files, an est
+	// stream - because a redirect can only show one of them. The page now lists every one and
+	// embeds the screen; `vnc.html` is still served verbatim below, so nothing the distro provides
+	// was reimplemented.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// A DAEMON WITH NO PAGE IS NOT AN ERROR TO HIDE, IT IS A PACKAGE TO INSTALL - and a machine
-		// with no page gets a sentence rather than a console that cannot connect.
+		// EXACT MATCH ONLY. `http.ServeMux` sends every unmatched path here, so serving the page
+		// for all of them would answer 200 to `/nonsense` and hide a broken link.
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", ui.ContentTypeHTML)
+		// NO CACHE: the page and the daemon are one binary, so a cached copy is always the copy
+		// that shipped with a build somebody has since replaced.
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(ui.Index)
+	})
+	mux.HandleFunc("/app.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", ui.ContentTypeJS)
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(ui.App)
+	})
+	// THE CONSTITUENT SURFACES, EACH AT ITS OWN PATH SO THE DASHBOARD CAN LINK TO IT.
+	mux.HandleFunc("/console", d.handleConsoleWS)
+	mux.HandleFunc("/api/shell", d.handleShellWS)
+	// NOVNC'S OWN PAGE AND EVERYTHING IT ASKS FOR: app/, core/, vendor/, images/.
+	//
+	// A REQUEST THAT IS NOT THE DASHBOARD AND NOT AN API FALLS THROUGH TO HERE, which is why this is
+	// registered on `/` too - Go's mux picks the LONGEST pattern, so `/vnc.html` reaches this and
+	// `/api/state` reaches the API. The distro's page is served from its own directory untouched:
+	// reimplementing a VNC client was never the plan and `console.go` bridges bytes instead.
+	mux.HandleFunc("/vnc.html", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := os.Stat(filepath.Join(novncRoot, "vnc.html")); err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = io.WriteString(w, noPageHTML)
 			return
 		}
-		if d.vncPort() == 0 {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = io.WriteString(w, noMachineHTML)
-			return
-		}
-		// THE PAGE AND EVERYTHING IT ASKS FOR: app/, core/, vendor/, images/.
-		//
-		// http.FileServer refuses a path that escapes its root, so serving the directory is safe. The
-		// root redirect is spelled out because a browser pointed at the Service should land on the
-		// console rather than on a directory listing.
-		if r.URL.Path == "/" {
-			http.Redirect(w, r, "/vnc.html", http.StatusFound)
-			return
-		}
 		http.FileServer(http.Dir(novncRoot)).ServeHTTP(w, r)
 	})
+	// THE ASSETS noVNC LOADS RELATIVE TO ITS PAGE. Without these the page renders and every script
+	// 404s, which reads as "noVNC is broken" rather than "one path is missing".
+	for _, prefix := range []string{"/app/", "/core/", "/vendor/", "/images/", "/utils/"} {
+		p := prefix
+		mux.HandleFunc(p, func(w http.ResponseWriter, r *http.Request) {
+			http.FileServer(http.Dir(novncRoot)).ServeHTTP(w, r)
+		})
+	}
 	// A HEALTH CHECK THAT TOUCHES NOTHING: no lock, no machine, no disk.
 	//
 	// THE ABSENCE OF ONE COST A DIAGNOSIS. When `/` stopped answering, every question about the
