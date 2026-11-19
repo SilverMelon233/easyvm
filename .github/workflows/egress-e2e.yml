@@ -189,6 +189,10 @@ jobs:
           set -eux
           work="$RUNNER_TEMP/work"
           mkdir -p "$work"
+          # THE DAEMON RUNS AS ROOT AND THE REST OF THE JOB DOES NOT, so the directory has to be
+          # writable by both: the daemon creates its socket, its overlay and its console log in here,
+          # and every step below reads them.
+          chmod 777 "$work"
           echo "WORK=$work" >> "$GITHUB_ENV"
           echo "EASYVM_HTTP=127.0.0.1:8081" >> "$GITHUB_ENV"
 
@@ -198,10 +202,22 @@ jobs:
           # BOTH PROXY VARIABLES POINT AT `primary`. The rules then move individual destinations to
           # `backup` or to `direct`, which is the thing under test - a policy that started elsewhere
           # would prove less.
-          EASYVM_TRANSPARENT_PROXY="127.0.0.1:$PRIMARY_PORT" \
-          EASYVM_UDP_PROXY="127.0.0.1:$((PRIMARY_PORT+1000))" \
-          EASYVM_EGRESS_RULES=1 \
-          easyvm serve --work "$work" --http :8081 > "$work/daemon.log" 2>&1 &
+          # SUDO, BECAUSE THE DAEMON BUILDS A BRIDGE, A TAP AND IPTABLES RULES.
+          #
+          # MEASURED: `easyvm serve` on a runner wrote NOTHING to its log and never printed
+          # `listening on` - `net.Up` runs `ip link add ... type bridge`, `iptables -t nat -N` and a
+          # `/proc/sys` write, and an unprivileged user gets EPERM on the first of them. `stage.yml`
+          # and `sandbox.yml` never hit this because their daemon runs INSIDE a container that declares
+          # `--cap-add NET_ADMIN`; this job runs on the host, so it needs the privilege instead of a
+          # capability.
+          #
+          # THE CHILD PROCESS IS ROOT AND THE JOB IS NOT, which is the point: everything else here
+          # (the proxies, the assertions, the tar) stays unprivileged.
+          sudo -E env \
+            EASYVM_TRANSPARENT_PROXY="127.0.0.1:$PRIMARY_PORT" \
+            EASYVM_UDP_PROXY="127.0.0.1:$((PRIMARY_PORT+1000))" \
+            EASYVM_EGRESS_RULES=1 \
+            easyvm serve --work "$work" --http :8081 > "$work/daemon.log" 2>&1 &
           echo $! > "$work/daemon.pid"
 
           for i in $(seq 1 60); do
