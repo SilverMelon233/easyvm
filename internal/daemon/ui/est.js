@@ -29,9 +29,10 @@ const panel = $('panel');
 const S = { ws: null, dec: null, codec: 'avc1.42E033', w: 0, h: 0, gotKey: false,
   frames: 0, fps: 0, t0: performance.now(), userScale: 1, panX: 0, panY: 0, viewOnly: false, adec: null, actx: null, again: null, wantControl: false,   // ALWAYS VIEW FIRST - see setMode: Control is a deliberate click.
   askedForToken: false, // one token prompt per click, never a chain of them wantAudio: true, openKbdAfterControl: false, muted: false, anext: 0, aDecoded: 0,
-  // RECONNECT STATE. `closedByUs` distinguishes a deliberate close (`close()`, a mode change, a
-  // new connect) from a socket that dropped, because only the second one should be retried.
-  closedByUs: false, retryMs: 0, retryTimer: 0, retryCount: 0,
+  // RECONNECT STATE. The "we closed this on purpose" flag lives on each SOCKET (`ws.wasClosedByUs`)
+  // rather than here: one shared boolean cannot tell a stale socket's teardown from a live one's
+  // failure, and mixing those up is what made Control freeze the page.
+  retryMs: 0, retryTimer: 0, retryCount: 0,
   // video configuration, from Hello's video block (offsets 15+). capW/capH is
   // the size the capture source produces; w/h is what the encoder is emitting.
   enc: 0, vflags: 0, vbitrate: 0, capW: 0, capH: 0, quality: -1, wantQuality: -1 };
@@ -1267,8 +1268,8 @@ function applyMode(grantedViewOnly) {
 }
 function connect() {
   close();
-  // `close()` SETS THE FLAG SO ITS OWN TEARDOWN DOES NOT RETRY; THIS connect IS THE RETRY.
-  S.closedByUs = false;
+  // NOTHING TO CLEAR: the teardown marks the socket IT closed, so a new socket cannot inherit the
+  // old one's intent either way.
   setState('wait');
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   // Resolve /est/ws RELATIVE to the page, so the UI works under any mount
@@ -1333,11 +1334,26 @@ function connect() {
   // gently and a link that comes back stops waiting. The first retry is immediate because the
   // common case is a socket that closed cleanly and can be reopened at once.
   //
-  // `closedByUs` is what keeps a deliberate close - a mode switch, a new `connect`, page teardown -
+  // `wasClosedByUs` is what keeps a deliberate close - a mode switch, a new `connect`, page teardown -
   // from reconnecting behind the user, which would look like the page ignoring View/Control.
+  // THE INTENT IS STORED ON THE SOCKET, NOT ON `S`, AND THAT IS THE WHOLE FIX.
+  //
+  // MEASURED: clicking Control froze the page. `ws.close()` is ASYNCHRONOUS - it fires `onclose` a
+  // moment later - while `connect()` continued and set the SHARED `S.closedByUs` back to false
+  // immediately. So the OLD socket's `onclose` arrived after the flag had been cleared for the NEW
+  // one, decided it was a dropped connection, and scheduled another `connect()`. Each of those
+  // closed another socket whose `onclose` did the same, and the page was soon reconnecting in a
+  // tight loop: opening sockets, tearing them down and re-arming the decoder, which is what "froze"
+  // looked like from outside.
+  //
+  // A per-socket flag cannot be cleared by anything except the code that closes THAT socket, so the
+  // teardown of one connection can never be mistaken for the failure of another.
+  ws.wasClosedByUs = false;
   ws.onclose = () => {
+    // A STALE SOCKET MUST NOT TOUCH `S.ws`, OR IT WOULD ORPHAN THE LIVE ONE.
+    if (S.ws !== ws) return;
     S.ws = null;
-    if (S.closedByUs) return;
+    if (ws.wasClosedByUs) return;
     const delay = S.retryCount === 0 ? 0 : Math.min(8000, 1000 * Math.pow(2, S.retryCount - 1));
     S.retryCount++;
     const el = $('state');
@@ -1367,14 +1383,17 @@ function connect() {
   S.ws = ws;
 }
 function close() {
-  // THIS CLOSE IS OURS, SO `onclose` MUST NOT RETRY IT.
-  S.closedByUs = true;
   if (S.retryTimer) { clearTimeout(S.retryTimer); S.retryTimer = 0; }
   if (S.dec) { try { S.dec.close(); } catch {} S.dec = null; }
   if (S.adec) { try { S.adec.close(); } catch {} S.adec = null; }
   if (S.actx) { try { S.actx.close(); } catch {} S.actx = null; }
   S.anext = 0;
-  if (S.ws) { try { S.ws.close(); } catch {} S.ws = null; }
+  if (S.ws) {
+    // MARKED BEFORE `close()`, BECAUSE `onclose` FIRES LATER AND MUST SEE THE MARK.
+    S.ws.wasClosedByUs = true;
+    try { S.ws.close(); } catch {}
+    S.ws = null;
+  }
   S.gotKey = false;
   // THE CANVAS IS CLEARED, BECAUSE THE LAST FRAME OF THE OLD CONNECTION IS A LIE.
   //
