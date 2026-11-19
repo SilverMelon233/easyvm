@@ -104,6 +104,21 @@ jobs:
       # THE ROOT FILESYSTEM IS DOWNLOADED, NOT BUILT - see `microvm-rootfs.yml`, which publishes it.
       # This job used to run the build script itself, ten minutes of work that another workflow had
       # already done from the same script.
+      # `qemu-img` IS HOW A GUEST STARTS: every boot runs on a qcow2 OVERLAY over the base disk, so
+      # the base is never written. MEASURED without it:
+      #
+      #	boot: could not create an overlay over alpine.qcow2: qemu-img is not installed:
+      #	      exec: "qemu-img": executable file not found in $PATH
+      #
+      # AND IT MUST BE ON ROOT'S PATH, because the daemon runs under `sudo`.
+      - name: the host tools the daemon calls by name
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-utils e2fsprogs
+          qemu-img --version | head -1
+          sudo -E env PATH="$PATH" qemu-img --version | head -1
+
       - name: the alpine root filesystem
         id: rootfs
         uses: easydev-org/easyactions/oci-pull@main
