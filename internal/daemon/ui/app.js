@@ -741,6 +741,121 @@ function connectTerm() {
   }
 }
 
+// ---- egress rules ---------------------------------------------------------------------------
+//
+// ONE LINE PER RULE, IN THE SHAPE THE PROMPT SHOWS: `<domain|ip|cidr>[:port] <proxy|direct|block>`.
+//
+// THE PARSING IS HERE RATHER THAN IN THE SERVER because the textarea is the interface: a person edits
+// lines, and a complaint about "line 3" is only useful if the page can point at line 3. The server
+// takes the structured form, which is also what its API is for - so a script can POST the same thing
+// without imitating this syntax.
+//
+// COMMENT LINES AND BLANK LINES ARE KEPT. A policy that cannot be annotated is one people stop
+// understanding, and `#` costs three lines here.
+
+const EG_ACTIONS = ["proxy", "direct", "block"];
+
+function parseEgressRules(text) {
+  const rules = [];
+  const problems = [];
+  text.split("\n").forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) return;
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) {
+      problems.push(`line ${i + 1}: need "<target> <action>"`);
+      return;
+    }
+    const [target, action] = parts;
+    if (!EG_ACTIONS.includes(action)) {
+      problems.push(`line ${i + 1}: action must be ${EG_ACTIONS.join(", ")}`);
+      return;
+    }
+    // `host:port` IS SPLIT ONLY WHEN THE COLON IS NOT PART OF A CIDR. A bare IPv6 address would need
+    // brackets, and this syntax does not accept one - the note under the textarea says the matching
+    // is by IPv4 address.
+    let match = target;
+    let ports;
+    const colon = target.lastIndexOf(":");
+    if (colon > 0 && !target.includes("/") && target.indexOf(":") === colon) {
+      const maybePort = target.slice(colon + 1);
+      if (/^\d+$/.test(maybePort)) {
+        match = target.slice(0, colon);
+        ports = [parseInt(maybePort, 10)];
+      }
+    }
+    rules.push({ match, action, ports });
+  });
+  return { rules, problems };
+}
+
+function renderEgressRules(state) {
+  const lines = [];
+  for (const r of state.rules || []) {
+    const port = r.ports && r.ports.length ? ":" + r.ports.join(",") : "";
+    lines.push(`${r.match}${port} ${r.action}`);
+  }
+  $("egRules").value = lines.join("\n");
+  $("egDefault").value = state.default || "proxy";
+}
+
+async function loadEgress() {
+  try {
+    const r = await fetch("/api/egress", { cache: "no-store" });
+    // 404 IS THE NORMAL ANSWER when the daemon was not started with the flag, and the panel stays
+    // hidden. Anything else is a real error and is shown.
+    if (r.status === 404) return;
+    if (!r.ok) { badge($("egState"), "egress: " + r.status, "err"); return; }
+    const state = await r.json();
+    $("egressPanel").hidden = false;
+    renderEgressRules(state);
+    showUnresolved(state.unresolved);
+    badge($("egState"), "loaded", "");
+  } catch (e) {
+    badge($("egState"), "egress: unreachable", "err");
+  }
+}
+
+function showUnresolved(list) {
+  const el = $("egUnresolved");
+  if (!list || !list.length) { el.hidden = true; el.textContent = ""; return; }
+  el.hidden = false;
+  el.textContent = "did not resolve, so these rules match nothing:\n  " + list.join("\n  ");
+}
+
+async function applyEgress() {
+  const { rules, problems } = parseEgressRules($("egRules").value);
+  if (problems.length) {
+    badge($("egState"), "fix the rules", "err");
+    showUnresolved(problems);
+    return;
+  }
+  badge($("egState"), "applying…", "warn");
+  try {
+    const r = await fetch("/api/egress", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ default: $("egDefault").value, rules }),
+    });
+    const state = await r.json();
+    if (!r.ok || state.error) {
+      badge($("egState"), "rejected", "err");
+      showUnresolved([state.error || String(r.status)]);
+      return;
+    }
+    renderEgressRules(state);
+    showUnresolved(state.unresolved);
+    // A RULE THAT DID NOT RESOLVE IS NOT A SUCCESS, so the badge says how many did.
+    const n = (state.unresolved || []).length;
+    badge($("egState"), n ? `applied, ${n} unresolved` : `applied ${rules.length}`, n ? "warn" : "ok");
+  } catch (e) {
+    badge($("egState"), "apply failed", "err");
+  }
+}
+
+if ($("egApply")) $("egApply").onclick = applyEgress;
+
 // ---- boot ----------------------------------------------------------------------------------
 poll();
+loadEgress();
 applyMode();

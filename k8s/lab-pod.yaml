@@ -54,6 +54,13 @@ spec:
     # IT IS SEPARATE FROM THE HTTP VARIABLE RATHER THAN DERIVED. Adding one to a port number is a
     # guess that happens to be right for mihomo and wrong for the next proxy anyone uses.
     - {name: EASYVM_UDP_PROXY, value: "mihomo.develop.svc.cluster.local:7891"}
+    # THE EGRESS RULES PANEL, AND IT IS OPT-IN ON PURPOSE.
+    #
+    # A policy interface that appears unbidden invites somebody to cut their own guest off and then
+    # wonder why nothing installs - a whitelist of one name is a working guest with no DNS, no
+    # repositories and no desktop updates. With the variable unset the panel is hidden and `/api/egress`
+    # answers 404, which is also the CI case.
+    - {name: EASYVM_EGRESS_RULES, value: "1"}
     # `/work` IS AN `emptyDir`, SO A RESTART LOSES IT. The guest files and the daemon binary are
     # staged from the PVC on every start, which is also how a rebuilt image reaches a running pod
     # without pushing a new one.

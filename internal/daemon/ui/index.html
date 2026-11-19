@@ -53,6 +53,19 @@
   button:disabled{opacity:.45;cursor:not-allowed}
   /* THE TWO TRANSPORTS READ AS ONE CONTROL, NOT AS TWO UNRELATED BUTTONS: a segmented group with a
      single outline, because they select one thing rather than doing two things. */
+  /* ---- egress rules ------------------------------------------------------- */
+  #egress{display:flex;flex-direction:column;gap:8px;padding:10px}
+  #egress h4{margin:0 0 2px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--dim)}
+  .egrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .egrow label{font-size:12px;color:var(--dim)}
+  #egRules{width:100%;box-sizing:border-box;background:#00000040;color:var(--fg);
+    border:1px solid var(--bd);border-radius:7px;padding:8px;font:12px/1.5 ui-monospace,monospace;
+    resize:vertical}
+  #egRules::placeholder{color:#ffffff35}
+  .egnote{margin:0;font-size:11px;line-height:1.5;color:var(--dim)}
+  .egwarn{font-size:11px;line-height:1.5;color:#ffbe5c;background:#ffbe5c14;border:1px solid #ffbe5c40;
+    border-radius:7px;padding:6px 8px;white-space:pre-wrap}
   #modebar{display:flex;gap:0;border:1px solid var(--bd);border-radius:7px;overflow:hidden}
   #modebar button{border:0;border-radius:0;background:transparent}
   #modebar button + button{border-left:1px solid var(--bd)}
@@ -168,6 +181,45 @@
       <div class="link"><span class="k">state</span> <span class="v"><a href="/api/state" target="_blank">/api/state</a></span></div>
       <div class="link"><span class="k">screen</span> <span class="v"><a href="/api/screen" target="_blank">/api/screen</a></span></div>
       <div class="link"><span class="k">healthz</span> <span class="v"><a href="/healthz" target="_blank">/healthz</a></span></div>
+    </div>
+
+    <!-- ======== what the guest may reach ========
+         ONE LINE PER RULE, BECAUSE THAT IS HOW A PERSON THINKS ABOUT IT: "this name does this".
+         The textarea rather than a table of inputs because a policy is something people paste,
+         edit and re-paste - a grid of single-line boxes makes that a chore and this does not.
+
+         IT IS HIDDEN WHEN THE DAEMON WAS NOT STARTED WITH `EASYVM_EGRESS_RULES=1`, and the reason
+         is not tidiness: a policy interface that appears unbidden invites somebody to cut their own
+         guest off and then wonder why nothing installs. -->
+    <div class="panel" id="egressPanel" hidden>
+      <div id="egress">
+        <h4>egress rules</h4>
+        <div class="egrow">
+          <label for="egDefault">unmatched traffic</label>
+          <select id="egDefault">
+            <option value="proxy">proxy (the default)</option>
+            <option value="direct">direct</option>
+            <option value="block">block</option>
+          </select>
+        </div>
+        <div class="egrow">
+          <textarea id="egRules" spellcheck="false" rows="6"
+            placeholder="github.com proxy&#10;deb.debian.org direct&#10;doubleclick.net block&#10;10.0.0.0/8 direct&#10;142.250.1.1:443 block"></textarea>
+        </div>
+        <div class="egrow">
+          <button id="egApply">apply</button>
+          <span class="badge" id="egState"></span>
+        </div>
+        <!-- THE UNRESOLVED LIST IS SHOWN RATHER THAN FAILING THE APPLY. A typo in one line must not
+             discard the other nine, and a rule that matches nothing has to be visible - otherwise it
+             behaves like a silent allow. -->
+        <div id="egUnresolved" class="egwarn" hidden></div>
+        <p class="egnote">
+          Matched by <b>address</b>, because that is all a connection carries. A name is resolved when
+          you apply and again every five minutes; a program that dials an address without asking DNS,
+          or uses its own resolver, is not covered by a name rule.
+        </p>
+      </div>
     </div>
   </div>
 </div>

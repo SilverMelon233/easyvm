@@ -190,6 +190,28 @@ func (p *TransparentProxy) handle(conn net.Conn) {
 func (p *TransparentProxy) tunnel(conn net.Conn, dst string) {
 	defer conn.Close()
 
+	// THE RULES ARE CONSULTED BEFORE THE PROXY IS, BECAUSE THEY DECIDE WHETHER IT IS USED AT ALL.
+	//
+	// `block` closes the connection here: the guest sees a refused connection, which is what a
+	// firewall looks like from inside and is the honest answer. `direct` dials the destination from
+	// THIS pod with no proxy in the path - the same code, one branch, and the copy loop below is
+	// shared so neither path can drift from the other.
+	if ip, port, err := splitDst(dst); err == nil {
+		switch VerdictFor(ip, port) {
+		case VerdictBlock:
+			return
+		case VerdictDirect:
+			up, err := net.DialTimeout("tcp", dst, 15*time.Second)
+			if err != nil {
+				return
+			}
+			defer up.Close()
+			_ = up.SetDeadline(time.Time{})
+			copyBoth(conn, up, up)
+			return
+		}
+	}
+
 	// `CONNECT host:port HTTP/1.1` IS THE WHOLE PROTOCOL. There is no TLS to negotiate here: the
 	// guest's TLS runs end to end THROUGH this tunnel, which is why the proxy needs no certificate
 	// and cannot read the traffic.
@@ -233,22 +255,49 @@ func (p *TransparentProxy) tunnel(conn net.Conn, dst string) {
 	// BOTH DIRECTIONS, AND EITHER ONE CLOSING ENDS THE PAIR. A tunnel is over when the guest is
 	// done; waiting for the upstream as well would hold the connection open for the proxy's own
 	// idle timeout.
+	copyBoth(conn, up, br)
+}
+
+// copyBoth runs the two directions and returns when EITHER finishes, which is what makes a tunnel end
+// when one side closes rather than waiting for the other's idle timeout.
+//
+// `from` IS SEPARATE FROM `to` BECAUSE THE PROXY PATH HAS A bufio.Reader: the CONNECT response was
+// read through a buffered reader and any bytes after its headers are the start of the tunnel, so the
+// upstream-to-guest direction has to drain THAT reader rather than the socket.
+func copyBoth(guest net.Conn, up net.Conn, from io.Reader) {
 	done := make(chan struct{}, 2)
 	go func() {
-		_, _ = io.Copy(up, conn)
+		_, _ = io.Copy(up, guest)
 		if tc, ok := up.(*net.TCPConn); ok {
 			_ = tc.CloseWrite()
 		}
 		done <- struct{}{}
 	}()
 	go func() {
-		_, _ = io.Copy(conn, br)
-		if tc, ok := conn.(*net.TCPConn); ok {
+		_, _ = io.Copy(guest, from)
+		if tc, ok := guest.(*net.TCPConn); ok {
 			_ = tc.CloseWrite()
 		}
 		done <- struct{}{}
 	}()
 	<-done
+}
+
+// splitDst turns "1.2.3.4:443" into its parts, for the rules lookup.
+func splitDst(dst string) (net.IP, int, error) {
+	host, port, err := net.SplitHostPort(dst)
+	if err != nil {
+		return nil, 0, err
+	}
+	p, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, 0, err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil, 0, fmt.Errorf("%q is not an address", host)
+	}
+	return ip, p, nil
 }
 
 // originalDestination reads SO_ORIGINAL_DST from a redirected socket.
