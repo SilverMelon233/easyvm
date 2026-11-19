@@ -201,8 +201,17 @@ jobs:
           docker exec easyvm test -s /work/console.walk
 
           echo "--- create ---"
+          # `EASYVM_HTTP` BECAUSE THE CLIENT DOES NOT USE THE SOCKET IT IS GIVEN.
+          #
+          # MEASURED: the step failed with
+          #	FAILED: POST http://127.0.0.1:8080/api/command: connection refused
+          # while the daemon was listening on :8081. `client.Dial(work)` reads `EASYVM_HTTP`, and when
+          # that is unset it falls back to `defaultAddr` (":8080") - the `work` argument is accepted and
+          # never used. So a daemon on any other port is unreachable from its own CLI, and the fix here
+          # is to say where it is.
           set +e
-          docker exec easyvm /usr/local/bin/easyvm create /work/console.walk --work /work 2>&1 | tee /tmp/create.log
+          docker exec -e EASYVM_HTTP=127.0.0.1:8081 \
+            easyvm /usr/local/bin/easyvm create /work/console.walk --work /work 2>&1 | tee /tmp/create.log
           rc=${PIPESTATUS[0]}
           set -e
           echo "create exited $rc"
