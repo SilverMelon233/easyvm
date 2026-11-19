@@ -226,15 +226,22 @@ jobs:
       # THE ASSERTIONS ARE READ FROM THE NAMESPACE THE DAEMON LIVES IN, not from the walkthrough: a
       # walk speaks to a machine, and this device belongs to the network the machine is attached to.
       # Reading it here is the only place the claim can be checked.
+      # THE DEVICE LIVES IN THE CONTAINER'S NETWORK NAMESPACE, NOT THE RUNNER'S.
+      #
+      # MEASURED, checking it from the runner:
+      #	Device "easyvm-udp" does not exist
+      # which is not a failure of the daemon - the daemon created it correctly - but of looking in the
+      # wrong namespace. `docker exec` enters that namespace, which is the only place the question
+      # means anything.
       - name: the tun device exists, is addressed, and carries a route
         run: |
           set -eux
-          ip link show easyvm-udp
+          docker exec easyvm ip link show easyvm-udp
           # UP IS NOT ENOUGH ON ITS OWN: a device that is UP but has no address would still accept the
           # route and blackhole everything it captured. Both are checked.
-          ip -4 addr show easyvm-udp | grep -q '10.99.0.1/24'
-          ip link show easyvm-udp | grep -q 'state UP\|,UP'
-          ip route show table 511 | grep -q 'default dev easyvm-udp'
+          docker exec easyvm ip -4 addr show easyvm-udp | grep -q '10.99.0.1/24'
+          docker exec easyvm ip link show easyvm-udp | grep -q 'state UP\|,UP'
+          docker exec easyvm ip route show table 511 | grep -q 'default dev easyvm-udp'
 
       # THE POLICY RULE IS THE HALF THAT KEEPS TCP OFF THIS DEVICE. Without `ipproto udp` every guest
       # connection would arrive in the tun instead of at the CONNECT proxy that already carries it, and
@@ -242,9 +249,10 @@ jobs:
       - name: policy routing sends this guest's UDP, and only UDP
         run: |
           set -eux
-          ip rule show | tee /tmp/rules
+          docker exec easyvm ip rule show | tee /tmp/rules
           grep -q 'from 172.30.0.2 ipproto udp lookup 511' /tmp/rules
-          # AND NOTHING BROADER. A rule without `ipproto udp` would take the guest's TCP too.
+          # AND NOTHING BROADER. A rule without `ipproto udp` would take the guest's TCP away from the
+          # CONNECT proxy that carries it, and the symptom would be a guest with no TCP at all.
           if grep -E 'from 172\.30\.0\.2 lookup 511$' /tmp/rules; then
             echo "::error::a rule sends ALL of the guest's traffic to the udp relay"
             exit 1
@@ -270,11 +278,11 @@ jobs:
           set -eux
           docker exec easyvm /usr/local/bin/easyvm destroy --work /work
           sleep 3
-          if ip link show easyvm-udp 2>/dev/null; then
+          if docker exec easyvm ip link show easyvm-udp 2>/dev/null; then
             echo "::error::the tun device outlived the machine"
             exit 1
           fi
-          if ip rule show | grep -q 'lookup 511'; then
+          if docker exec easyvm ip rule show | grep -q 'lookup 511'; then
             echo "::error::the policy rule outlived the machine"
             exit 1
           fi
