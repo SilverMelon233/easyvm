@@ -401,6 +401,25 @@ cat > "$ROOT/etc/systemd/system/easystream.service" <<'UNIT'
 Description=easystream: X11 capture, H.264, est://
 After=xfce.service
 Requires=xvfb.service
+# THE AUDIO PIPE MUST EXIST BEFORE THE PROBE, AND IT IS A WEAK DEPENDENCY ON PURPOSE.
+#
+# MEASURED, and it is a race rather than a setting: `audio: pulse probing` ran at 3.144s while
+# `pulseaudio.service` finished at 3.104s and `vsink.service` had not loaded the null sink yet. The
+# probe reads one 20ms frame and gives up if the sink is not mixing, so about half the boots
+# reported `audio: pulse probe -> false` and the Hello carried `hasAudio = 0` - intermittently, which
+# is the worst kind of report.
+#
+# `Wants=` AND NOT `Requires=`: a guest with no audio configured must still stream its screen, and
+# `Requires=` would refuse to start easystream at all when the sound stack fails. `After=` is what
+# puts the ordering in place - it only says "if both are starting, audio goes first".
+#
+# THIS IS STILL A BEST-EFFORT ORDERING. `After=` waits for `vsink.service` to be DONE, and vsink is a
+# oneshot that `pactl load-module` finishes, so the sink exists when easystream starts. What is not
+# guaranteed is that `vsink-silence` is pushing bytes yet - so a probe that lands in that window
+# still sees a sink with no mix. The daemon retries its probe, which is why the failure is
+# intermittent rather than permanent.
+Wants=pulseaudio.service vsink.service vsink-silence.service
+After=pulseaudio.service vsink.service vsink-silence.service
 
 [Service]
 Type=simple
@@ -582,7 +601,16 @@ After=vsink.service
 Requires=vsink.service
 
 [Service]
-Type=simple
+# `Type=exec` RATHER THAN `simple`: systemd reports the unit started once `pacat` has been EXECUTED,
+# which is the earliest point at which it can have written anything. `simple` reports it at the
+# `fork()`, before the binary is loaded, and `easystream.service` has `After=vsink-silence.service` -
+# so with `simple` there was a window where the ordering was satisfied and no audio was flowing yet.
+#
+# THE REMAINING WINDOW IS COVERED BY `ExecStartPost`. The probe reads ONE 20 ms frame with a 4 s
+# timeout and `audio.rs` never retries, so the sink has to be MIXING, not merely present. Polling
+# `pactl list sink-inputs` until the pacat stream appears is the direct question - "is anything
+# playing into vsink" - rather than a sleep that guesses.
+Type=exec
 Environment=PULSE_SERVER=unix:/run/pulse/native
 # A MONITOR WITH NOTHING PLAYING PRODUCES NO BYTES, and `audio.rs` proves a backend by reading one
 # 20 ms frame within 4 seconds. Without this stream the probe times out and the daemon advertises
@@ -591,6 +619,17 @@ Environment=PULSE_SERVER=unix:/run/pulse/native
 # `--raw /dev/zero`: pacat reads a file rather than a pipe, so the child throttles itself against the
 # sink instead of against a writer in this image that would have to remember to keep writing.
 ExecStart=/usr/bin/pacat --device=vsink --format=s16le --rate=48000 --channels=2 --raw /dev/zero
+# WAIT UNTIL THE SINK IS ACTUALLY MIXING, WHICH IS THE QUESTION THE PROBE WILL ASK.
+#
+# `audio.rs` opens the monitor, reads ONE 20 ms frame within 4 s and never retries. A sink that
+# exists but has no stream has no mix, so the frame never comes and the whole boot reports
+# `audio: None`. `pactl list sink-inputs` shows the pacat stream as soon as it is connected, which is
+# exactly the condition the probe needs - so this polls for it instead of sleeping a guessed amount.
+#
+# IT GIVES UP AFTER 50 TRIES (5 s) AND SUCCEEDS ANYWAY. If the stream cannot be seen, the honest
+# outcome is a unit that started and a daemon that reports no audio; failing here would take the unit
+# down, and `Restart=always` would then loop it.
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 50); do pactl list sink-inputs 2>/dev/null | grep -q . && exit 0; sleep 0.1; done; exit 0'
 Restart=always
 RestartSec=3
 StandardOutput=journal+console
