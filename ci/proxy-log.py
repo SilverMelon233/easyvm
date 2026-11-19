@@ -69,13 +69,28 @@ def handle_connect(conn, logpath):
         if len(parts) < 2:
             return
         target = parts[1]
+        # THE CONNECT TARGET IS `host:port` WITH NO SCHEME - but curl was measured sending the whole
+        # URL when the proxy is given with `-x` and the request is plain HTTP, so any scheme is
+        # stripped rather than assumed absent. MEASURED before this: `connect http:0`.
+        for scheme in ("http://", "https://"):
+            if target.startswith(scheme):
+                target = target[len(scheme):]
+                break
+        target = target.split("/", 1)[0]
         host, _, port = target.rpartition(":")
-        log(logpath, "connect", host, int(port or 0))
-        # THE 200 IS THE WHOLE PROTOCOL. A client that receives anything else closes; nothing is
-        # forwarded because the assertion is about the choice, not the destination.
+        ip = host or target
+        dport = int(port) if port.isdigit() else 0
+        log(logpath, "connect", ip, dport)
+
+        # THE 200 IS THE WHOLE PROTOCOL, AND NOTHING ELSE MAY BE SENT ON THIS RESPONSE. MEASURED: the
+        # first version wrote `200 Connection established` AND THEN a complete HTTP response, and curl
+        # answered `(52) Empty reply from server` - because after a CONNECT the byte stream belongs to
+        # the tunnel, so the second response was read as the tunnel's first bytes and parsed as a
+        # truncated header.
+        #
+        # So: one status line and the blank line that ends its headers. Whatever the client asked for
+        # through the tunnel is then answered inside it.
         conn.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
-        # AND A COMPLETE HTTP RESPONSE, because the guest is speaking HTTP through this tunnel and
-        # will parse whatever arrives. A bare 200 would leave its client waiting for a body.
         body = b"proxy\n"
         conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n"
                      b"Connection: close\r\n\r\n%s" % (len(body), body))
