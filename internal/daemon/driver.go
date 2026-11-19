@@ -1085,11 +1085,18 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	// reach either. `/est/ws` answered "cannot reach the guest over ssh" for a guest whose stream was
 	// running the whole time.
 	//
-	// THE PORTS ARE THE TWO easystream OWNS, and they are published unconditionally rather than only
-	// for a desktop guest: a boot with no easystream simply has nothing listening, which costs a
-	// closed port and no rule that has to be explained. Naming them here keeps the list in one place
-	// beside the ports the proxy dials.
-	if err := easyvmnet.Up(d.port, []int{estPort, estHTTPPort}); err != nil {
+	// ONLY 48080 IS PUBLISHABLE, AND 48079 IS NOT - THE GUEST DECIDES THAT, NOT THIS LIST.
+	//
+	// MEASURED from easystream's own startup line:
+	//
+	//	easystream est server on 127.0.0.1:48079     <- the GUEST's loopback, and only that
+	//	easystream http on 0.0.0.0:48080              <- every address
+	//
+	// A DNAT rule rewrites the destination to the guest's bridge address (172.30.0.2), and nothing
+	// there is listening on 48079, so publishing it would add a rule that can never match. The est
+	// STREAM is reached through the ssh direct-tcpip channel instead (`estproxy.go`), which arrives
+	// on the guest's own loopback where the socket actually is.
+	if err := easyvmnet.Up(d.port, []int{estHTTPPort}); err != nil {
 		return err
 	}
 
