@@ -77,29 +77,24 @@ jobs:
           path: rootfs-alpine.tar
           token: ${{ github.token }}
 
+      # THE PULL WRITES TO THE WORKSPACE, NOT TO `dest`.
+      #
+      # MEASURED, with `dest: /tmp/alpine-out`:
+      #
+      #	--- what the pull left behind ---
+      #	/tmp/alpine-out                                          <- empty
+      #	/home/runner/work/easyvm/easyvm/rootfs-alpine.tar         <- the file
+      #
+      # `oci-pull` reports `rootfs-alpine.tar complete (91678720 bytes)` and puts it at the repository
+      # root, so both the action's `path` output and its `dest` input were misleading here. The
+      # artifact is named from the workspace, which is where it actually lands.
       - name: unpack the three files
         run: |
           set -eux
-          # WHERE DID IT GO. MEASURED: `oci-pull` reported `rootfs-alpine.tar complete` and the file
-          # was not in `dest`, so the next line could only guess. A listing costs one line and turns
-          # "not there" into a fact about where it IS.
-          echo "--- what the pull left behind ---"
-          find /tmp/alpine-out -maxdepth 1 2>/dev/null || true
-          find "$GITHUB_WORKSPACE" -maxdepth 1 -name 'rootfs-*' 2>/dev/null || true
-          ls -l rootfs-alpine.tar 2>/dev/null || true
-          cd /tmp/alpine-out
-          # THE FILENAME IS THE ONE `path:` ABOVE ASKS FOR, not the action's output.
-          #
-          # MEASURED: the pull succeeded - `oci-pull: rootfs-alpine.tar complete (91678720 bytes)` -
-          # and `steps.rootfs.outputs.path` was still empty, so `tar -xf ''` failed with "Cannot open:
-          # No such file or directory". The bytes were on disk under the name this workflow chose; the
-          # output that was supposed to report it did not arrive.
-          #
-          # NAMING IT HERE IS NOT A GUESS: `path:` above and this line are the same string, two lines
-          # apart, and a mismatch is visible where an empty output was not.
-          tar -xf rootfs-alpine.tar
-          rm -f rootfs-alpine.tar
-          ls -l
+          mkdir -p /tmp/alpine-out
+          tar -xf "$GITHUB_WORKSPACE/rootfs-alpine.tar" -C /tmp/alpine-out
+          rm -f "$GITHUB_WORKSPACE/rootfs-alpine.tar"
+          ls -l /tmp/alpine-out
 
       # THE THREE FILES ARE ASSERTED RATHER THAN ASSUMED. An artifact that arrived truncated would
       # otherwise fail later as a boot timeout, which reads as a qemu problem.
