@@ -106,17 +106,20 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 	// THE CONSTITUENT SURFACES, EACH AT ITS OWN PATH SO THE DASHBOARD CAN LINK TO IT.
 	mux.HandleFunc("/console", d.handleConsoleWS)
 	mux.HandleFunc("/api/shell", d.handleShellWS)
-	// ALL OF easystream, UNDER ONE PREFIX.
+	// THE TWO GUEST DAEMONS, EACH ON THE PROTOCOL IT SPEAKS.
 	//
-	// ITS `/est/ws` IS THE STREAM AND IT IS SERVED ON 48080, which is the address the guest exposes
-	// (`http on 0.0.0.0:48080`) and the only one the bridge can reach. The stream socket itself,
-	// 48079, is bound to the guest's own loopback - easystream connects to it from the inside, so
-	// there is nothing for this daemon to bridge.
+	//	easystream  48079  est://  - a raw TCP protocol. A browser cannot open a raw socket, so
+	//	                            `/est/ws` translates WebSocket to TCP and parses nothing.
+	//	easyworker  48080  HTTP    - Connect RPC. A plain reverse proxy, including the chunked
+	//	                            server-streaming `WatchJob`.
 	//
-	// A REVERSE PROXY IS ENOUGH BECAUSE THE VENDOR UI IS MOUNT-RELATIVE: its app.js resolves
-	// `est/ws` and `capabilities` against `location.pathname`, so it works under any prefix without
-	// a byte being rewritten.
-	mux.HandleFunc(estPrefix, d.handleEst)
+	// NEITHER OF THEM SERVES A UI ANY MORE. Both used to: easystream had a page plus an `/est/ws`
+	// pipe plus `/a11y/*`, and easyworker had a Svelte panel, a `/desktop/` proxy to easystream's
+	// page and a WebRTC `/stream`. Every one of those was a browser surface this daemon also has,
+	// and three front ends for one machine is three things to keep in step. The protocols stayed;
+	// the pages went.
+	mux.HandleFunc(estPath, d.handleEstWS)
+	mux.HandleFunc(workerPath, d.handleWorker)
 	// NOVNC'S OWN PAGE AND EVERYTHING IT ASKS FOR: app/, core/, vendor/, images/.
 	//
 	// A REQUEST THAT IS NOT THE DASHBOARD AND NOT AN API FALLS THROUGH TO HERE, which is why this is
