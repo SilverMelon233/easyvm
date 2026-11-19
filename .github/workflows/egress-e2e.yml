@@ -65,6 +65,28 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # THE JOB RUNS INSIDE THE IMAGE, NOT BESIDE IT, AND THAT IS WHAT MAKES KVM AVAILABLE.
+    #
+    # MEASURED: the first version of this job ran `docker run` from the host and probed `/dev/kvm`
+    # there - where it is absent, so every guest ran under TCG and the alpine boot took longer than the
+    # step's own wait. Every other workflow in this repository that boots a guest declares the devices
+    # at the JOB level (`sandbox.yml`, `stage.yml`, `vocab-image.yml`):
+    #
+    #	options: --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN
+    #
+    # and `stage.yml` says why in one line: without `/dev/kvm` "every other guest runs fifty times
+    # slower". A job that runs `docker run` FROM the host cannot pass what the host does not have.
+    container:
+      image: ghcr.io/${{ github.repository }}:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN
+    permissions:
+      contents: read
+      packages: read
+      # THE ROOTFS IS PUSHED BY `microvm-rootfs.yml`, so this job only pulls. `read` is enough, and
+      # naming it is what keeps a fork's run from asking for write it cannot have.
     steps:
       - uses: actions/checkout@v4
 
@@ -115,118 +137,100 @@ jobs:
 
       # -------- the two upstreams --------
       #
-      # `--network host` IS NOT A SHORTCUT. MEASURED on 3proxy's own README: SOCKSv5 UDP ASSOCIATE
-      # "requires access to ephemeral port", which a bridge network's NAT breaks. Host networking is
-      # what makes the UDP half of this test possible at all.
+      # A PROXY PER NAME, EACH LOGGING WHAT IT CARRIED. `ci/proxy-log.py` is forty lines of standard
+      # library rather than a package, because this job already runs inside the project's container -
+      # that is what makes `/dev/kvm` available - so a second container cannot be started, and
+      # installing 3proxy on every run would depend on a Debian archive being reachable.
       #
-      # THEY DIFFER ONLY IN PORT, which is what makes "which one carried this" a question with two
-      # possible answers rather than one.
+      # BOTH LISTEN ON `0.0.0.0`, SO THE GUEST CAN REACH THEM. The guest's route out is this
+      # container's bridge (`172.30.0.1`), and a proxy bound to loopback would be invisible to it -
+      # MEASURED as `Connection reset by peer` in an earlier attempt.
       - name: start the two upstream proxies
         run: |
           set -eux
-          mkdir -p /tmp/log-primary /tmp/log-backup
-          sudo chmod 777 /tmp/log-primary /tmp/log-backup
+          mkdir -p "$RUNNER_TEMP/logs"
+          python3 ci/proxy-log.py --connect-port "$PRIMARY_PORT" \
+            --socks-port "$((PRIMARY_PORT+1000))" \
+            --log "$RUNNER_TEMP/logs/primary.log" \
+            > "$RUNNER_TEMP/logs/primary.out" 2>&1 &
+          echo $! > "$RUNNER_TEMP/logs/primary.pid"
 
-          sed "s/^proxy -p8080/proxy -p$PRIMARY_PORT/; s/^socks -p1080/socks -p$((PRIMARY_PORT+1000))/" \
-            ci/3proxy.cfg > /tmp/3proxy-primary.cfg
-          sed "s/^proxy -p8080/proxy -p$BACKUP_PORT/; s/^socks -p1080/socks -p$((BACKUP_PORT+1000))/" \
-            ci/3proxy.cfg > /tmp/3proxy-backup.cfg
-
-          docker run -d --name primary --network host \
-            -v /tmp/3proxy-primary.cfg:/etc/3proxy/3proxy.cfg:ro \
-            -v /tmp/log-primary:/var/log/3proxy \
-            3proxy/3proxy:0.9.9.3
-          docker run -d --name backup --network host \
-            -v /tmp/3proxy-backup.cfg:/etc/3proxy/3proxy.cfg:ro \
-            -v /tmp/log-backup:/var/log/3proxy \
-            3proxy/3proxy:0.9.9.3
+          python3 ci/proxy-log.py --connect-port "$BACKUP_PORT" \
+            --socks-port "$((BACKUP_PORT+1000))" \
+            --log "$RUNNER_TEMP/logs/backup.log" \
+            > "$RUNNER_TEMP/logs/backup.out" 2>&1 &
+          echo $! > "$RUNNER_TEMP/logs/backup.pid"
 
           for i in $(seq 1 30); do
-            if ss -lnt 2>/dev/null | grep -q ":$PRIMARY_PORT " &&
-               ss -lnt 2>/dev/null | grep -q ":$BACKUP_PORT "; then break; fi
+            if (exec 3<>/dev/tcp/127.0.0.1/$PRIMARY_PORT) 2>/dev/null &&
+               (exec 3<>/dev/tcp/127.0.0.1/$BACKUP_PORT) 2>/dev/null; then break; fi
             sleep 1
           done
-          ss -lnt | grep -E ":$PRIMARY_PORT |:$BACKUP_PORT "
-          sleep 2
-          docker logs primary 2>&1 | tail -10
-          docker logs backup 2>&1 | tail -10
+          cat "$RUNNER_TEMP/logs/primary.out" "$RUNNER_TEMP/logs/backup.out"
 
       # -------- the daemon and its guest --------
-      - name: start the daemon with its proxies
+      #
+      # THE DAEMON RUNS IN THIS CONTAINER, NOT IN A NESTED ONE. `docker run` from inside a `container:`
+      # job is not available, and every other workflow here runs `easyvm serve` directly for the same
+      # reason (`stage.yml` does exactly this).
+      #
+      # `EASYVM_HTTP` IS SET FOR THE CLIENTS BELOW, because `client.Dial(work)` reads that variable and
+      # ignores its `work` argument - MEASURED as `connection refused` on :8080 while the daemon was on
+      # :8081.
+      - name: start the daemon
         run: |
           set -eux
-          work=$(mktemp -d)
+          work="$RUNNER_TEMP/work"
+          mkdir -p "$work"
           echo "WORK=$work" >> "$GITHUB_ENV"
+          echo "EASYVM_HTTP=127.0.0.1:8081" >> "$GITHUB_ENV"
+
           cp /tmp/alpine-out/alpine-vmlinuz /tmp/alpine-out/alpine-initramfs \
              /tmp/alpine-out/alpine.qcow2 "$work"/
 
           # BOTH PROXY VARIABLES POINT AT `primary`. The rules then move individual destinations to
-          # `backup` or to `direct`, which is the thing under test - a policy that started somewhere
-          # else would prove less.
-          kvm=""
-          if [ -e /dev/kvm ] && [ -r /dev/kvm ]; then kvm="--device /dev/kvm:/dev/kvm"; fi
-
-          docker run -d --name easyvm \
-            --entrypoint easyvm \
-            --network host \
-            --cap-add NET_ADMIN \
-            $kvm \
-            --device /dev/net/tun:/dev/net/tun \
-            -e EASYVM_TRANSPARENT_PROXY="127.0.0.1:$PRIMARY_PORT" \
-            -e EASYVM_UDP_PROXY="127.0.0.1:$((PRIMARY_PORT+1000))" \
-            -e EASYVM_EGRESS_RULES=1 \
-            -v "$work:/work" \
-            easyvm-ci:local serve --work /work --http :8081
+          # `backup` or to `direct`, which is the thing under test - a policy that started elsewhere
+          # would prove less.
+          EASYVM_TRANSPARENT_PROXY="127.0.0.1:$PRIMARY_PORT" \
+          EASYVM_UDP_PROXY="127.0.0.1:$((PRIMARY_PORT+1000))" \
+          EASYVM_EGRESS_RULES=1 \
+          easyvm serve --work "$work" --http :8081 > "$work/daemon.log" 2>&1 &
+          echo $! > "$work/daemon.pid"
 
           for i in $(seq 1 60); do
-            if docker logs easyvm 2>&1 | grep -q 'listening on'; then break; fi
+            case "$(cat "$work/daemon.log" 2>/dev/null || true)" in
+              *"listening on"*) break ;;
+            esac
             sleep 1
           done
-          docker logs easyvm 2>&1 | tail -20
+          cat "$work/daemon.log"
           curl -fsS --max-time 5 http://127.0.0.1:8081/healthz
+          echo
 
       # THE ALPINE WALKTHROUGH, WHICH ALSO PROVES THE MACHINE BOOTS. `create` rather than `run` because
       # the machine has to stay up for the requests below.
       - name: boot the alpine microvm
         run: |
           set -eux
-          docker cp linux/alpine-microvm/steps/console.walk easyvm:/work/console.walk
+          cp linux/alpine-microvm/steps/console.walk "$WORK/console.walk"
+          ls -l "$WORK"
 
-          # THE FILE HAS TO BE VISIBLE TO THE DAEMON, AND THE FIRST THING TO CHECK IS THAT IT IS.
-          # MEASURED: `create` exited 1 with no output at all, which is the least diagnosable shape a
-          # failure can take - so this lists the work directory and the file before asking for a
-          # machine, and captures the client's own stderr rather than letting `set -e` swallow it.
-          echo "--- /work before create ---"
-          docker exec easyvm ls -l /work
-          docker exec easyvm test -s /work/console.walk
-
+          # `EASYVM_HTTP` COMES FROM THE ENVIRONMENT set by the step above, and it is not optional:
+          # `client.Dial(work)` reads that variable and never looks at its `work` argument, so an unset
+          # one means :8080 regardless of where the daemon is.
           echo "--- create ---"
-          # `EASYVM_HTTP` BECAUSE THE CLIENT DOES NOT USE THE SOCKET IT IS GIVEN.
-          #
-          # MEASURED: the step failed with
-          #	FAILED: POST http://127.0.0.1:8080/api/command: connection refused
-          # while the daemon was listening on :8081. `client.Dial(work)` reads `EASYVM_HTTP`, and when
-          # that is unset it falls back to `defaultAddr` (":8080") - the `work` argument is accepted and
-          # never used. So a daemon on any other port is unreachable from its own CLI, and the fix here
-          # is to say where it is.
-          set +e
-          docker exec -e EASYVM_HTTP=127.0.0.1:8081 \
-            easyvm /usr/local/bin/easyvm create /work/console.walk --work /work 2>&1 | tee /tmp/create.log
-          rc=${PIPESTATUS[0]}
-          set -e
-          echo "create exited $rc"
-          if [ "$rc" -ne 0 ]; then
-            echo "::error::easyvm create failed with $rc"
-            docker logs easyvm 2>&1 | tail -30
-            exit 1
-          fi
+          easyvm create "$WORK/console.walk" --work "$WORK"
 
-          for i in $(seq 1 90); do
+          # THE GUEST GETS A REAL BUDGET. Under KVM an alpine microvm reaches ssh in seconds; the loop
+          # is generous because a runner without `/dev/kvm` falls back to TCG, where the same boot is
+          # minutes. Either way the failure that matters is "sshd never answered", and the state below
+          # says which phase it reached.
+          for i in $(seq 1 120); do
             st=$(curl -s --max-time 5 http://127.0.0.1:8081/api/state || true)
-            if echo "$st" | grep -q '"ssh_ready":true'; then break; fi
+            case "$st" in *'"ssh_ready":true'*) break ;; esac
             sleep 2
           done
-          curl -s http://127.0.0.1:8081/api/state | head -c 400; echo
+          curl -s http://127.0.0.1:8081/api/state | head -c 600; echo
 
       # -------- the rules --------
       #
@@ -264,44 +268,54 @@ jobs:
       - name: the paths the rules chose
         run: |
           set -eux
-          echo "=== primary's log ==="; cat /tmp/log-primary/access.log 2>/dev/null || echo "(empty)"
-          echo "=== backup's log ===";  cat /tmp/log-backup/access.log 2>/dev/null || echo "(empty)"
+          P_LOG="$RUNNER_TEMP/logs/primary.log"
+          B_LOG="$RUNNER_TEMP/logs/backup.log"
+          echo "=== primary carried ==="; cat "$P_LOG" 2>/dev/null || echo "(empty)"
+          echo "=== backup carried ===";  cat "$B_LOG" 2>/dev/null || echo "(empty)"
 
-          P=$(cat /tmp/log-primary/access.log 2>/dev/null || true)
-          B=$(cat /tmp/log-backup/access.log 2>/dev/null || true)
+          P=$(cat "$P_LOG" 2>/dev/null || true)
+          B=$(cat "$B_LOG" 2>/dev/null || true)
 
           fail() { echo "::error::$*"; exit 1; }
 
-          echo "$P" | grep -q '203.0.113.10' \
+          # `if` RATHER THAN `grep && fail`, BECAUSE `set -e` TREATS A FAILED `grep` AS FATAL. Written
+          # the short way, the FIRST assertion would kill the step when it did not match - which is the
+          # opposite of what it should do, and would report a passing test as a crash.
+          echo "$P" | grep -q '203\.0\.113\.10' \
             || fail "proxy:primary did not carry 203.0.113.10 - primary's log has no such line"
-          echo "$B" | grep -q '203.0.113.20' \
+          echo "$B" | grep -q '203\.0\.113\.20' \
             || fail "proxy:backup did not carry 203.0.113.20 - backup's log has no such line"
 
           # AND THE CROSS-CHECK, WHICH IS THE HALF THAT PROVES THE RULE DECIDED. Without it, a bug that
           # sent everything to primary would satisfy the first assertion.
-          echo "$B" | grep -q '203.0.113.10' \
-            && fail "203.0.113.10 was carried by BACKUP as well as primary"
-          echo "$P" | grep -q '203.0.113.20' \
-            && fail "203.0.113.20 was carried by PRIMARY as well as backup"
+          if echo "$B" | grep -q '203\.0\.113\.10'; then
+            fail "203.0.113.10 was carried by BACKUP as well as primary"
+          fi
+          if echo "$P" | grep -q '203\.0\.113\.20'; then
+            fail "203.0.113.20 was carried by PRIMARY as well as backup"
+          fi
 
-          # DIRECT LEAVES NO TRACE, BY DEFINITION.
-          echo "$P$B" | grep -q '203.0.113.30' \
-            && fail "a direct destination appears in a proxy log"
+          # DIRECT LEAVES NO TRACE, BY DEFINITION: a direct connection does not touch a proxy, so its
+          # ABSENCE from both logs is the evidence that it went direct rather than through one.
+          if echo "$P$B" | grep -q '203\.0\.113\.30'; then
+            fail "a direct destination appears in a proxy log"
+          fi
 
           # THE BLOCKED DESTINATION REACHED NOBODY.
-          echo "$P$B" | grep -q '203.0.113.40' \
-            && fail "a blocked destination reached a proxy"
+          if echo "$P$B" | grep -q '203\.0\.113\.40'; then
+            fail "a blocked destination reached a proxy"
+          fi
 
           echo "all four outcomes took the path the rules chose"
 
       - name: always, the logs
         if: always()
         run: |
-          echo "=== daemon ==="; docker logs easyvm 2>&1 | tail -40 || true
-          echo "=== primary ==="; docker logs primary 2>&1 | tail -20 || true
-          echo "=== backup ===";  docker logs backup 2>&1 | tail -20 || true
-          echo "=== primary access ==="; cat /tmp/log-primary/access.log 2>/dev/null | tail -20 || true
-          echo "=== backup access ===";  cat /tmp/log-backup/access.log 2>/dev/null | tail -20 || true
+          echo "=== daemon ==="; tail -40 "$RUNNER_TEMP/work/daemon.log" 2>/dev/null || true
+          echo "=== primary proxy ==="; cat "$RUNNER_TEMP/logs/primary.out" 2>/dev/null | tail -20 || true
+          echo "=== backup proxy ===";  cat "$RUNNER_TEMP/logs/backup.out" 2>/dev/null | tail -20 || true
+          echo "=== primary carried ==="; cat "$RUNNER_TEMP/logs/primary.log" 2>/dev/null | tail -20 || true
+          echo "=== backup carried ===";  cat "$RUNNER_TEMP/logs/backup.log" 2>/dev/null | tail -20 || true
 
       - name: summary
         if: always()
@@ -319,4 +333,9 @@ jobs:
 
       - name: clean up
         if: always()
-        run: docker rm -f easyvm primary backup 2>/dev/null || true
+        run: |
+          set +e
+          easyvm destroy --work "${WORK:-/nonexistent}" 2>/dev/null
+          kill "$(cat "$RUNNER_TEMP/logs/primary.pid" 2>/dev/null)" 2>/dev/null
+          kill "$(cat "$RUNNER_TEMP/logs/backup.pid" 2>/dev/null)" 2>/dev/null
+          exit 0
