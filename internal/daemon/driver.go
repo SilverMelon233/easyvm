@@ -1076,7 +1076,19 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	// Preflight REFUSES WITH A SENTENCE when the container lacks /dev/net/tun or NET_ADMIN, and
 	// that sentence is the whole reason it exists - the raw failure is
 	// `RTNETLINK answers: Operation not permitted`, which reads as a broken network.
-	if err := easyvmnet.Up(d.port, nil); err != nil {
+	// THE GUEST'S OWN SERVICES ARE FORWARDED TOO, AND THEY WERE NOT.
+	//
+	// `Up` has always taken a list of extra ports - `buildForwardTable` maps each to itself - and
+	// every caller passed `nil`, so only ssh was published. MEASURED on the deployed pod: sshd was
+	// up and easystream was listening on the guest's 48079/48080, and nothing in the container could
+	// reach either. `/est/ws` answered "cannot reach the guest over ssh" for a guest whose stream was
+	// running the whole time.
+	//
+	// THE PORTS ARE THE TWO easystream OWNS, and they are published unconditionally rather than only
+	// for a desktop guest: a boot with no easystream simply has nothing listening, which costs a
+	// closed port and no rule that has to be explained. Naming them here keeps the list in one place
+	// beside the ports the proxy dials.
+	if err := easyvmnet.Up(d.port, []int{estPort, estHTTPPort}); err != nil {
 		return err
 	}
 
