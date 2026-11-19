@@ -103,6 +103,24 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(ui.App)
 	})
+	// THE FULL-WINDOW EST CLIENT, AT ITS OWN PATH FOR THE SAME REASON `/vnc.html` HAS ONE.
+	//
+	// THE EMBEDDED PANEL IS DELIBERATELY SMALL - it decodes video and forwards input, which is what
+	// "glance at the screen and click on it" needs. Everything else a person wants when they are
+	// actually USING a guest - zoom and pan, two-finger scroll, audio, the clipboard bridge, quality
+	// presets, a virtual keyboard - lives in the vendored easystream-webui and is served here
+	// unchanged. Keeping those out of the dashboard is not a limitation to be fixed later: every
+	// feature copied into the panel is a second implementation to keep in step with two upstreams.
+	mux.HandleFunc("/est.html", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", ui.ContentTypeHTML)
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(ui.EstIndex)
+	})
+	mux.HandleFunc("/est.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", ui.ContentTypeJS)
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(ui.EstApp)
+	})
 	// THE CONSTITUENT SURFACES, EACH AT ITS OWN PATH SO THE DASHBOARD CAN LINK TO IT.
 	mux.HandleFunc("/console", d.handleConsoleWS)
 	mux.HandleFunc("/api/shell", d.handleShellWS)

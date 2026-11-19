@@ -51,6 +51,12 @@
   button:hover{background:#ffffff22}
   button.on{background:var(--acc);color:#000;border-color:var(--acc)}
   button:disabled{opacity:.45;cursor:not-allowed}
+  /* THE TWO TRANSPORTS READ AS ONE CONTROL, NOT AS TWO UNRELATED BUTTONS: a segmented group with a
+     single outline, because they select one thing rather than doing two things. */
+  #modebar{display:flex;gap:0;border:1px solid var(--bd);border-radius:7px;overflow:hidden}
+  #modebar button{border:0;border-radius:0;background:transparent}
+  #modebar button + button{border-left:1px solid var(--bd)}
+  #modebar button.on{background:var(--acc);color:#000}
   #frame{flex:1;min-height:320px;background:#000;position:relative;overflow:hidden}
   #frame iframe,#frame video,#frame canvas{position:absolute;inset:0;width:100%;height:100%;
     border:0;object-fit:contain}
@@ -102,12 +108,30 @@
   <!-- ======== the screen ======== -->
   <div class="panel">
     <div id="screenbar">
-      <button id="mBtn" class="on" data-mode="vnc">VNC</button>
+      <!-- TWO TRANSPORTS, TWO BUTTONS, AND THEY ARE NOT A SWITCH.
+           They used to be one button that toggled `state.mode`, which said the two are alternatives
+           and hid the choice behind a click. They are not alternatives: they are two views of the
+           same screen, and a person wants to know which one they are looking at and be able to
+           pick the other without first working out what the current one is.
+
+           `data-mode` on each button is what selects, so adding a transport later is a button and
+           one branch in applyMode, not a rewrite of a toggle. -->
+      <div id="modebar">
+        <button class="on" data-mode="vnc">VNC</button>
+        <button data-mode="est">est</button>
+      </div>
       <span class="badge" id="estState" style="display:none">est: —</span>
       <span class="grow"></span>
       <button id="roBtn" class="on" title="view-only: input is dropped before it reaches the guest">Read-only</button>
       <button id="shotBtn" title="download one PNG of the current screen">Screenshot</button>
+      <!-- THE TWO FULL-WINDOW CLIENTS, SIDE BY SIDE, BECAUSE THEY DO DIFFERENT JOBS.
+           `/vnc.html` is the distro's noVNC page. `/est.html` is the vendored easystream-webui, which
+           is the client for actually USING the guest - zoom, pan, touch, audio, the clipboard bridge,
+           quality presets, a virtual keyboard. THE EMBEDDED PANEL STAYS SMALL ON PURPOSE: it is for
+           glancing at the screen, and every feature added there is one this page has to keep in step
+           with two upstreams. -->
       <a href="/vnc.html" target="_blank" rel="noopener"><button>noVNC ↗</button></a>
+      <a href="/est.html" target="_blank" rel="noopener"><button>est ↗</button></a>
     </div>
     <div id="frame">
       <!-- NOVNC FIRST, BECAUSE IT IS THE ONE THAT WORKS TODAY. `vnc.html` is the distro's own page

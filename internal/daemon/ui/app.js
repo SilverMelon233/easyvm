@@ -25,7 +25,15 @@ const state = {
 async function poll() {
   try {
     const r = await fetch("/api/state", { cache: "no-store" });
-    const s = await r.json();
+    const body = await r.json();
+    // THE BADGES WERE ALL READING `undefined`, AND THIS IS WHY.
+    //
+    // `/api/state` answers `{"ok":true,"state":{...}}` and this used to pass the ENVELOPE to
+    // `render`, which reads `s.qemu`, `s.guest`, `s.ssh_ready`, `s.disk`, `s.recording` and `s.step`.
+    // Every one of those was undefined, so the header showed `qemu: none  guest: —` on a guest that
+    // was running - and `alive` was false, which meant `showNoScreen("no machine is running")` was
+    // written over the est panel's own explanation on every poll.
+    const s = body && body.state ? body.state : body;
     state.lastState = s;
     render(s);
   } catch (e) {
@@ -111,16 +119,26 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// ---- the screen: two transports, one switch ------------------------------------------------
-$("mBtn").onclick = () => {
-  state.mode = state.mode === "vnc" ? "est" : "vnc";
-  $("mBtn").textContent = state.mode === "vnc" ? "VNC" : "est";
-  $("mBtn").dataset.mode = state.mode;
-  applyMode();
-};
+// ---- the screen: two transports, chosen by which button is pressed --------------------------
+//
+// THIS WAS ONE BUTTON THAT TOGGLED. A toggle answers "the other one" and never says what the current
+// one is, so the only way to know what you are looking at was to remember what you clicked last.
+// Two buttons mean the selected one is visible as a fact, and picking the other is one click
+// regardless of state.
+document.querySelectorAll("#modebar button").forEach((b) => {
+  b.onclick = () => {
+    if (state.mode === b.dataset.mode) return;
+    state.mode = b.dataset.mode;
+    applyMode();
+  };
+});
 
 function applyMode() {
   const vnc = state.mode === "vnc";
+  // THE SELECTION IS DRAWN FROM `state.mode`, so it cannot disagree with what the frame is showing.
+  document.querySelectorAll("#modebar button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.mode === state.mode);
+  });
   $("frameVnc").style.display = vnc ? "" : "none";
   if (estCanvas) estCanvas.style.display = vnc ? "none" : "";
   $("estState").style.display = vnc ? "none" : "";
