@@ -27,7 +27,8 @@ const panel = $('panel');
 // macOS encoder emits Level 4.0 = 0x28; a Level-3.1 string made the browser
 // reject 1920x1080 with EncodingError). Level 5.1 is a safe superset.
 const S = { ws: null, dec: null, codec: 'avc1.42E033', w: 0, h: 0, gotKey: false,
-  frames: 0, fps: 0, t0: performance.now(), userScale: 1, panX: 0, panY: 0, viewOnly: false, adec: null, actx: null, again: null, wantControl: !!accessToken(), wantAudio: true, openKbdAfterControl: false, muted: false, anext: 0, aDecoded: 0,
+  frames: 0, fps: 0, t0: performance.now(), userScale: 1, panX: 0, panY: 0, viewOnly: false, adec: null, actx: null, again: null, wantControl: false,   // ALWAYS VIEW FIRST - see setMode: Control is a deliberate click.
+  askedForToken: false, // one token prompt per click, never a chain of them wantAudio: true, openKbdAfterControl: false, muted: false, anext: 0, aDecoded: 0,
   // RECONNECT STATE. `closedByUs` distinguishes a deliberate close (`close()`, a mode change, a
   // new connect) from a socket that dropped, because only the second one should be retried.
   closedByUs: false, retryMs: 0, retryTimer: 0, retryCount: 0,
@@ -80,11 +81,15 @@ function flushMove() {
 // itself is the answer, and an IDR we asked for is indistinguishable from one we
 // did not.
 let _lastPli = 0;
-function requestKeyframe() {
+// `force` EXISTS FOR THE ONE CASE THAT IS NOT A REACTION: a new socket.
+//
+// The rate limit protects against a corrupt decoder asking every frame, and there is no reason to
+// apply it to the first request on a connection - a previous connection's request within the last
+// half second says nothing about this one, and dropping it leaves a fresh socket waiting for an IDR
+// that was never asked for.
+function requestKeyframe(force) {
   const now = performance.now();
-  // Rate-limit locally as well: the daemon coalesces, but there is no point
-  // spending a frame on every failed decode within the same second.
-  if (now - _lastPli < 500) return;
+  if (!force && now - _lastPli < 500) return;
   _lastPli = now;
   send(frame(T.KEYFRAME_REQ, new Uint8Array(0)));
 }
@@ -412,6 +417,15 @@ function onBytes(chunk) {
       syncQualityUI();
     } else if (type === 0x04) { // AuthOk: body[0] = 0 view / 1 control / 0xFF fail
       if (body[0] === 0xFF) { setState('err', 'auth failed'); return; }
+      // VIEW WHEN CONTROL WAS ASKED FOR MEANS THE DAEMON WANTS A TOKEN. That is the only case where
+      // one is requested - a guest with no token configured answers Control to the same question,
+      // so the common installation never sees a prompt at all.
+      if (body[0] === 0 && S.wantControl && !controlToken) {
+        askForToken();
+        return;
+      }
+      // A GRANT ENDS THE PROMPT CYCLE, so the next click can ask again.
+      S.askedForToken = false;
       applyMode(body[0] === 0);
     } else if (type === T.HELLO) {
       if (body[1] === 1) S.codec = 'avc1.42E033';
@@ -1044,14 +1058,50 @@ function showCapsFromHello(body) {
 // as the CONTROL token and connect in Control straight away — no prompt. Only
 // when there is no token at all do we ask for one.
 let controlToken = accessToken();
+// CONTROL IS ALWAYS A DELIBERATE CLICK, AND THIS IS THE ONLY THING THAT SETS IT.
+//
+// MEASURED, and it was two separate ways to end up controlling a guest without asking:
+//
+//   * `wantControl: !!accessToken()` made a `?token=` in the URL mean "start in Control", so a
+//     shared link put whoever opened it straight into a live keyboard.
+//   * `applyMode` takes the mode from the daemon's AuthOk, and a guest with no token configured
+//     answers CONTROL for everyone (`auth.rs`: no tokens means auth is open). The switch then showed
+//     Control highlighted on a page nobody had clicked.
+//
+// So `wantControl` starts false, the switch starts on View, and AuthOk may only ever DEMOTE - a
+// connection that asked for View and was granted Control is shown as View, because that is what the
+// page asked for and what the user expects to see.
 function setMode(control) {
+  // CONTROL IS TRIED FIRST WITHOUT A TOKEN, AND THAT IS WHAT MAKES THE BUTTON WORK AT ALL.
+  //
+  // MEASURED: this used to `prompt()` for a token whenever none was configured, and `return` if the
+  // answer was empty - so on the common guest, which has NO token and grants Control to everyone
+  // (`auth.rs`: no tokens means auth is open), clicking Control did nothing visible. A browser may
+  // also suppress `prompt()` outright, in which case the handler never got past that line.
+  //
+  // A GUEST WITH A TOKEN ANSWERS `AuthOk` WITH VIEW, and that is the signal to ask for one. So the
+  // order is: ask the daemon, and only prompt if it says no. `S.askedForToken` keeps that from
+  // looping - one prompt per click, never a chain of them.
   S.wantControl = control;
-  $('modeView').classList.toggle('on', !control);
-  $('modeControl').classList.toggle('on', control);
-  if (control && !controlToken) {
-    controlToken = prompt('Control token:') || '';
-    if (!controlToken) { S.wantControl = false; $('modeControl').classList.remove('on'); $('modeView').classList.add('on'); return; }
+  S.askedForToken = false;
+  connect();
+}
+
+// askForToken is called when a Control request came back View, which means the daemon has a token
+// configured and this connection did not present it.
+function askForToken() {
+  if (S.askedForToken) return;
+  S.askedForToken = true;
+  const t = prompt('Control token:') || '';
+  if (!t) {
+    // A CANCELLED PROMPT LEAVES THE PAGE IN VIEW, which is where it already is. Reconnecting would
+    // restart the video for no reason.
+    S.wantControl = false;
+    applyMode(true);
+    return;
   }
+  controlToken = t;
+  S.wantControl = true;
   connect();
 }
 $('modeView').onclick = () => setMode(false);
@@ -1181,14 +1231,26 @@ function setState(kind, msg) {
   el.className = 'badge ' + (kind === 'live' ? 'live' : kind === 'err' ? 'err' : 'wait');
   el.textContent = kind === 'live' ? 'live' : kind === 'err' ? (msg || 'error') : 'connecting';
 }
-// applyMode hides/disables the input surfaces when the daemon says we are
-// read-only (the AuthOk frame carries the mode).
-function applyMode(viewOnly) {
+// applyMode applies what the CONNECTION may do, and it can only ever take away.
+//
+// THE SWITCH SHOWS WHAT THE USER CHOSE; `S.viewOnly` SHOWS WHAT THE DAEMON ALLOWED. They are two
+// different things and conflating them is what made Control appear on a page nobody clicked: a guest
+// with no token configured answers CONTROL for every connection (`auth.rs` - no tokens means auth is
+// open), and the old line `$('modeControl').classList.toggle('on', !viewOnly)` highlighted it.
+//
+// So the grant is ONE-WAY: `viewOnly` is true when the daemon said View OR when the user never asked
+// for Control. A guest that would grant Control to anyone still shows View until somebody clicks it,
+// which is the behaviour asked for and the safe one - a link cannot put a stranger's keystrokes into
+// a guest.
+function applyMode(grantedViewOnly) {
+  const viewOnly = grantedViewOnly || !S.wantControl;
   S.viewOnly = viewOnly;
-  // Reflect the daemon's answer in the mode switch.
-  if ($('modeView')) $('modeView').classList.toggle('on', viewOnly);
-  if ($('modeControl')) $('modeControl').classList.toggle('on', !viewOnly);
+  // The switch reflects the USER'S CHOICE, not the daemon's grant.
+  if ($('modeView')) $('modeView').classList.toggle('on', !S.wantControl);
+  if ($('modeControl')) $('modeControl').classList.toggle('on', S.wantControl);
   document.body.classList.toggle('viewonly', viewOnly);
+  // A CONTROL GRANT THAT WAS NOT ASKED FOR IS NOT USED: it would be a live keyboard nobody enabled.
+  if (viewOnly) S.wantControl = false;
   const kb = $('btnKbd'), ime = $('ime');
   if (kb) kb.style.display = viewOnly ? 'none' : '';
   if (ime) ime.disabled = viewOnly;
@@ -1242,9 +1304,19 @@ function connect() {
   const ws = new WebSocket(url, ['est']);
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
-    // 0x03 Auth: the token as UTF-8 bytes. The daemon answers 0x04 AuthOk with the mode it granted,
-    // so a wrong token degrades to View instead of breaking the stream.
-    if (tok) send(frame(T.AUTH, new TextEncoder().encode(tok)));
+    // 0x03 Auth IS SENT EVEN WITH NO TOKEN, BECAUSE `AuthOk` IS THE ONLY WAY THE MODE IS KNOWN.
+    //
+    // MEASURED: the page opened with neither View nor Control highlighted. This line was
+    // `if (tok) send(...)`, so an anonymous visitor - the common case, and the one View mode exists
+    // for - sent no Auth frame at all. `applyMode` is called ONLY from the `0x04 AuthOk` handler, and
+    // easystream only answers AuthOk to an Auth frame, so the switch stayed in whatever state the
+    // markup shipped with: both buttons plain, `S.viewOnly` false, and every mutation silently
+    // dropped by the guest.
+    //
+    // AN EMPTY TOKEN IS MEANINGFUL: `authorize("")` in est.rs returns View and answers AuthOk with
+    // it, which is exactly the fact this page needs. So the frame is unconditional and the token is
+    // whatever was configured - possibly nothing.
+    send(frame(T.AUTH, new TextEncoder().encode(tok)));
     if (S.wantAudio) send(frame(T.AUDIO_REQ, new Uint8Array(0)));
   };
   ws.onmessage = (ev) => { if (typeof ev.data === 'string') { setState('err', ev.data); return; } onBytes(new Uint8Array(ev.data)); };
@@ -1277,6 +1349,16 @@ function connect() {
   const openHandler = ws.onopen;
   ws.onopen = () => {
     openHandler();
+    // AN IDR IS REQUESTED IMMEDIATELY, AND THIS IS WHAT MAKES A RECONNECT SHOW ANYTHING.
+    //
+    // `decodeVideo` drops every frame until it has seen one with an IDR in it (`if (!key &&
+    // !S.gotKey) return`), and `requestKeyframe` was only ever called from the DECODER'S ERROR
+    // HANDLER - so a connection whose first frames were dropped had nothing to ask for a new one
+    // with. A fresh socket starts with `gotKey = false`, which is exactly that state.
+    //
+    // It is harmless when an IDR is already on its way: `dispatch` latches the request and produces
+    // at most one IDR per frame interval, so this costs one key frame rather than a stream of them.
+    setTimeout(() => requestKeyframe(true), 250);
     // A CONNECTION THAT OPENED RESETS THE BACKOFF, so the next drop starts again at once.
     S.retryCount = 0;
     clearTimeout(S.retryTimer);
@@ -1294,6 +1376,15 @@ function close() {
   S.anext = 0;
   if (S.ws) { try { S.ws.close(); } catch {} S.ws = null; }
   S.gotKey = false;
+  // THE CANVAS IS CLEARED, BECAUSE THE LAST FRAME OF THE OLD CONNECTION IS A LIE.
+  //
+  // MEASURED: clicking Control reconnects, and the picture stayed as it was and then went soft -
+  // what a viewer sees when a canvas keeps a stale image while no new frames arrive. A reconnect is
+  // a different stream with its own timestamps and its own IDR; keeping the pixels makes it look
+  // like a playing stream that has frozen, which is indistinguishable from a bug in the daemon.
+  //
+  // Black is honest: it says "connecting" until the first frame of THIS connection lands.
+  if (ctx) { try { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height); } catch {} }
 }
 addEventListener('resize', resize);
 addEventListener('orientationchange', () => setTimeout(resize, 150));
@@ -1320,4 +1411,12 @@ if (bm) bm.onclick = () => {
 };
 document.addEventListener('pointerdown', audioResume, { once: false });
 resize();
+// A MODE IS SHOWN BEFORE THE FIRST AuthOk, SO THE SWITCH IS NEVER BLANK.
+//
+// The authoritative mode comes from the daemon's `0x04 AuthOk` (applyMode), and that is still what
+// wins. But between load and the handshake - and for as long as it takes, on a slow link - the
+// markup had both buttons unhighlighted, which reads as "the page does not know what it is". The
+// default here is View because that is what an anonymous connection IS in est.rs (`authorize("")`
+// returns View); AuthOk corrects it a moment later if a token was supplied.
+applyMode(true);
 connect();
