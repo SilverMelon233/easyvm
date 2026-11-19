@@ -89,8 +89,17 @@ jobs:
         run: |
           set -eux
           cd /tmp/alpine-out
-          tar -xf "${{ steps.rootfs.outputs.path }}"
-          rm -f "${{ steps.rootfs.outputs.path }}"
+          # THE FILENAME IS THE ONE `path:` ABOVE ASKS FOR, not the action's output.
+          #
+          # MEASURED: the pull succeeded - `oci-pull: rootfs-alpine.tar complete (91678720 bytes)` -
+          # and `steps.rootfs.outputs.path` was still empty, so `tar -xf ''` failed with "Cannot open:
+          # No such file or directory". The bytes were on disk under the name this workflow chose; the
+          # output that was supposed to report it did not arrive.
+          #
+          # NAMING IT HERE IS NOT A GUESS: `path:` above and this line are the same string, two lines
+          # apart, and a mismatch is visible where an empty output was not.
+          tar -xf rootfs-alpine.tar
+          rm -f rootfs-alpine.tar
           for f in alpine-vmlinuz alpine-initramfs alpine.qcow2; do
             test -s "$f"
           done
