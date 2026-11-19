@@ -137,9 +137,35 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 	})
 	// THE ASSETS noVNC LOADS RELATIVE TO ITS PAGE. Without these the page renders and every script
 	// 404s, which reads as "noVNC is broken" rather than "one path is missing".
-	for _, prefix := range []string{"/app/", "/core/", "/vendor/", "/images/", "/utils/"} {
+	//
+	// `include/` IS HERE FOR THE ONE FILE THIS noVNC KEEPS IN IT, `logo.js.png`. MEASURED: `app/ui.js`
+	// and `core/websock.js` are where THIS version puts the two files an older layout called
+	// `include/ui.js` and `include/websock.js`, and both are already covered by the prefixes above.
+	for _, prefix := range []string{"/app/", "/core/", "/vendor/", "/images/", "/utils/", "/include/"} {
 		p := prefix
 		mux.HandleFunc(p, func(w http.ResponseWriter, r *http.Request) {
+			http.FileServer(http.Dir(novncRoot)).ServeHTTP(w, r)
+		})
+	}
+	// THE FILES noVNC FETCHES FROM ITS OWN ROOT, which the prefixes above do not cover because they
+	// are not under a directory.
+	//
+	// MEASURED in a browser, three 404s that each read as a broken page rather than a missing route:
+	//
+	//	defaults.json    the page's own defaults; without it vnc.html logs "Couldn't fetch defaults.json"
+	//	mandatory.json   the settings the page refuses to start without
+	//	package.json     `app/ui.js` reads it for the version string it shows
+	//
+	// A NAMED LIST RATHER THAN A CATCH-ALL, because `/` is the dashboard: registering `http.FileServer`
+	// on `/` would have shadowed it, and a request for any unknown path would then have been served
+	// whatever `novncRoot` contains instead of the 404 a caller expects.
+	for _, name := range []string{"/defaults.json", "/mandatory.json", "/package.json"} {
+		n := name
+		mux.HandleFunc(n, func(w http.ResponseWriter, r *http.Request) {
+			if _, err := os.Stat(filepath.Join(novncRoot, n[1:])); err != nil {
+				http.NotFound(w, r)
+				return
+			}
 			http.FileServer(http.Dir(novncRoot)).ServeHTTP(w, r)
 		})
 	}
@@ -153,6 +179,14 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 	// THIS ANSWERS "THE PROCESS IS SCHEDULING AND ITS LISTENER ACCEPTS", which is the question a
 	// person actually has. It is deliberately not a liveness check for the GUEST: that is
 	// `/api/state`, and conflating the two is what made a stalled machine look like a stalled daemon.
+	// A BROWSER ASKS FOR THIS UNCONDITIONALLY, AND A 404 IN THE CONSOLE COSTS A DIAGNOSIS.
+	//
+	// MEASURED: the dashboard and noVNC both produced `favicon.ico: 404`, which is noise in the one
+	// place a person looks for real errors. 204 is the honest answer to "there is no icon": no body,
+	// no redirect, and nothing cached as a broken resource.
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)

@@ -182,6 +182,8 @@ let estCtx = null;
 let estGotKey = false;
 let estTS = 0;
 let estCodec = "avc1.42E01E";
+// THE BYTES OF A FRAME THAT ARRIVED SPLIT ACROSS TWO WEBSOCKET MESSAGES.
+let estCarry = null;
 
 function estUnavailableReason() {
   if (!window.isSecureContext) {
@@ -227,6 +229,10 @@ function startEst() {
     return;
   }
   ensureCanvas();
+  // THE LISTENERS ARE ATTACHED EVEN IN READ-ONLY MODE, because the token can arrive from the URL
+  // and a mode change should not need a reload. `sendKey` and the button path already refuse to
+  // transmit when `state.readOnly` is set, so a viewer moves nothing.
+  attachEstInput();
   showNoScreen(null);
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -242,32 +248,78 @@ function startEst() {
   const url = proto + "//" + location.host + "/est/ws";
   badge($("estState"), "est: connecting", "warn");
 
-  // THE CONTROL TOKEN GOES IN THE SUBPROTOCOL LIST, which is where easystream reads it
-  // (`token_from`: the second entry after `est`). Listing only `est` is the viewer.
-  estWS = state.readOnly
-    ? new WebSocket(url, ["est"])
-    : new WebSocket(url, ["est", controlToken()]);
+  // THE SUBPROTOCOL IS ALWAYS EXACTLY `est`, AND THE TOKEN IS A FRAME.
+  //
+  // MEASURED: this used to send `["est", controlToken()]`, and the page answered `est: closed`
+  // with no picture. A browser requires the server's 101 response to NAME one of the protocols it
+  // offered; the daemon echoes `est` and knows nothing about a token, so the extra name was an
+  // offer the server could not accept - and the browser failed the socket rather than ignoring it.
+  //
+  // est carries the token in a `0x03` Auth frame instead (EST.md; `dispatch` -> `T_AUTH` in
+  // easystream's est.rs), which is sent below once the socket is open. No Auth frame at all is a
+  // valid VIEW connection, which is exactly what "read-only" means here.
+  estWS = new WebSocket(url, ["est"]);
   estWS.binaryType = "arraybuffer";
   estGotKey = false;
 
-  estWS.onopen = () => badge($("estState"), "est: handshaking", "warn");
+  estWS.onopen = () => {
+    badge($("estState"), "est: handshaking", "warn");
+    // 0x03 IS Auth. Its payload is the token as UTF-8 bytes, and the daemon answers `0x04` AuthOk
+    // with the mode it granted - so a wrong token degrades to VIEW instead of breaking the picture.
+    const t = controlToken();
+    if (!state.readOnly && t) {
+      const f = new Uint8Array(6 + t.length);
+      f[0] = 0x03;
+      new DataView(f.buffer).setUint32(2, t.length);
+      f.set(new TextEncoder().encode(t), 6);
+      try { estWS.send(f); } catch (_) {}
+    }
+  };
 
   estWS.onmessage = (ev) => {
-    const bytes = new Uint8Array(ev.data);
+    // THE CARRY HAS TO BE PREPENDED, AND IT WAS WRITTEN BUT NEVER READ.
+    //
+    // MEASURED in a browser against a running guest: the est picture was torn - the left third
+    // correct and the rest smeared into horizontal bands - which is what a decoder does when it is
+    // handed the wrong bytes, not what a broken desktop looks like.
+    //
+    // THE FRAMING IS type(1) flags(1) length(u32) payload, and the socket is a transparent pipe: one
+    // WebSocket message can hold several frames and one frame can span messages. This loop handled
+    // several-per-message and DETECTED the split case - `estCarry = bytes.subarray(i)` - and then
+    // the next message started parsing at `ev.data[0]` anyway. The carried bytes were dropped, so a
+    // truncated header was followed by a message whose first video bytes were read AS a header: the
+    // length field became whatever pixel data happened to be there, and every frame after it was
+    // cut at the wrong offset. `estCarry` was assigned on line 265 and read on none.
+    let merged;
+    if (estCarry) {
+      merged = new Uint8Array(estCarry.length + ev.data.byteLength);
+      merged.set(estCarry, 0);
+      merged.set(new Uint8Array(ev.data), estCarry.length);
+      estCarry = null;
+    } else {
+      merged = new Uint8Array(ev.data);
+    }
+    const bytes = merged;
     let i = 0;
-    // THE EST FRAMING: type(1) flags(1) length(u32) payload. The socket is a transparent pipe, so
-    // several frames can arrive in one message and one frame can be split across messages - the
-    // loop below handles the first case and the carry buffer handles the second.
     while (i + 6 <= bytes.length) {
       const type = bytes[i];
       const len = (bytes[i + 2] << 24 | bytes[i + 3] << 16 | bytes[i + 4] << 8 | bytes[i + 5]) >>> 0;
-      const body = bytes.subarray(i + 6, i + 6 + len);
-      if (body.length < len) { estCarry = bytes.subarray(i); return; }
+      // A LENGTH THAT CANNOT BE REAL IS A DESYNC, AND CARRYING IT WOULD MAKE IT PERMANENT.
+      //
+      // 64 MiB is far above any access unit this encoder produces (a 1024x768 IDR is tens of KiB),
+      // so a value that large means the parser is not looking at a header. Dropping the buffer is
+      // the only recovery the protocol offers; the next key frame restores the picture.
+      if (len > (64 << 20)) { estCarry = null; return; }
+      const end = i + 6 + len;
+      if (end > bytes.length) { estCarry = bytes.subarray(i); return; }
+      const body = bytes.subarray(i + 6, end);
       if (type === 0x01) onHello(body);
       else if (type === 0x02) onVideo(body);
-      i += 6 + len;
+      i = end;
     }
-    estCarry = null;
+    // ANY REMAINDER SHORTER THAN A HEADER IS CARRIED, NOT DISCARDED: those are the first bytes of
+    // the next frame's header.
+    estCarry = i < bytes.length ? bytes.subarray(i) : null;
   };
 
   estWS.onerror = () => badge($("estState"), "est: socket error", "err");
@@ -275,8 +327,6 @@ function startEst() {
     if (state.mode === "est") badge($("estState"), "est: closed", "warn");
   };
 }
-
-let estCarry = null;
 
 function onHello(body) {
   // version(1) codec(1) width(2) height(2) fps(1), then the audio and video blocks. Only the first
@@ -394,8 +444,223 @@ function stopEst() {
   estTS = 0;
 }
 
+// ---- input: the half that makes the picture a desktop ----------------------------------------
+//
+// MEASURED: a CONTROL connection decoded and displayed the guest's screen and could not move the
+// pointer, because NOTHING IN THIS FILE EVER SENT AN INPUT FRAME. The page had exactly two `send`
+// calls - the 0x03 Auth on open and the 0x0A key-frame request on a decode error - and no mouse or
+// keyboard listener of any kind. The daemon granted CONTROL and the guest ignored the user, which
+// reads as "control does not work" and was "control was never asked for".
+//
+// THE WIRE FORMAT IS est.rs `dispatch`, and every field is checked against it:
+//
+//	0x10 Move     x:i16 BE, y:i16 BE              guest coordinates, not CSS pixels
+//	0x11 Button   num:u8, down:u8                 1 left, 2 middle, 3 right
+//	0x12 Scroll   0,0,0,0, dx:u16 BE, dy:u16 BE   four pad bytes, then the two deltas
+//	0x13 Key      nameLen:u8, name, char:u32 LE, down:u8
+//	0x14 Text     UTF-8 bytes, typed by keystroke
+//
+// THE COORDINATES ARE THE PART THAT IS EASY TO GET WRONG. The canvas is the guest's own geometry
+// (1024x768) and CSS scales it to fit with `object-fit: contain`, so `offsetX` is in DISPLAY pixels
+// and sending it unchanged would put the pointer somewhere else entirely on any window that is not
+// exactly the guest's size. `toGuest` divides by the ratio the browser is actually drawing at and
+// subtracts the letterbox.
+
+function estSend(type, payload) {
+  if (!estWS || estWS.readyState !== WebSocket.OPEN) return;
+  // READ-ONLY IS ENFORCED HERE RATHER THAN AT EACH CALL SITE, so a listener added later cannot
+  // forget it. The daemon and the guest both drop mutations for a VIEW connection anyway; this is
+  // what keeps the page from sending them at all.
+  if (state.readOnly) return;
+  const f = new Uint8Array(6 + (payload ? payload.length : 0));
+  f[0] = type;
+  new DataView(f.buffer).setUint32(2, payload ? payload.length : 0);
+  if (payload) f.set(payload, 6);
+  try { estWS.send(f); } catch (_) {}
+}
+
+// toGuest maps a pointer event on the canvas to guest pixels, or null when the event is in the
+// letterbox margin - which is not part of the guest's screen and must not move its pointer.
+//
+// THIS IS THE SAME ARITHMETIC THE PUBLISHED UI USES (`toSource` in easystream-webui), and the reason
+// it is not `offsetX` is worth stating: the canvas is the guest's geometry and CSS scales it to fit,
+// so display pixels and guest pixels are different numbers on every window that is not exactly the
+// guest's size. `clientX` minus the drawn rectangle's left, divided by the drawn width, times the
+// input width - then clamped, because a pointer captured at the very edge can report one pixel past.
+function toGuest(clientX, clientY) {
+  if (!estCanvas) return null;
+  const r = estCanvas.getBoundingClientRect();
+  const gw = estCanvas.width || 1024;
+  const gh = estCanvas.height || 768;
+  const scale = Math.min(r.width / gw, r.height / gh);
+  const dw = gw * scale;
+  const dh = gh * scale;
+  const ox = r.left + (r.width - dw) / 2;
+  const oy = r.top + (r.height - dh) / 2;
+  const x = Math.round((clientX - ox) / scale);
+  const y = Math.round((clientY - oy) / scale);
+  if (x < 0 || y < 0 || x >= gw || y >= gh) return null;
+  return [x, y];
+}
+
+// MOVES ARE COALESCED TO ONE PER ANIMATION FRAME, AND THAT IS NOT AN OPTIMISATION.
+//
+// MEASURED in the published UI's own comments: without it, every pointermove during a press floods
+// the guest with MOVE events, so a plain click arrives as "down, many drags, up" - which a desktop
+// with a press-and-hold meaning treats as a long press. One move per frame is also what a real
+// pointer does.
+let estPendingMove = null, estMoveRaf = 0;
+function flushEstMove() {
+  if (estMoveRaf) { cancelAnimationFrame(estMoveRaf); estMoveRaf = 0; }
+  const m = estPendingMove;
+  estPendingMove = null;
+  if (!m) return;
+  const b = new Uint8Array(4);
+  const d = new DataView(b.buffer);
+  d.setInt16(0, m[0]);
+  d.setInt16(2, m[1]);
+  estSend(0x10, b);
+}
+function sendMove(clientX, clientY) {
+  const m = toGuest(clientX, clientY);
+  if (!m) return;
+  estPendingMove = m;
+  if (estMoveRaf) return;
+  estMoveRaf = requestAnimationFrame(flushEstMove);
+}
+
+// THE BUTTON EVENT MUST FOLLOW THE POINTER POSITION IT APPLIES TO, so anything queued is flushed
+// first - otherwise a click lands where the pointer was one frame ago.
+//
+// THE BUTTON NUMBER IS THE X PROTOCOL'S and the DOM's is offset by one: 0 left, 1 middle, 2 right
+// become 1, 2, 3. Sending `ev.button` unchanged makes a right-click a middle-click.
+function sendButton(ev, down) {
+  if (ev.button > 2) return;
+  flushEstMove();
+  estSend(0x11, new Uint8Array([ev.button + 1, down ? 1 : 0]));
+}
+
+// THE DELTAS ARE SIGNED 16-BIT BIG-ENDIAN, WHICH IS NOT WHAT THE FIELD LIST SUGGESTS.
+//
+// easystream's `u16at` is `i16::from_be_bytes` despite the name, and the published UI writes them
+// with `setInt16`. Writing `setUint16(1)` for "one notch down" happens to be the same bytes, but
+// writing a negative delta as unsigned makes an upward scroll of 1 become 65535 - so the sign is
+// the part that matters and it is taken from the browser rather than normalised.
+function sendScroll(ev, clientX, clientY) {
+  const m = toGuest(clientX, clientY);
+  if (!m) return;
+  const b = new Uint8Array(8);
+  const d = new DataView(b.buffer);
+  d.setInt16(0, m[0]);
+  d.setInt16(2, m[1]);
+  d.setInt16(4, Math.max(-32768, Math.min(32767, Math.round(ev.deltaX))));
+  d.setInt16(6, Math.max(-32768, Math.min(32767, Math.round(ev.deltaY))));
+  estSend(0x12, b);
+}
+
+// THE KEY TABLE IS INDEXED BY `e.code`, NOT `e.key`, AND THAT IS THE WHOLE POINT.
+//
+// `e.key` is what the key WOULD TYPE - it is "!" for shift+1 and "a" for both `a` and `A` - so a
+// table built from it cannot tell a physical key from a character. `e.code` names the physical key
+// ("KeyA", "Digit1"), which is what a remote keyboard needs.
+//
+// THE NAMES ARE X KEYSYMS. `T_KEY` documents "single-char name = a literal character (Ctrl+C);
+// multi-char = a named key (Return, F5)", so these strings go to the guest's keymap verbatim.
+const estNamedKeys = {
+  Enter: "Return", NumpadEnter: "Return", Backspace: "Backspace", Tab: "Tab",
+  Escape: "Escape", Delete: "Delete", Insert: "Insert", Space: "Space",
+  ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
+  Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown",
+  ShiftLeft: "Shift", ShiftRight: "Shift", ControlLeft: "Control", ControlRight: "Control",
+  AltLeft: "Alt", AltRight: "Alt", MetaLeft: "Meta", MetaRight: "Meta",
+  F1: "F1", F2: "F2", F3: "F3", F4: "F4", F5: "F5", F6: "F6",
+  F7: "F7", F8: "F8", F9: "F9", F10: "F10", F11: "F11", F12: "F12",
+};
+
+// Key: nameLen:u8, name bytes, char:u32 LITTLE-endian, down:u8.
+//
+// THE char FIELD IS UNUSED FOR A NAME and is still written, because the daemon reads it at that
+// offset whether or not the name is what it acts on - `dispatch` computes `b[1+n .. 1+n+4]` before
+// it decides, so a short buffer would be rejected as malformed.
+function sendKey(name, ch, down) {
+  const nb = new TextEncoder().encode(name || "");
+  const b = new Uint8Array(1 + nb.length + 4 + 1);
+  b[0] = nb.length;
+  b.set(nb, 1);
+  new DataView(b.buffer).setUint32(1 + nb.length, ch >>> 0, true);
+  b[1 + nb.length + 4] = down ? 1 : 0;
+  estSend(0x13, b);
+}
+function sendText(str) {
+  estSend(0x14, new TextEncoder().encode(str));
+}
+
+// A KEYSTROKE ONLY REACHES THE FOCUSED ELEMENT, and a canvas cannot be focused - so the keyboard
+// listeners go on the window and refuse while the user is typing in the page's own fields. This is
+// the arrangement the published UI uses (`typingInField`), and it is what makes the keyboard work
+// without the user first clicking the picture, which nobody would guess to do.
+function estTypingInField() {
+  const a = document.activeElement;
+  return !!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable);
+}
+
+function attachEstInput() {
+  if (!estCanvas || estCanvas.dataset.inputBound) return;
+  estCanvas.dataset.inputBound = "1";
+  estCanvas.style.cursor = "none";
+  // POINTER EVENTS COVER MOUSE, PEN AND TOUCH WITH ONE API, which is why they are used rather than
+  // mouse events: a laptop with a touchscreen should not need a second code path.
+  estCanvas.addEventListener("pointermove", (e) => sendMove(e.clientX, e.clientY));
+  estCanvas.addEventListener("pointerdown", (e) => {
+    try { estCanvas.setPointerCapture(e.pointerId); } catch (_) {}
+    sendMove(e.clientX, e.clientY);
+    sendButton(e, true);
+  });
+  estCanvas.addEventListener("pointerup", (e) => {
+    sendButton(e, false);
+    try { estCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+  });
+  estCanvas.addEventListener("pointercancel", (e) => sendButton(e, false));
+  estCanvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    sendScroll(e, e.clientX, e.clientY);
+  }, { passive: false });
+  estCanvas.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  window.addEventListener("keydown", (e) => {
+    if (state.mode !== "est" || estTypingInField()) return;
+    const named = estNamedKeys[e.code];
+    if (named) { e.preventDefault(); sendKey(named, 0, true); return; }
+    // A PRINTABLE KEY WITH A MODIFIER HELD IS A KEY EVENT CARRYING THE CHARACTER, NOT TEXT.
+    //
+    // This is the difference between Ctrl+C copying and Ctrl+C typing a "c": the guest presses the
+    // named key while the modifier's own keydown is already down, and `T_TEXT` has no way to express
+    // that. The published UI separates the two cases for exactly this reason.
+    if (e.key.length !== 1) return;
+    e.preventDefault();
+    if (e.ctrlKey || e.altKey || e.metaKey) {
+      const cp = e.key.codePointAt(0);
+      sendKey(e.key, cp, true);
+      sendKey(e.key, cp, false);
+    } else {
+      sendText(e.key);
+    }
+  });
+  window.addEventListener("keyup", (e) => {
+    if (state.mode !== "est" || estTypingInField()) return;
+    const named = estNamedKeys[e.code];
+    if (named) { e.preventDefault(); sendKey(named, 0, false); }
+  });
+}
+
 // ---- the two terminals ---------------------------------------------------------------------
-$("termwrap").innerHTML = '<div id="termhint"></div>';
+// THE TEXTAREA IS DECLARED IN THE PAGE AND THIS LINE USED TO DELETE IT.
+//
+// MEASURED in a browser: `app.js:400 TypeError: Cannot read properties of null (reading
+// 'removeAttribute')`, thrown before anything else in this file ran. The line above it set
+// `termwrap.innerHTML = '<div id="termhint"></div>'`, which removes every child - including
+// `<textarea id="term">` - and the next line then read that removed element. `#termhint` was never
+// referenced anywhere else in this file or in the page, so the assignment had no remaining purpose.
 const termEl = document.getElementById("term");
 termEl.removeAttribute("readonly");
 
