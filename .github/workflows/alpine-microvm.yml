@@ -111,14 +111,17 @@ jobs:
           set -eux
           docker build -f Containerfile --target tester -t easyvm-ci:local .
 
+      # THE ECHO IS A SEPARATE MODULE, so `go build ./...` in the daemon's tree never sees it - and a
+      # stray `echo` binary in `ci/` would not be caught by anything. It is compiled here with the
+      # toolchain `setup-go` already installed, which is also the first place its syntax is checked:
+      # MEASURED, the first version of this file had `#` comments instead of `//` and the failure was
+      # `main.go:1:1: illegal character U+0023 '#'` inside the job rather than at authoring time.
       - name: build the socks5 udp echo
         run: |
           set -eux
-          # A SEPARATE MODULE, because `ci/` is not part of the daemon's tree and its own `go.mod`
-          # keeps it out of `go build ./...`.
-          docker run --rm -v "$PWD/ci/socks5-udp-echo:/src" -w /src \
-            golang:1.26-alpine \
-            sh -c 'go mod init echo >/dev/null 2>&1 || true; CGO_ENABLED=0 go build -o /src/echo .'
+          cd ci/socks5-udp-echo
+          CGO_ENABLED=0 go build -o echo .
+          cd ../..
           ls -l ci/socks5-udp-echo/echo
 
       # -------- the machine, with the daemon that owns it --------
@@ -134,10 +137,8 @@ jobs:
 
           # THE ECHO LISTENS ON THE RUNNER, so the container reaches it at the docker bridge gateway.
           # `host-gateway` maps a name to that address without hard-coding a subnet.
-          docker run -d --name udp-echo --network host \
-            -v "$PWD/ci/socks5-udp-echo:/src" \
-            golang:1.26-alpine \
-            sh -c 'cd /src && ./echo :7891'
+          ./ci/socks5-udp-echo/echo :7891 >/tmp/echo.log 2>&1 &
+          echo $! > /tmp/echo.pid
           for i in $(seq 1 30); do
             if ss -lnt 2>/dev/null | grep -q ':7891 '; then break; fi
             sleep 1
@@ -265,9 +266,10 @@ jobs:
         run: |
           docker logs easyvm 2>&1 | tail -60 || true
           echo "--- echo ---"
-          docker logs udp-echo 2>&1 | tail -20 || true
+          cat /tmp/echo.log 2>/dev/null | tail -20 || true
 
       - name: clean up
         if: always()
         run: |
-          docker rm -f easyvm udp-echo 2>/dev/null || true
+          docker rm -f easyvm 2>/dev/null || true
+          kill "$(cat /tmp/echo.pid 2>/dev/null)" 2>/dev/null || true

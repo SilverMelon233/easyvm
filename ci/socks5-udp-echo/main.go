@@ -1,26 +1,26 @@
-# A SOCKS5 UDP ECHO, FOR THE CI JOB THAT PROVES THE GUEST'S UDP EGRESS.
-#
-# THE RELAY IN `internal/net/udprelay.go` NEEDS A SOCKS5 PROXY, AND A GITHUB RUNNER HAS NONE. Pointing
-# it at the real cluster proxy would make this job depend on a lab - which is the opposite of what a CI
-# job is for. Pointing it at nothing would leave `EASYVM_UDP_PROXY` unset, which means the tun device
-# is never created and the test asserts the absence of the thing it exists to test.
-#
-# SO THIS IS THE SMALLEST PROXY THAT MAKES THE PATH REAL. It speaks enough SOCKS5 to accept a UDP
-# ASSOCIATE, and answers every datagram by sending the same payload back from the address it was
-# addressed to. That is enough for the daemon's side to be exercised end to end:
-#
-#	the control connection and the greeting
-#	UDP ASSOCIATE and its reply header
-#	the request framing RSV/FRAG/ATYP/ADDR/PORT/DATA
-#	the reply framing, and the rewrite back into the tun
-#
-# WHAT IT DOES NOT PROVE, AND THE WALKTHROUGH SAYS SO TOO: that a real proxy forwards to a real
-# server. That was measured against the cluster's mihomo - `curl --http3-only` answered `HTTP/3 200`
-# from inside a guest - and is quoted in the commit that added the relay.
-#
-# IT IS WRITTEN IN GO BECAUSE THE `tester` STAGE ALREADY HAS A TOOLCHAIN. A shell implementation would
-# need a SOCKS5 server that does not exist on a stock runner image; this is sixty lines and no
-# dependency beyond the standard library.
+// A SOCKS5 UDP ECHO, FOR THE CI JOB THAT PROVES THE GUEST'S UDP EGRESS.
+//
+// THE RELAY IN `internal/net/udprelay.go` NEEDS A SOCKS5 PROXY, AND A GITHUB RUNNER HAS NONE. Pointing
+// it at the real cluster proxy would make this job depend on a lab - which is the opposite of what a CI
+// job is for. Pointing it at nothing would leave `EASYVM_UDP_PROXY` unset, which means the tun device
+// is never created and the test asserts the absence of the thing it exists to test.
+//
+// SO THIS IS THE SMALLEST PROXY THAT MAKES THE PATH REAL. It speaks enough SOCKS5 to accept a UDP
+// ASSOCIATE, and answers every datagram by sending the same payload back from the address it was
+// addressed to. That is enough for the daemon's side to be exercised end to end:
+//
+//	the control connection and the greeting
+//	UDP ASSOCIATE and its reply header
+//	the request framing RSV/FRAG/ATYP/ADDR/PORT/DATA
+//	the reply framing, and the rewrite back into the tun
+//
+// WHAT IT DOES NOT PROVE, AND THE WALKTHROUGH SAYS SO TOO: that a real proxy forwards to a real
+// server. That was measured against the cluster's mihomo - `curl --http3-only` answered `HTTP/3 200`
+// from inside a guest - and is quoted in the commit that added the relay.
+//
+// IT IS WRITTEN IN GO BECAUSE THE `tester` STAGE ALREADY HAS A TOOLCHAIN. A shell implementation would
+// need a SOCKS5 server that does not exist on a stock runner image; this is sixty lines and no
+// dependency beyond the standard library.
 package main
 
 import (
