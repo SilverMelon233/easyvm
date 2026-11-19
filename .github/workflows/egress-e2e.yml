@@ -213,11 +213,17 @@ jobs:
           #
           # THE CHILD PROCESS IS ROOT AND THE JOB IS NOT, which is the point: everything else here
           # (the proxies, the assertions, the tar) stays unprivileged.
+          #
+          # THE BINARY IS NAMED BY PATH, BECAUSE `sudo` RESETS PATH. MEASURED: `sudo -E env ... easyvm
+          # serve` produced an EMPTY log for sixty seconds - `sudo` had a secure_path without the
+          # directory the step had built into, so the command was never found and the failure went to a
+          # stream nobody was reading.
           sudo -E env \
             EASYVM_TRANSPARENT_PROXY="127.0.0.1:$PRIMARY_PORT" \
             EASYVM_UDP_PROXY="127.0.0.1:$((PRIMARY_PORT+1000))" \
             EASYVM_EGRESS_RULES=1 \
-            easyvm serve --work "$work" --http :8081 > "$work/daemon.log" 2>&1 &
+            "$PWD/dist/easyvm" serve --work "$work" --http :8081 \
+            > "$work/daemon.log" 2>&1 &
           echo $! > "$work/daemon.pid"
 
           for i in $(seq 1 60); do
@@ -242,7 +248,7 @@ jobs:
           # `client.Dial(work)` reads that variable and never looks at its `work` argument, so an unset
           # one means :8080 regardless of where the daemon is.
           echo "--- create ---"
-          easyvm create "$WORK/console.walk" --work "$WORK"
+          "$PWD/dist/easyvm" create "$WORK/console.walk" --work "$WORK"
 
           # THE GUEST GETS A REAL BUDGET. Under KVM an alpine microvm reaches ssh in seconds; the loop
           # is generous because a runner without `/dev/kvm` falls back to TCG, where the same boot is
@@ -358,7 +364,7 @@ jobs:
         if: always()
         run: |
           set +e
-          easyvm destroy --work "${WORK:-/nonexistent}" 2>/dev/null
+          "$PWD/dist/easyvm" destroy --work "${WORK:-/nonexistent}" 2>/dev/null
           kill "$(cat "$RUNNER_TEMP/logs/primary.pid" 2>/dev/null)" 2>/dev/null
           kill "$(cat "$RUNNER_TEMP/logs/backup.pid" 2>/dev/null)" 2>/dev/null
           exit 0
