@@ -313,6 +313,20 @@ jobs:
       #
       # 203.0.113.0/24 IS TEST-NET-3 (RFC 5737), reserved for documentation and guaranteed not to be a
       # real destination - so a connection to it cannot accidentally succeed through some other route.
+      # THE GUEST NEEDS A CLIENT, AND THE ALPINE ROOTFS DOES NOT SHIP ONE.
+      #
+      # MEASURED: every request came back `ash: curl: not found` with exit 127 - so the four assertions
+      # below were looking for proxy log lines that could never be written. Installing it here rather
+      # than in `alpine-rootfs.sh` keeps the published artifact unchanged: adding a package there would
+      # rebuild `rootfs-alpine` and every consumer of it for a dependency only this test has.
+      #
+      # IT GOES THROUGH THE SAME `/api/exec` THE REQUESTS DO, so this also proves the channel works
+      # before four assertions depend on it.
+      - name: give the guest a client
+        run: |
+          set -eux
+          python3 ci/guest-install.py curl
+
       - name: make the requests, from inside the guest
         run: |
           set -eux
