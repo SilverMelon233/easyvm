@@ -317,6 +317,26 @@ func applyNAT() error {
 		return err
 	}
 
+	// THE OTHER HALF OF THE EGRESS, AND IT IS SEPARATE BECAUSE THE MECHANISM IS DIFFERENT.
+	//
+	// The chain above carries TCP through an HTTP CONNECT tunnel. CONNECT cannot carry a datagram, so
+	// UDP - QUIC, DNS over UDP, a game - has no path out at all without this. See udprelay.go for
+	// every mechanism that was measured and rejected before this one.
+	//
+	// IT IS BEST-EFFORT, AND THAT IS DELIBERATE: a guest whose UDP cannot be relayed should still boot
+	// with a working TCP egress rather than fail `Up` and have no network at all. The failure is
+	// printed once, here, because the alternative is a QUIC timeout inside the guest with no
+	// explanation anywhere.
+	// THE PREVIOUS RELAY GOES FIRST: `Up` can run twice on a daemon that was restarted without its
+	// namespace being rebuilt, and a second tun device with the first one's route still installed
+	// would answer for traffic the first is also reading.
+	StopUDPRelay()
+	if relay, err := StartUDPRelay(GuestIP); err != nil {
+		fmt.Printf("udp relay: %v (the guest's UDP will not be proxied)\n", err)
+	} else if relay != nil {
+		udpRelay = relay
+	}
+
 	// MSS CLAMPING, WHICH IS THE SECOND HALF OF THE MTU FIX AND THE HALF THAT SURVIVES A GUEST THAT
 	// IGNORES THE LEASE.
 	//
