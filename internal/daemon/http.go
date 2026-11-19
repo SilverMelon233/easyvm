@@ -106,6 +106,16 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 	// THE CONSTITUENT SURFACES, EACH AT ITS OWN PATH SO THE DASHBOARD CAN LINK TO IT.
 	mux.HandleFunc("/console", d.handleConsoleWS)
 	mux.HandleFunc("/api/shell", d.handleShellWS)
+	// THE est STREAM AND ITS OWN UI, BOTH THROUGH THE SSH DOOR.
+	//
+	// easystream listens on the GUEST's loopback, so neither the pod nor a browser can reach it;
+	// the daemon's ssh connection is the only route, and it is the same one the shell uses.
+	//
+	// THE TWO PATHS DO DIFFERENT THINGS AND MUST NOT COLLAPSE INTO ONE. `/est/ws` is the WebSocket
+	// this dashboard's est panel decodes; `/est/` is easystream's own page and its `/a11y/*` API,
+	// proxied so a person can open the vendor UI alongside this one.
+	mux.HandleFunc(estStreamPath, d.handleEstWS)
+	mux.HandleFunc(estViewerPath, d.handleEstViewer)
 	// NOVNC'S OWN PAGE AND EVERYTHING IT ASKS FOR: app/, core/, vendor/, images/.
 	//
 	// A REQUEST THAT IS NOT THE DASHBOARD AND NOT AN API FALLS THROUGH TO HERE, which is why this is
