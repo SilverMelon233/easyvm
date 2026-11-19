@@ -28,6 +28,9 @@ const panel = $('panel');
 // reject 1920x1080 with EncodingError). Level 5.1 is a safe superset.
 const S = { ws: null, dec: null, codec: 'avc1.42E033', w: 0, h: 0, gotKey: false,
   frames: 0, fps: 0, t0: performance.now(), userScale: 1, panX: 0, panY: 0, viewOnly: false, adec: null, actx: null, again: null, wantControl: !!accessToken(), wantAudio: true, openKbdAfterControl: false, muted: false, anext: 0, aDecoded: 0,
+  // RECONNECT STATE. `closedByUs` distinguishes a deliberate close (`close()`, a mode change, a
+  // new connect) from a socket that dropped, because only the second one should be retried.
+  closedByUs: false, retryMs: 0, retryTimer: 0, retryCount: 0,
   // video configuration, from Hello's video block (offsets 15+). capW/capH is
   // the size the capture source produces; w/h is what the encoder is emitting.
   enc: 0, vflags: 0, vbitrate: 0, capW: 0, capH: 0, quality: -1, wantQuality: -1 };
@@ -412,6 +415,9 @@ function onBytes(chunk) {
       applyMode(body[0] === 0);
     } else if (type === T.HELLO) {
       if (body[1] === 1) S.codec = 'avc1.42E033';
+      // THE READOUT COMES FROM THE HANDSHAKE THAT JUST ARRIVED, not from a second request - see
+      // showCapsFromHello for why the second request could only ever 404.
+      showCapsFromHello(body);
       const prevW = S.w, prevH = S.h, prevEnc = S.enc, prevBitrate = S.vbitrate;
       S.w = (body[2] << 8) | body[3]; S.h = (body[4] << 8) | body[5];
       off.width = S.w || 1; off.height = S.h || 1;
@@ -1003,45 +1009,32 @@ $('btnFs').onclick = toggleFullscreen;
 $('btnFullscreen').onclick = toggleFullscreen;
 $('btnRetry').onclick = connect;
 
-// ── capabilities readout ────────────────────────────────────────────────────
-// The daemon publishes what this guest resolved each capability to
-// (/capabilities): session type and the backend behind capture, input, a11y,
-// clipboard and audio. That is the answer to "why is there no sound / why does
-// input not work", so it belongs on screen instead of only in the daemon log.
+// ── what this stream can do, taken from Hello ────────────────────────────────
 //
-// Best effort and out of band: the WS stream does not carry it, it is fetched
-// once per connect, and any failure just leaves the row hidden — a missing
-// capability panel must never break the stream itself.
-async function loadCapabilities() {
-  // THE PAGE'S DIRECTORY, NOT ITS PATH - because this page is `/est.html`, not a directory.
-  //
-  // The published UI assumed it was mounted as a directory (`/easystream/`) and derived endpoints by
-  // appending to `location.pathname`. MEASURED here: served at `/est.html`, that base is
-  // `/est.html/`, so the socket asked for `/est.html/est/ws` and got a 404 - the page loaded and
-  // said `closed`.
-  //
-  // Taking everything up to the last `/` gives `/` for `/est.html` and `/` for `est.html`, so the
-  // endpoints are `/est/ws` and `/capabilities` at the root this daemon serves them from. A page
-  // served from a subdirectory (`/x/est.html`) still gets `/x/`.
-  const base = location.pathname.replace(/[^/]*$/, '');
-  try {
-    const r = await fetch(base + 'capabilities', { cache: 'no-store' });
-    if (!r.ok) return;
-    const c = await r.json();
-    const rows = [
-      ['session', c.session],
-      ['capture', c.capture],
-      ['input', c.input],
-      ['a11y', c.a11y],
-      ['clipboard', c.clipboard],
-      ['audio', c.audio],
-    ].filter(([, v]) => v);
-    if (!rows.length) return;
-    $('caps').textContent = rows.map(([k, v]) => `${k.padEnd(9)} ${v}`).join('\n');
-    $('capRow').hidden = false;
-  } catch (e) {
-    // Older daemons have no /capabilities; nothing to show.
-  }
+// THIS USED TO FETCH `/capabilities`, AND THAT ENDPOINT IS GONE.
+//
+// The readout answered "why is there no sound / why does input not work" by asking the daemon which
+// backend each capability resolved to. easystream served it over HTTP - and the HTTP surface was
+// REMOVED when the daemon became est-only, so every connection spent a request that could only 404:
+// MEASURED, `guest:48079/capabilities -> 000`. The `catch` made it harmless and it was still a lie,
+// because the row stayed hidden and the page said nothing about why.
+//
+// HELLO ALREADY CARRIES THE PART THAT MATTERS. `body[7]` is `hasAudio`, and the geometry and frame
+// rate are the rest of the handshake - so the row is filled from the stream that is actually
+// connected rather than from a second request. What it cannot say is WHICH backend each capability
+// resolved to (X11 vs Wayland, PulseAudio vs ALSA), and that is a diagnostic for the daemon's log,
+// not something this page can obtain.
+function showCapsFromHello(body) {
+  const rows = [
+    ['session', 'est ' + location.host],
+    ['codec', 'H.264 ' + (S.w || '?') + 'x' + (S.h || '?') + ' @' + (body[6] || 30) + 'fps'],
+    ['audio', body[7] ? 'Opus ' + (((body[9] << 24) | (body[10] << 16) | (body[11] << 8) | body[12]) >>> 0) + 'Hz/' + (body[13] || 0) + 'ch' : 'none'],
+    ['input', 'est frames'],
+  ].filter(([, v]) => v);
+  const el = $('caps');
+  if (!el) return;
+  el.textContent = rows.map(([k, v]) => `${k.padEnd(9)} ${v}`).join('\n');
+  if ($('capRow')) $('capRow').hidden = false;
 }
 
 // Mode: View (no token) <-> Control (needs the control token). Switching
@@ -1211,8 +1204,9 @@ function applyMode(viewOnly) {
   }
 }
 function connect() {
-  loadCapabilities();
   close();
+  // `close()` SETS THE FLAG SO ITS OWN TEARDOWN DOES NOT RETRY; THIS connect IS THE RETRY.
+  S.closedByUs = false;
   setState('wait');
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   // Resolve /est/ws RELATIVE to the page, so the UI works under any mount
@@ -1225,8 +1219,9 @@ function connect() {
   // said `closed`.
   //
   // Taking everything up to the last `/` gives `/` for `/est.html` and `/` for `est.html`, so the
-  // endpoints are `/est/ws` and `/capabilities` at the root this daemon serves them from. A page
-  // served from a subdirectory (`/x/est.html`) still gets `/x/`.
+  // socket is `/est/ws` at the root this daemon serves it from. A page served from a subdirectory
+  // (`/x/est.html`) still gets `/x/`. THERE IS NO SECOND ENDPOINT: the readout that used to come
+  // from `/capabilities` is built from Hello now, because that path answers 404.
   const base = location.pathname.replace(/[^/]*$/, '');
   // Control needs the token; View is the open default (no token). An explicit
   // ?token= in the URL is also honoured (and implies control if it matches).
@@ -1253,11 +1248,46 @@ function connect() {
     if (S.wantAudio) send(frame(T.AUDIO_REQ, new Uint8Array(0)));
   };
   ws.onmessage = (ev) => { if (typeof ev.data === 'string') { setState('err', ev.data); return; } onBytes(new Uint8Array(ev.data)); };
-  ws.onerror = () => setState('err', 'websocket error');
-  ws.onclose = () => { if ($('state').textContent === 'live') setState('err', 'closed'); };
+  ws.onerror = () => { /* `onclose` always follows and carries the retry */ };
+  // IT RECONNECTS NOW, BECAUSE A STREAM THAT STOPS IS NOT A STREAM THAT IS OVER.
+  //
+  // MEASURED: this was `if ($('state').textContent === 'live') setState('err', 'closed')` - one
+  // line, no retry. noVNC's page is opened with `reconnect=1` and recovers by itself, so the two
+  // transports behaved differently for the same event: VNC came back and est stayed `closed` until
+  // the page was reloaded. A guest restart, a proxy restart or a dropped Wi-Fi frame is enough to
+  // need it, and none of them is rare.
+  //
+  // BACKOFF IS 0s, 1s, 2s, 4s, capped at 8s, and it RESETS ON OPEN - so a flapping link retries
+  // gently and a link that comes back stops waiting. The first retry is immediate because the
+  // common case is a socket that closed cleanly and can be reopened at once.
+  //
+  // `closedByUs` is what keeps a deliberate close - a mode switch, a new `connect`, page teardown -
+  // from reconnecting behind the user, which would look like the page ignoring View/Control.
+  ws.onclose = () => {
+    S.ws = null;
+    if (S.closedByUs) return;
+    const delay = S.retryCount === 0 ? 0 : Math.min(8000, 1000 * Math.pow(2, S.retryCount - 1));
+    S.retryCount++;
+    const el = $('state');
+    el.className = 'badge wait';
+    el.textContent = delay ? `reconnecting in ${Math.round(delay / 1000)}s` : 'reconnecting';
+    clearTimeout(S.retryTimer);
+    S.retryTimer = setTimeout(connect, delay);
+  };
+  const openHandler = ws.onopen;
+  ws.onopen = () => {
+    openHandler();
+    // A CONNECTION THAT OPENED RESETS THE BACKOFF, so the next drop starts again at once.
+    S.retryCount = 0;
+    clearTimeout(S.retryTimer);
+    S.retryTimer = 0;
+  };
   S.ws = ws;
 }
 function close() {
+  // THIS CLOSE IS OURS, SO `onclose` MUST NOT RETRY IT.
+  S.closedByUs = true;
+  if (S.retryTimer) { clearTimeout(S.retryTimer); S.retryTimer = 0; }
   if (S.dec) { try { S.dec.close(); } catch {} S.dec = null; }
   if (S.adec) { try { S.adec.close(); } catch {} S.adec = null; }
   if (S.actx) { try { S.actx.close(); } catch {} S.actx = null; }

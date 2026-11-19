@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"github.com/easydev-org/easyvm/internal/daemon/ui"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/easydev-org/easyvm/internal/protocol"
@@ -101,7 +103,7 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 	mux.HandleFunc("/app.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", ui.ContentTypeJS)
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(ui.App)
+		writeScript(w, r, ui.App)
 	})
 	// THE FULL-WINDOW EST CLIENT, AT ITS OWN PATH FOR THE SAME REASON `/vnc.html` HAS ONE.
 	//
@@ -118,8 +120,11 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 	})
 	mux.HandleFunc("/est.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", ui.ContentTypeJS)
+		// `no-store` IS KEPT: the script is compiled into the binary, so a cached copy is always the
+		// copy from a build somebody has since replaced, and the symptom is a panel calling an API
+		// that no longer exists. Compression answers a different question, below.
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(ui.EstApp)
+		writeScript(w, r, ui.EstApp)
 	})
 	// THE CONSTITUENT SURFACES, EACH AT ITS OWN PATH SO THE DASHBOARD CAN LINK TO IT.
 	mux.HandleFunc("/console", d.handleConsoleWS)
@@ -249,6 +254,32 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 
 // DefaultHTTPAddr is where the browser surface listens when nothing says otherwise.
 const DefaultHTTPAddr = ":8080"
+
+// writeScript serves an embedded script, compressed when the browser accepts it.
+//
+// MEASURED: `est.js` is 59244 bytes and gzips to 20063 - 34% of the original, on every load. These
+// are hand-written sources compiled into the binary rather than minified bundles, so they are
+// verbose in exactly the way a compressor is good at. The cost is one gzip pass per request over a
+// few tens of kilobytes, which is nothing beside the transcode that produced the page beside it.
+//
+// `Vary: Accept-Encoding` IS NOT OPTIONAL. Without it a cache in front of this daemon can hand the
+// gzipped body to a client that asked for nothing, and the page fails to parse with no useful error.
+// It is set on BOTH paths for that reason: the identity response has to declare the same variance as
+// the compressed one, or a cache stores the wrong one for the other kind of request.
+func writeScript(w http.ResponseWriter, r *http.Request, body []byte) {
+	w.Header().Set("Vary", "Accept-Encoding")
+	if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		_, _ = w.Write(body)
+		return
+	}
+	w.Header().Set("Content-Encoding", "gzip")
+	// THE LENGTH GOES AWAY, because it is not known until the compressed stream is finished - and a
+	// stale Content-Length is a truncated script.
+	w.Header().Del("Content-Length")
+	gz := gzip.NewWriter(w)
+	_, _ = gz.Write(body)
+	_ = gz.Close()
+}
 
 func (d *Daemon) handleState(w http.ResponseWriter, r *http.Request) {
 	st := d.snapshot()
