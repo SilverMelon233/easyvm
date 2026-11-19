@@ -215,7 +215,7 @@ func (p *TransparentProxy) tunnel(conn net.Conn, dst string) {
 			}
 			defer up.Close()
 			_ = up.SetDeadline(time.Time{})
-			copyBoth(conn, up, up)
+			copyBoth(conn, up, up, true)
 			return
 		}
 		if v.Upstream != "" {
@@ -274,7 +274,7 @@ func (p *TransparentProxy) tunnel(conn net.Conn, dst string) {
 	// BOTH DIRECTIONS, AND EITHER ONE CLOSING ENDS THE PAIR. A tunnel is over when the guest is
 	// done; waiting for the upstream as well would hold the connection open for the proxy's own
 	// idle timeout.
-	copyBoth(conn, up, br)
+	copyBoth(conn, up, br, false)
 }
 
 // copyBoth runs the two directions and returns when EITHER finishes, which is what makes a tunnel end
@@ -283,10 +283,27 @@ func (p *TransparentProxy) tunnel(conn net.Conn, dst string) {
 // `from` IS SEPARATE FROM `to` BECAUSE THE PROXY PATH HAS A bufio.Reader: the CONNECT response was
 // read through a buffered reader and any bytes after its headers are the start of the tunnel, so the
 // upstream-to-guest direction has to drain THAT reader rather than the socket.
-func copyBoth(guest net.Conn, up net.Conn, from io.Reader) {
+// copyBoth runs the two directions and returns when the GUEST side is done, with `drain` controlling
+// whether the reply side is given time to finish.
+//
+// THE TWO PATHS GENUINELY NEED DIFFERENT ANSWERS, AND TREATING THEM THE SAME WAS A BUG.
+//
+// A CONNECT TUNNEL IS A BYTE PIPE: when one end closes, the other has nothing left to say, and waiting
+// for it would hold a socket open on a peer that has gone. That is the original `<-done` and it is
+// right for the proxy path.
+//
+// A DIRECT CONNECTION IS NOT. MEASURED: with `<-done`, `curl http://deb.debian.org` printed
+// `Connected to deb.debian.org (199.232.162.132) port 80` and then `Operation timed out with 0 bytes
+// received` - because the guest's direction finishes the moment its request line is written, `<-done`
+// returned, and `tunnel`'s `defer conn.Close()` tore down a socket whose reply was still in flight.
+//
+// SO THE DIRECT PATH WAITS FOR THE REPLY, BOUNDED. The bound is what keeps a peer that half-closed and
+// went silent from holding the tunnel open forever.
+func copyBoth(guest net.Conn, up net.Conn, from io.Reader, drainReply bool) {
 	done := make(chan struct{}, 2)
 	go func() {
 		_, _ = io.Copy(up, guest)
+		// HALF-CLOSE, NOT CLOSE: the other direction may still have a response to deliver.
 		if tc, ok := up.(*net.TCPConn); ok {
 			_ = tc.CloseWrite()
 		}
@@ -299,6 +316,13 @@ func copyBoth(guest net.Conn, up net.Conn, from io.Reader) {
 		}
 		done <- struct{}{}
 	}()
+	<-done
+	if !drainReply {
+		return
+	}
+	// A SHORT GRACE, NOT A SECOND FULL COPY. The reply is usually already in the kernel buffer or
+	// arrives within a round trip; this window is for that, not for streaming a large body.
+	_ = up.SetReadDeadline(time.Now().Add(5 * time.Second))
 	<-done
 }
 
