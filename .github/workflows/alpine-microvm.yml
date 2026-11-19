@@ -150,7 +150,15 @@ jobs:
           # The script needs root for `mke2fs` and the chroot; the job does not, so the ownership is
           # transferred rather than the whole job escalated.
           sudo chown -R "$(id -u):$(id -g)" /tmp/alpine-out
-          cp /tmp/alpine-out/* "$work"/
+          # THE THREE FILES BY NAME, NOT `*`. MEASURED: `cp /tmp/alpine-out/*` fails with
+          #   cp: -r not specified; omitting directory '/tmp/alpine-out/alpine-build'
+          # because the script leaves its WORK directory there - the unpacked tree, the layer tarball
+          # and the raw image - and a glob that caught it would have copied a gigabyte of build
+          # leftovers into the daemon's working directory.
+          cp /tmp/alpine-out/alpine-vmlinuz /tmp/alpine-out/alpine-initramfs \
+             /tmp/alpine-out/alpine.qcow2 "$work"/
+          ls -l "$work"
+
 
           # KVM WHEN THE RUNNER HAS IT, AND TCG WHEN IT DOES NOT. `ubuntu-latest` exposes
           # `/dev/kvm` on some runners and not others, and a job that assumed it would fail on the
@@ -159,11 +167,15 @@ jobs:
           # THE GUEST'S BOOT TIMEOUT IS 180s IN `console.walk` AND THAT IS A TCG BUDGET. Under TCG a
           # small microvm still reaches a login in well under a minute; under KVM it is seconds.
           kvm=""
+          echo "--- /dev/kvm on this runner ---"
+          ls -l /dev/kvm 2>&1 || echo "(absent)"
           if [ -e /dev/kvm ] && [ -r /dev/kvm ]; then
             kvm="--device /dev/kvm:/dev/kvm"
+            echo "::notice::using kvm"
           else
             echo "::notice::no /dev/kvm on this runner; the guest boots under tcg"
           fi
+          echo "kvm arg: [$kvm]"
 
           docker run -d --name easyvm \
             --cap-add NET_ADMIN \
