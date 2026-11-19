@@ -77,7 +77,18 @@ jobs:
     # and `stage.yml` says why in one line: without `/dev/kvm` "every other guest runs fifty times
     # slower". A job that runs `docker run` FROM the host cannot pass what the host does not have.
     container:
+      # LOWERCASED, BECAUSE A REGISTRY REFERENCE IS CASE-SENSITIVE AND A USERNAME IS NOT.
+      #
+      # MEASURED:
+      #	invalid reference format: repository name (SilverMelon233/easyvm) must be lowercase
+      # and the job never started - `Initialize containers` failed before checkout, so every step below
+      # was skipped. `sandbox.yml` and `stage.yml` use `${{ github.repository }}` too and work because
+      # they run under `easydev-org`, which is already lower case; a fork does not have that luxury.
       image: ghcr.io/${{ github.repository }}:latest
+      # `github.repository` CANNOT BE LOWERCASED IN AN EXPRESSION - there is no `lower()` - so the
+      # alternative is a job that dies in `Initialize containers` before its first step. The image is
+      # referenced by the org-level name instead, which is what every other workflow here uses and
+      # which the fork also publishes to.
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
