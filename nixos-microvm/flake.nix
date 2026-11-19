@@ -180,6 +180,37 @@
             };
             services.getty.autologinUser = "root";
 
+            # THE ACCOUNT AND THE DAEMON THE DRIVER LOGS IN AS.
+            #
+            # MEASURED: the daemon dials `vmuser` with password `admin` - `walk.File.SSHUser`
+            # defaults to `vmuser`, `--password` defaults to `admin` - and this image had NO sshd and
+            # no such account, so `/api/state` would answer `ssh_ready: false` forever on a guest
+            # whose network was fine.
+            #
+            # `isNormalUser` GIVES IT A GROUP AND A HOME, which `useradd -m` would have done by hand
+            # on the other images; NixOS asserts on the shapes it expects and this is the shape.
+            users.users.vmuser = {
+              isNormalUser = true;
+              password = "admin";
+              extraGroups = [ "wheel" ];
+              shell = pkgs.bashInteractive;
+            };
+            # NOPASSWD BECAUSE THE DRIVER HAS NO TERMINAL TO ANSWER A SUDO PROMPT WITH.
+            security.sudo.wheelNeedsPassword = false;
+
+            # PASSWORD AUTH AND NO ROOT LOGIN, matching the other two images: the console autologins
+            # root, so a remote root would be a second way in for no benefit.
+            services.openssh = {
+              enable = true;
+              settings = {
+                PasswordAuthentication = true;
+                PermitRootLogin = "no";
+              };
+              # KEYS ARE GENERATED AT BUILD TIME, which is what `hostKeys` in the store means; a guest
+              # that had to run `ssh-keygen` on first boot would wait on an entropy-less RNG.
+              startWhenNeeded = false;
+            };
+
             # ---------------------------- WHAT PROVES IT IS ALIVE ----------------------------
             # A SERVICE WHOSE BINARY LIVES ON THE ROOT FILESYSTEM. `echo` is a coreutils path in
             # /nix/store on /dev/vda, so this line cannot be printed unless the disk was found,

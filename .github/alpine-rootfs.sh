@@ -96,7 +96,7 @@ if [ ! -d "$WORK/root/usr" ]; then
 	# proxy answers "temporary failure in name resolution" and installs 9 MiB of nothing.
 	as_root env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_proxy"} \
 		chroot "$WORK/root" /sbin/apk add --no-cache \
-		alpine-base linux-virt mkinitfs e2fsprogs
+		alpine-base linux-virt mkinitfs e2fsprogs openssh
 	log "root tree: $(du -sm "$WORK/root" | cut -f1) MiB"
 fi
 
@@ -181,6 +181,31 @@ IFACE
 # come up.
 as_root mkdir -p "$ROOT/etc/runlevels/boot"
 as_root ln -sf /etc/init.d/networking "$ROOT/etc/runlevels/boot/networking"
+
+# --- 4b2. THE ACCOUNT AND THE DAEMON THE DRIVER EXPECTS --------------------------------------
+#
+# MEASURED: the daemon logs in as `vmuser` with password `admin` (`walk.File.SSHUser` defaults to
+# `vmuser`, `--password` defaults to `admin`), and this image had no sshd at all - so `/api/state`
+# would answer `ssh_ready: false` forever on a guest with a healthy network.
+#
+# NO ROOT LOGIN: the console autologins root because that is how a serial prompt is asserted, and
+# remote root would be a second way in for no benefit. `PermitRootLogin no` states it.
+as_root chroot "$ROOT" /bin/sh -c '
+	set -e
+	id vmuser >/dev/null 2>&1 || adduser -D -s /bin/ash vmuser
+	echo "vmuser:admin" | chpasswd
+	# alpine has no sudo by default; the driver only needs to LOG IN, and root is on the console.
+	[ -d /etc/sudoers.d ] && echo "vmuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-vmuser && chmod 0440 /etc/sudoers.d/90-vmuser || true
+	mkdir -p /etc/ssh/sshd_config.d
+	cat > /etc/ssh/sshd_config.d/10-easyvm.conf <<SSHD
+PasswordAuthentication yes
+PermitRootLogin no
+SSHD
+'
+# THE HOST KEYS ARE GENERATED AT BUILD TIME, NOT FIRST BOOT: `sshd` refuses to start without them, and
+# a boot that has to wait for `ssh-keygen` on a microvm's entropy-less RNG is a boot that can hang.
+as_root chroot "$ROOT" ssh-keygen -A 2>/dev/null || true
+as_root ln -sf /etc/init.d/sshd "$ROOT/etc/runlevels/default/sshd"
 
 # --- 4c. GROW INTO THE DISK, ONCE -----------------------------------------------------------
 #

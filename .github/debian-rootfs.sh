@@ -260,7 +260,7 @@ env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_p
 			xvfb xfce4 xfce4-terminal dbus-x11 xauth x11-utils x11-apps \
 			libx264-164 libyuv0 libxcb-xtest0 libpipewire-0.3-0t64 curl ca-certificates \
 			xclip at-spi2-core pulseaudio pulseaudio-utils dbus \
-			e2fsprogs
+			e2fsprogs passwd sudo
 
 		# AND WHY THOSE LAST FOUR.
 		#
@@ -301,6 +301,52 @@ else
 	rm -f "$ROOT/etc/apt/sources.list.d/debian.sources" "$ROOT/etc/apt/sources.list"
 	log "apt sources removed, because the image shipped none"
 fi
+
+# --- 2b. THE ACCOUNT THE DRIVER LOGS IN AS ---------------------------------------------
+#
+# MEASURED: the daemon dials `vmuser` with password `admin` - `walk.File.SSHUser` defaults to
+# `vmuser` (see walk.go) and `--password` defaults to `admin` (see cmd/easyvm/main.go) - and this image
+# had NEITHER: no account under UID 1000 at all, and `root::` (an empty password) which sshd refuses
+# because `PermitEmptyPasswords no` is Debian's default.
+#
+# THE SYMPTOM WAS NOT AN SSH ERROR. `/api/state` reported `ssh_ready: false` forever while port 22
+# answered and the machine was healthy, so every question about the guest's network came down to a
+# channel that could not be opened. Nothing in `xfce.walk` uses SSH, which is why the mismatch
+# survived this long.
+#
+# `--gecos` AND `chpasswd` RATHER THAN `useradd -p`: the hash form depends on the shadow suite's
+# current algorithm, and `chpasswd` states the intent - this account's password is this string -
+# without this script deciding how it is hashed.
+log "creating the vmuser account the driver logs in as"
+chroot "$ROOT" /bin/sh -c 'id vmuser >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo vmuser' 2>/dev/null || \
+	chroot "$ROOT" /bin/sh -c 'id vmuser >/dev/null 2>&1 || useradd -m -s /bin/bash vmuser'
+printf 'vmuser:admin\n' | chroot "$ROOT" chpasswd
+# A SUDO RULE FOR A GROUP THAT MAY NOT EXIST: `-G sudo` fails on an image without it, and the second
+# `useradd` above covers that. This writes the rule only when the package provided the directory, so a
+# guest without sudo is not given a file sudo will never read.
+if [ -d "$ROOT/etc/sudoers.d" ]; then
+	printf 'vmuser ALL=(ALL) NOPASSWD:ALL\n' > "$ROOT/etc/sudoers.d/90-vmuser"
+	chmod 0440 "$ROOT/etc/sudoers.d/90-vmuser"
+fi
+
+# THE SSHD SETTINGS ARE STATED EVEN THOUGH THE DEFAULTS ALREADY ALLOW THIS.
+#
+# Debian's `sshd_config` ships `#PasswordAuthentication yes` commented, so the compiled-in default
+# applies and password login works - TODAY. A drop-in is used rather than editing the file because
+# `sshd_config` includes `sshd_config.d/*.conf` first, and a drop-in survives a package upgrade that
+# rewrites the main file.
+#
+# `PermitRootLogin` IS DELIBERATELY NOT ENABLED. Nothing needs to log in as root over ssh: the console
+# autologins root, `vmuser` has NOPASSWD sudo, and `root::` (an empty password) is a string that must
+# not become a remote login just because sshd was told to accept passwords.
+mkdir -p "$ROOT/etc/ssh/sshd_config.d"
+cat > "$ROOT/etc/ssh/sshd_config.d/10-easyvm.conf" <<'SSHD'
+# Password authentication is how the driver logs in as vmuser; see walk.UserForPaths.
+PasswordAuthentication yes
+# Keep the default, which refuses a password for root while allowing the account itself.
+PermitRootLogin prohibit-password
+UsePAM yes
+SSHD
 
 # --- 4b. THE DESKTOP, AND THE STREAM THAT CARRIES IT ----------------------------------------
 #
