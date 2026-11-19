@@ -259,7 +259,8 @@ env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_p
 			iproute2 iputils-ping ca-certificates tzdata openssh-server \
 			xvfb xfce4 xfce4-terminal dbus-x11 xauth x11-utils x11-apps \
 			libx264-164 libyuv0 libxcb-xtest0 libpipewire-0.3-0t64 curl ca-certificates \
-			xclip at-spi2-core pulseaudio pulseaudio-utils dbus
+			xclip at-spi2-core pulseaudio pulseaudio-utils dbus \
+			e2fsprogs
 
 		# AND WHY THOSE LAST FOUR.
 		#
@@ -631,7 +632,47 @@ StandardError=journal+console
 WantedBy=multi-user.target
 UNIT
 
-for unit in dbus xvfb xfce easystream pulseaudio vsink vsink-silence; do
+# --- 4d. GROW INTO THE DISK, ONCE, BECAUSE THE IMAGE SIZE IS A GUESS AND THE DISK IS NOT -----
+#
+# THE PROBLEM THIS SOLVES: the image is written with a fixed 8 GiB of headroom, which is a guess about
+# what somebody will install. A bigger disk handed to a smaller filesystem wastes it, and there is no
+# way for the daemon to resize a filesystem it does not understand.
+#
+# THE DISK HAS NO PARTITION TABLE - `mke2fs -d` wrote the filesystem directly - so growing it is
+# `resize2fs` against the whole device, with no partition to move and no `growpart` needed. That is
+# why this is four lines rather than the usual cloud-init dance.
+#
+# IT RUNS ONCE AND RECORDS THAT IT DID. `ConditionPathExists` against the stamp is what makes it
+# idempotent: a second boot skips the unit entirely instead of resizing a filesystem that is in use.
+#
+# IT IS ALSO BEST-EFFORT. `-` before `resize2fs` means a failure does not fail the unit, because a
+# guest that cannot grow should still boot to a working desktop - a full disk is a worse problem than
+# a small one, and neither is a reason to refuse to start X.
+cat > "$ROOT/etc/systemd/system/growfs.service" <<'UNIT'
+[Unit]
+Description=grow the root filesystem into the disk it was given
+# BEFORE ANYTHING WRITES, AND NOT `local-fs.target`: resizing a filesystem that other units are
+# already using is how a guest loses its data. `systemd-remount-fs` has already remounted `/` rw by
+# this point, which `resize2fs` requires.
+DefaultDependencies=no
+After=systemd-remount-fs.service
+Before=local-fs.target shutdown.target
+ConditionPathExists=!/var/lib/growfs-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# `|| true` IS NOT LAZINESS: /dev/vda already holds the largest filesystem this image needs, so a
+# failed grow is the normal case on a disk that was never enlarged.
+ExecStart=/bin/sh -c 'resize2fs /dev/vda 2>/dev/null || true; touch /var/lib/growfs-done'
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+for unit in dbus xvfb xfce easystream pulseaudio vsink vsink-silence growfs; do
 	ln -sf "/etc/systemd/system/$unit.service" \
 		"$ROOT/etc/systemd/system/multi-user.target.wants/$unit.service"
 done
@@ -717,7 +758,26 @@ umount "$ROOT/proc" 2>/dev/null || true
 umount "$ROOT/dev" 2>/dev/null || true
 
 # --- 5. write the disk ----------------------------------------------------------------------
-SIZE=$(( $(du -sm "$ROOT" | cut -f1) + 250 ))
+#
+# THE HEADROOM IS 8 GiB AND IT COSTS ALMOST NOTHING, BECAUSE QCOW2 IS SPARSE.
+#
+# MEASURED: this was `+ 250`, which produced a 1.32 GiB virtual disk holding a 1097 MiB tree - 250 MiB
+# of free space on a guest whose desktop is already installed. Installing anything substantial there
+# fails with
+#
+#	Space needed: 473 MB / 100 MB available
+#
+# which reads as "this image cannot install packages" and is exactly what `+ 250` means.
+#
+# THE COST OF A BIGGER VIRTUAL SIZE IS ZERO UNTIL IT IS WRITTEN: the same image measured 1.32 GiB
+# virtual and 502 MiB in the file, because qcow2 only stores clusters that were touched. A guest that
+# never fills 8 GiB never pays for it; one that does gets to install things.
+#
+# AND `resize2fs` LETS IT GROW FURTHER WITHOUT REBUILDING. The disk is a whole-disk ext4 with no
+# partition table (`mke2fs -d` writes the filesystem directly), so growing it is one command against
+# `/dev/vda` - no partition to move. `e2fsprogs` is installed above so the guest HAS that command, and
+# `growfs.service` runs it once at first boot in case a future image is handed a larger disk.
+SIZE=$(( $(du -sm "$ROOT" | cut -f1) + 8192 ))
 log "writing a ${SIZE} MiB ext4 image"
 rm -f "$WORK/rootfs.raw"
 truncate -s "${SIZE}M" "$WORK/rootfs.raw"

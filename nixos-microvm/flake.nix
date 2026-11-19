@@ -186,6 +186,29 @@
             # mounted, and the store inside it executed - which is what the artifact has to support.
             # Asserting on `login:` alone would prove less: agetty comes from the INITRAMFS, which
             # is a different file and mounts nothing.
+            # GROW INTO THE DISK ONCE, BECAUSE THE IMAGE'S HEADROOM IS A GUESS.
+            #
+            # The disk has no partition table - the filesystem was written directly onto the image -
+            # so this is `resize2fs` against the whole device with nothing to move. It is
+            # `DefaultDependencies=false` and ordered after the rw remount because `resize2fs` will not
+            # touch a filesystem that other units are already writing to.
+            #
+            # A STAMP MAKES IT ONCE-ONLY, and the failure is tolerated: a disk that was never enlarged
+            # makes `resize2fs` fail, which is the normal case and not a reason to refuse to boot.
+            systemd.services.growfs = {
+              description = "grow the root filesystem into the disk it was given";
+              wantedBy = [ "multi-user.target" ];
+              after = [ "systemd-remount-fs.service" ];
+              before = [ "local-fs.target" ];
+              unitConfig.DefaultDependencies = false;
+              serviceConfig = {
+                Type = "oneshot";
+                RemainAfterExit = true;
+                ExecCondition = "${pkgs.coreutils}/bin/test ! -f /var/lib/growfs-done";
+                ExecStart = "${pkgs.bash}/bin/sh -c '${pkgs.e2fsprogs}/bin/resize2fs /dev/vda 2>/dev/null || true; touch /var/lib/growfs-done'";
+              };
+            };
+
             systemd.services.microvm-proof = {
               description = "announce that the root filesystem mounted and userspace is up";
               wantedBy = [ "multi-user.target" ];
@@ -262,7 +285,13 @@
           # `mke2fs -d` NEEDS THE DIRECTORY TO HOLD EVERYTHING, not a tarball. The size is read from
           # the tree and rounded up: a NixOS closure is hundreds of MiB and a fixed size either
           # wastes space or fails at the 400th megabyte with `No space left on device`.
-          size=$(( $(du -sm tree | cut -f1) + 300 ))
+          # 8 GiB, BECAUSE THE HEADROOM IS A GUESS AND QCOW2 MAKES IT CHEAP.
+          #
+          # MEASURED on the Debian image with the same shape of arithmetic: 1.32 GiB virtual, 502 MiB
+          # in the file - qcow2 stores only clusters that were written, so a large virtual size costs
+          # nothing until somebody uses it. `+ 300` left a guest whose own `nix` store could not take
+          # another package.
+          size=$(( $(du -sm tree | cut -f1) + 8192 ))
           truncate -s "''${size}M" rootfs.raw
           # `-N` IS NOT OPTIONAL AND `-i` WOULD NOT HAVE SAVED THIS.
           #

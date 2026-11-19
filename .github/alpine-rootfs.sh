@@ -96,7 +96,7 @@ if [ ! -d "$WORK/root/usr" ]; then
 	# proxy answers "temporary failure in name resolution" and installs 9 MiB of nothing.
 	as_root env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_proxy"} \
 		chroot "$WORK/root" /sbin/apk add --no-cache \
-		alpine-base linux-virt mkinitfs
+		alpine-base linux-virt mkinitfs e2fsprogs
 	log "root tree: $(du -sm "$WORK/root" | cut -f1) MiB"
 fi
 
@@ -182,11 +182,44 @@ IFACE
 as_root mkdir -p "$ROOT/etc/runlevels/boot"
 as_root ln -sf /etc/init.d/networking "$ROOT/etc/runlevels/boot/networking"
 
+# --- 4c. GROW INTO THE DISK, ONCE -----------------------------------------------------------
+#
+# The image is written with 8 GiB of headroom, which is a guess about what somebody will install. This
+# grows the filesystem to whatever disk the guest was actually given, so that guess is never a
+# ceiling.
+#
+# NO PARTITION TABLE: `mke2fs -d` wrote the filesystem directly onto the image, so this is
+# `resize2fs` against the whole device - no `growpart`, no partition to move.
+#
+# OPENRC LOCAL, NOT A SYSTEMD UNIT, because this guest runs openrc. `local.d` scripts run late in
+# boot with the filesystem already mounted; a stamp makes it once-only and a failure is ignored, since
+# a guest that cannot grow should still boot.
+as_root mkdir -p "$ROOT/etc/local.d"
+as_root tee "$ROOT/etc/local.d/growfs.start" >/dev/null <<'GROW'
+#!/bin/sh
+# Grow / into the disk once. A disk that was never enlarged makes resize2fs fail, and that is fine.
+[ -f /var/lib/growfs-done ] && exit 0
+resize2fs /dev/vda 2>/dev/null || true
+touch /var/lib/growfs-done
+GROW
+as_root chmod +x "$ROOT/etc/local.d/growfs.start"
+as_root mkdir -p "$ROOT/etc/runlevels/default"
+as_root ln -sf /etc/init.d/local "$ROOT/etc/runlevels/default/local"
+
 # --- 5. write the disk --------------------------------------------------------------------
 # `mke2fs -d` WRITES A DIRECTORY INTO AN IMAGE WITHOUT A LOOP DEVICE, which is what a container
 # allows. This is the same step Firecracker's getting-started guide uses (`mkfs.ext4 -d`).
 if [ ! -f "$WORK/rootfs.raw" ]; then
-	SIZE=$(( $(as_root du -sm "$ROOT" | cut -f1) + 120 ))
+	# THE HEADROOM IS 8 GiB, AND IT COSTS ALMOST NOTHING BECAUSE QCOW2 IS SPARSE.
+	#
+	# MEASURED on the Debian image, which had the same `+ 250`: 1.32 GiB virtual, 502 MiB in the file,
+	# because qcow2 stores only clusters that were written. `+ 120` here left an alpine guest with so
+	# little free space that `apk add` reported
+	#
+	#	Space needed: 473 MB / 100 MB available
+	#
+	# - an image that cannot install packages, which is what a fixed small headroom means.
+	SIZE=$(( $(as_root du -sm "$ROOT" | cut -f1) + 8192 ))
 	log "writing a ${SIZE} MiB ext4 image"
 	rm -f "$WORK/rootfs.raw"
 	truncate -s "${SIZE}M" "$WORK/rootfs.raw"
