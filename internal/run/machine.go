@@ -288,10 +288,21 @@ func MachineHalf(f *walk.File) (MachineSpec, []walk.Step, error) { return machin
 func MachineSteps(m MachineSpec) []walk.Step {
 	var out []walk.Step
 	if m.Disk != nil {
-		out = append(out, walk.Step{Name: "create the machine's disk", Spec: map[string]any{
-			"name": "create the machine's disk", "disk": m.Disk.Path,
-			"disk_gb": float64(m.Disk.GB),
-		}})
+		// `disk_gb` IS ONLY EMITTED WHEN THERE IS A SIZE, BECAUSE THE PRESENCE OF THE KEY IS WHAT
+		// CHOOSES THE ACTION. `doDisk` reads `disk_gb` as "MAKE an empty disk of this size" and
+		// `disk` as "USE the file that is already there" - so a file that says
+		// `disk: debian.qcow2` was coming back as a request to create a 0 GB image, and the
+		// executor rejected it:
+		//
+		//	create the machine's disk: `disk_gb:` must be a positive number of gigabytes, got 0
+		//
+		// MEASURED on the deployed pod with `easyvm create`. A disk that already exists has no size
+		// to state; only a disk this step invents does.
+		spec := map[string]any{"name": "create the machine's disk", "disk": m.Disk.Path}
+		if m.Disk.GB > 0 {
+			spec["disk_gb"] = float64(m.Disk.GB)
+		}
+		out = append(out, walk.Step{Name: "create the machine's disk", Spec: spec})
 	}
 	for _, f := range m.Fetch {
 		// ONE KEY, ONE SPELLING. This used to emit `asset:`, `build:` or `generate:` depending on
