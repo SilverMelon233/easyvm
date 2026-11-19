@@ -67,10 +67,13 @@ type Policy struct {
 }
 
 // Rule is one line of the table as a person wrote it.
+//
+// TWO KINDS, AND THE DIFFERENCE IS WHAT THEY CAN SEE. `address` rules are matched against the
+// connection's destination address and need no DNS. `name` rules are matched against the names that
+// address was resolved for, which this daemon learns from its own resolver (see dns.go) - so a
+// `suffix:` rule covers every subdomain that resolved through it, and nothing that did not.
 type Rule struct {
-	// Match is a domain, a CIDR, or a single address. Domains are resolved; addresses are used as
-	// given. A leading `*.` is accepted and treated as the bare domain, because a wildcard in a name
-	// that is about to be resolved means nothing.
+	// Match is the thing to match: a name for `name` rules, an address or CIDR for `address` ones.
 	Match string `json:"match"`
 	// Verdict is what to do when this rule matches.
 	Verdict Verdict `json:"-"`
@@ -88,13 +91,18 @@ var (
 	egressGen uint64 // bumped on every apply, so a resolver knows its work is stale
 )
 
-// resolvedRule is a Rule with its names turned into addresses.
+// resolvedRule is a Rule with its names turned into addresses, or kept as a name pattern.
 type resolvedRule struct {
 	Verdict Verdict
 	Ports   []int
-	// Nets are the addresses this rule covers. Empty means the name did not resolve, and a rule that
-	// covers nothing matches nothing - see ResolveErrors.
+	// Nets are the addresses this rule covers, for `address` rules AND for `name` rules that were
+	// resolved at apply time. A name rule keeps BOTH: the addresses are what it can match before any
+	// traffic resolves it, and the pattern is what it matches afterwards for subdomains.
 	Nets []*net.IPNet
+	// Name is the pattern for `name` rules: exact, suffix (".example.com") or keyword ("*ads*").
+	Name string
+	// Kind is "address" or "name".
+	Kind string
 	// Match is kept for reporting: the UI shows which names failed to resolve.
 	Match string
 }
@@ -137,6 +145,15 @@ func Egress() (Policy, []string, time.Time) {
 // connection can arrive thousands of times a second. Keeping the resolved table immutable between
 // applies is what makes that safe.
 func VerdictFor(ip net.IP, port int) Verdict {
+	// THE NAMES COME FROM THE RESOLVER'S OWN TABLE, read outside the policy lock so a slow sweep
+	// cannot delay a connection. An address a guest reached without ever asking this resolver has no
+	// names, and then only address rules can match - which is the honest boundary stated in the
+	// package comment.
+	var names []string
+	if ip != nil {
+		names = dnsNames.namesFor(ip.String())
+	}
+
 	egressMu.RLock()
 	defer egressMu.RUnlock()
 	for i := range egress.rules {
@@ -144,13 +161,56 @@ func VerdictFor(ip net.IP, port int) Verdict {
 		if len(r.Ports) > 0 && !containsPort(r.Ports, port) {
 			continue
 		}
+		if r.Kind == "name" {
+			for _, n := range names {
+				if nameMatches(r.Name, n) {
+					return r.Verdict
+				}
+			}
+			continue
+		}
+		// "address" AND "name+address" BOTH CARRY NETS, and a name+address rule also matches by name
+		// so a connection whose address moved still matches what the guest asked for.
 		for _, n := range r.Nets {
 			if n.Contains(ip) {
 				return r.Verdict
 			}
 		}
+		if r.Kind == "name+address" {
+			for _, n := range names {
+				if nameMatches(r.Name, n) {
+					return r.Verdict
+				}
+			}
+		}
 	}
 	return egress.policy.Default
+}
+
+// nameMatches applies one rule pattern to one observed name.
+//
+// THE THREE SHAPES AND NOTHING ELSE - no globs, no regex. A rule language that can express anything
+// is a rule language somebody will get subtly wrong, and the three cases below are what "block this
+// domain" means in practice:
+//
+//	.example.com    the domain and every subdomain
+//	example.com     exactly this host
+//	ads             any name containing it (stored without the asterisks a person typed)
+func nameMatches(pattern, name string) bool {
+	if pattern == "" || name == "" {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(pattern, "."):
+		// A SUFFIX RULE MATCHES THE DOMAIN ITSELF TOO, which is what `.example.com` means to
+		// everybody who writes it.
+		base := pattern[1:]
+		return name == base || strings.HasSuffix(name, pattern)
+	case strings.Contains(pattern, "."):
+		return name == pattern
+	default:
+		return strings.Contains(name, pattern)
+	}
 }
 
 func containsPort(ports []int, p int) bool {
@@ -162,9 +222,7 @@ func containsPort(ports []int, p int) bool {
 	return false
 }
 
-// resolvePolicy turns names into addresses. A name that does not resolve becomes a rule that matches
-// nothing AND an entry in errs - both, because "this rule is broken" and "this rule is absent" are
-// different things to see in a UI.
+// resolvePolicy classifies each rule and, for the ones that name a host, resolves it.
 func resolvePolicy(p Policy) *resolvedPolicy {
 	rp := &resolvedPolicy{policy: p, at: time.Now()}
 	for _, rule := range p.Rules {
@@ -172,10 +230,36 @@ func resolvePolicy(p Policy) *resolvedPolicy {
 		if match == "" {
 			continue
 		}
-		rr := resolvedRule{Verdict: rule.Verdict, Ports: rule.Ports, Match: match}
-		if strings.HasPrefix(match, "*.") {
-			match = match[2:]
+		rr := resolvedRule{Verdict: rule.Verdict, Ports: rule.Ports, Match: match, Kind: "address"}
+
+		// THE PATTERN DECIDES THE KIND, AND THE PATTERN IS WHAT A PERSON TYPES:
+		//
+		//	.example.com    every subdomain, and the domain itself
+		//	*ads*           any name containing ads
+		//	example.com     exactly that name (and, because it is also a host, its addresses)
+		//	10.0.0.0/8      an address range
+		//
+		// A BARE NAME IS BOTH. It becomes a name rule (so subdomains that resolve later still match
+		// through `.` rules it shares a suffix with - no, precisely: an exact name rule matches only
+		// itself) AND its addresses are added, because the connection that is already in flight has
+		// no name attached until this daemon's resolver has seen it.
+		switch {
+		case strings.HasPrefix(match, "."):
+			rr.Kind = "name"
+			rr.Name = strings.ToLower(match)
+			rp.rules = append(rp.rules, rr)
+			continue
+		case strings.HasPrefix(match, "*") || strings.HasSuffix(match, "*"):
+			rr.Kind = "name"
+			rr.Name = strings.ToLower(strings.Trim(match, "*"))
+			if rr.Name == "" {
+				rp.errs = append(rp.errs, match+": empty keyword")
+				continue
+			}
+			rp.rules = append(rp.rules, rr)
+			continue
 		}
+
 		// A CIDR OR A BARE ADDRESS IS USED AS GIVEN. `net.ParseCIDR` accepts both `10.0.0.0/8` and,
 		// with a full mask, a single address; a bare address gets /32 so one code path covers both.
 		if strings.Contains(match, "/") {
@@ -207,6 +291,11 @@ func resolvePolicy(p Policy) *resolvedPolicy {
 				}
 				rr.Nets = append(rr.Nets, &net.IPNet{IP: a, Mask: net.CIDRMask(bits, bits)})
 			}
+			// AND IT IS ALSO AN EXACT NAME RULE, because a connection made after this resolver has
+			// seen the answer has a name attached and should match by that name rather than by an
+			// address that may already be stale.
+			rr.Kind = "name+address"
+			rr.Name = strings.ToLower(match)
 		}
 		rp.rules = append(rp.rules, rr)
 	}
