@@ -57,11 +57,11 @@ mkdir -p "$WORK" "$OUT"
 # layer directly and is the same artifact `docker pull debian:trixie` would give.
 if [ ! -f "$WORK/rootfs.tar" ]; then
 	log "resolving debian:${V} on docker.io"
-	token=$(curl -fsSL --max-time 60 \
+	token=$(curl -fsSL --max-time 60 --retry 5 --retry-delay 3 --retry-all-errors \
 		"https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/debian:pull" \
 		| python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 
-	digest=$(curl -fsSL --max-time 60 \
+	digest=$(curl -fsSL --max-time 60 --retry 5 --retry-delay 3 --retry-all-errors \
 		-H "Authorization: Bearer $token" \
 		-H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json' \
 		"https://registry-1.docker.io/v2/library/debian/manifests/${V}" \
@@ -77,7 +77,7 @@ for m in json.load(sys.stdin).get("manifests", []):
 
 	# THE LAYER LIST, IN ORDER. Debian is a single layer, but the loop is written for the general
 	# case: applying only the first layer of a multi-layer image produces a tree with no / etc.
-	layers=$(curl -fsSL --max-time 60 \
+	layers=$(curl -fsSL --max-time 60 --retry 5 --retry-delay 3 --retry-all-errors \
 		-H "Authorization: Bearer $token" \
 		-H 'Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json' \
 		"https://registry-1.docker.io/v2/library/debian/manifests/${digest}" \
@@ -91,7 +91,17 @@ for l in json.load(sys.stdin)["layers"]:
 	for d in $layers; do
 		i=$((i+1))
 		log "layer $i: $d"
-		curl -fsSL --max-time 900 -H "Authorization: Bearer $token" \
+		# RETRIED, BECAUSE A TLS RESET MID-BLOB IS TRANSIENT AND FATAL TO A ONE-SHOT CURL.
+		#
+		# MEASURED: `curl: (35) TLS connect error: error:0A000126:SSL routines::unexpected eof while
+		# reading` on a 47 MiB layer, while three retries of the same request immediately afterwards
+		# each returned 200. The path to `registry-1.docker.io` resets long-lived TLS sessions
+		# intermittently, and a build script that treats the first reset as a failure can never finish.
+		#
+		# `--retry-all-errors` IS THE PART THAT MATTERS: plain `--retry` covers timeouts and 5xx but
+		# NOT a TLS error, which is exactly what this path produces.
+		curl -fsSL --max-time 900 --retry 5 --retry-delay 3 --retry-all-errors \
+			-H "Authorization: Bearer $token" \
 			"https://registry-1.docker.io/v2/library/debian/blobs/${d}" -o "$WORK/layer-$i"
 	done
 	: > "$WORK/rootfs.tar"
