@@ -115,8 +115,25 @@ jobs:
         run: |
           set -eux
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-utils e2fsprogs
+          # DNSMASQ IS THE GUEST'S DHCP SERVER - not its resolver any more, which this repository
+          # answers itself, but the thing that hands out the lease. MEASURED without it:
+          #
+          #	boot: dnsmasq: exec: "dnsmasq": executable file not found in $PATH
+          # THE TOOLS THE DAEMON CALLS BY NAME, ALL OF THEM, because each one has been a separate
+          # failure: `qemu-img` for the overlay, `dnsmasq` for the lease, `ip` and `iptables` for the
+          # bridge. A missing one is `exec: not found` from inside a boot, which reads as a boot
+          # failure.
+          #
+          # `iproute2` AND `iptables` ARE ALREADY ON THE RUNNER IMAGE and are listed anyway: they are
+          # what the daemon shells out to for the bridge and the NAT rules, and a runner image is not a
+          # contract.
+          sudo apt-get install -y --no-install-recommends \
+            qemu-utils qemu-system-x86 e2fsprogs dnsmasq iproute2 iptables
           qemu-img --version | head -1
+          qemu-system-x86_64 --version | head -1
+          dnsmasq --version | head -1
+          ip -V | head -1
+          iptables --version
           sudo -E env PATH="$PATH" qemu-img --version | head -1
 
       - name: the alpine root filesystem
