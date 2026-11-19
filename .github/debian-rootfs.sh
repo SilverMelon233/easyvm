@@ -604,12 +604,15 @@ Requires=vsink.service
 # `Type=exec` RATHER THAN `simple`: systemd reports the unit started once `pacat` has been EXECUTED,
 # which is the earliest point at which it can have written anything. `simple` reports it at the
 # `fork()`, before the binary is loaded, and `easystream.service` has `After=vsink-silence.service` -
-# so with `simple` there was a window where the ordering was satisfied and no audio was flowing yet.
+# so with `simple` the ordering could be satisfied while no audio was flowing yet.
 #
-# THE REMAINING WINDOW IS COVERED BY `ExecStartPost`. The probe reads ONE 20 ms frame with a 4 s
-# timeout and `audio.rs` never retries, so the sink has to be MIXING, not merely present. Polling
-# `pactl list sink-inputs` until the pacat stream appears is the direct question - "is anything
-# playing into vsink" - rather than a sleep that guesses.
+# THERE WAS AN `ExecStartPost` HERE AND IT WAS REMOVED. It polled `pactl list sink-inputs`, which
+# blocks when the PulseAudio socket is not accepting yet - and because an `ExecStartPost` runs on the
+# unit's own start path, MEASURED on a boot: the whole guest wedged, with `jbd2/vda-8`, `kworker` and
+# `systemd-journal` each reported `blocked for more than 120 seconds` and then 240. A probe that
+# cannot answer must never be able to stop the disk from being written.
+#
+# SO THE ORDERING IS THE WHOLE FIX, and `Type=exec` is the part of it that can be stated safely.
 Type=exec
 Environment=PULSE_SERVER=unix:/run/pulse/native
 # A MONITOR WITH NOTHING PLAYING PRODUCES NO BYTES, and `audio.rs` proves a backend by reading one
@@ -619,17 +622,6 @@ Environment=PULSE_SERVER=unix:/run/pulse/native
 # `--raw /dev/zero`: pacat reads a file rather than a pipe, so the child throttles itself against the
 # sink instead of against a writer in this image that would have to remember to keep writing.
 ExecStart=/usr/bin/pacat --device=vsink --format=s16le --rate=48000 --channels=2 --raw /dev/zero
-# WAIT UNTIL THE SINK IS ACTUALLY MIXING, WHICH IS THE QUESTION THE PROBE WILL ASK.
-#
-# `audio.rs` opens the monitor, reads ONE 20 ms frame within 4 s and never retries. A sink that
-# exists but has no stream has no mix, so the frame never comes and the whole boot reports
-# `audio: None`. `pactl list sink-inputs` shows the pacat stream as soon as it is connected, which is
-# exactly the condition the probe needs - so this polls for it instead of sleeping a guessed amount.
-#
-# IT GIVES UP AFTER 50 TRIES (5 s) AND SUCCEEDS ANYWAY. If the stream cannot be seen, the honest
-# outcome is a unit that started and a daemon that reports no audio; failing here would take the unit
-# down, and `Restart=always` would then loop it.
-ExecStartPost=/bin/sh -c 'for i in $(seq 1 50); do pactl list sink-inputs 2>/dev/null | grep -q . && exit 0; sleep 0.1; done; exit 0'
 Restart=always
 RestartSec=3
 StandardOutput=journal+console
