@@ -1084,18 +1084,16 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 	// reach either. `/est/ws` answered "cannot reach the guest over ssh" for a guest whose stream was
 	// running the whole time.
 	//
-	// ONLY 48080 IS PUBLISHABLE, AND 48079 IS NOT - THE GUEST DECIDES THAT, NOT THIS LIST.
+	// BOTH GUEST DAEMONS ARE PUBLISHED, AND BOTH NOW LISTEN ON EVERY ADDRESS.
 	//
-	// MEASURED from easystream's own startup line:
+	// THIS LIST CHANGED SHAPE WITH THE PROTOCOLS. easystream ONCE bound its `est://` socket to the
+	// guest's loopback (127.0.0.1:48079), which no DNAT rule could reach - the stream went over an
+	// ssh direct-tcpip channel instead. That daemon now serves est and NOTHING ELSE, so its socket
+	// is the one thing a caller needs and it listens on all addresses like any other service.
 	//
-	//	easystream est server on 127.0.0.1:48079     <- the GUEST's loopback, and only that
-	//	easystream http on 0.0.0.0:48080              <- every address
-	//
-	// A DNAT rule rewrites the destination to the guest's bridge address (172.30.0.2), and nothing
-	// there is listening on 48079, so publishing it would add a rule that can never match. The est
-	// STREAM is reached through the ssh direct-tcpip channel instead (`estproxy.go`), which arrives
-	// on the guest's own loopback where the socket actually is.
-	if err := easyvmnet.Up(d.port, []int{estHTTPPort}); err != nil {
+	//	easystream  48079  est://   video, input, a11y, screenshot
+	//	easyworker  48080  HTTP     the Connect RPC
+	if err := easyvmnet.Up(d.port, []int{estPort, workerPort}); err != nil {
 		return err
 	}
 

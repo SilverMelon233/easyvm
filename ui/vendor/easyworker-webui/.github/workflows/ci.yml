@@ -1,0 +1,70 @@
+name: ci
+
+# Check every push and pull request: install, type/lint check when the repo has
+# one, and a production build.
+#
+# These repos had NO CI at all, so a change that broke the build was only
+# discovered when an image build failed downstream (easyworker-webui is vendored
+# into the worker image, easysh-webui into easysh, and so on).
+#
+# `npm ci` rather than `npm install`: package-lock.json is committed, and ci
+# installs exactly the locked tree, so a floating dependency cannot make a green
+# build red overnight.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      # FORMAT: PRETTIER, AND ONLY PRETTIER.
+      #
+      # ONE TOOL OWNS FORMATTING. This repository used biome's `check`, which both formatted and linted, so a
+      # formatting difference and a real code problem arrived through one command — and `biome check` rewriting a
+      # file was indistinguishable from it reporting one.
+      #
+      # Prettier is the formatter every other frontend in this org uses, so one configuration produces one style.
+      # Biome's formatter is disabled in biome.json, which means it cannot disagree.
+      - name: format
+        run: npm run format:check
+
+      # LINT, from the shared `check` script.
+      - name: check
+        run: npm run check
+
+      # TYPES. `svelte-check` reports a type error inside a `.svelte` file that vite happily bundles, so a
+      # build-only gate lets it through and it fails at runtime instead.
+      - name: types
+        run: npm run check:svelte
+
+      - name: build
+        run: npm run build
+
+      # A vite build that emits nothing is a failure that looks like a success.
+      - name: assert the build produced output
+        run: |
+          set -euo pipefail
+          d=""
+          for cand in dist build public; do
+            [ -d "$cand" ] && d="$cand" && break
+          done
+          [ -n "$d" ] || { echo "::error::no dist/ or build/ directory"; exit 1; }
+          n=$(find "$d" -type f | wc -l)
+          echo "$d: $n files"
+          [ "$n" -gt 0 ] || { echo "::error::$d is empty"; exit 1; }

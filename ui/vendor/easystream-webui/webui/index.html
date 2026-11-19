@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>easystream</title>
+    <style>
+      :root {
+        --bar: #101010d9; --fg: #eee; --bd: #333; --acc: #fab283; --screenbg: #4a4a4a;
+        --ok: #4ade80; --err: #f87171; --kbdw: min(360px, 88vw); --kbdh: 46vh;
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body {
+        margin: 0; height: 100%; overflow: hidden; background: #4a4a4a; color: var(--fg);
+        font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, sans-serif;
+        overscroll-behavior: none;
+      }
+      #screen {
+        position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block;
+        transition: left .18s ease, bottom .18s ease;
+        cursor: none; touch-action: none; outline: none;
+      }
+      #bar {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+        display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+        padding-top: calc(6px + env(safe-area-inset-top));
+        background: var(--bar); backdrop-filter: blur(8px);
+        border-bottom: 1px solid var(--bd);
+        transform: translateY(-110%); transition: transform .15s ease;
+      }
+      #bar.show { transform: none; }
+      #bar .grow { flex: 1; }
+      #bar b { letter-spacing: .3px; white-space: nowrap; }
+      #hotzone { position: fixed; top: 0; left: 0; right: 0; height: 8px; z-index: 31; }
+      .badge { border-radius: 4px; padding: 1px 6px; font-size: 11px; white-space: nowrap; }
+      .badge.live { background: #4ade8033; color: var(--ok); }
+      .badge.err { background: #f8717133; color: var(--err); }
+      .badge.wait { background: #8884; color: #aaa; }
+      .micro { font-size: 11px; color: #aaa; }
+      button {
+        background: #ffffff14; color: var(--fg); border: 1px solid var(--bd);
+        border-radius: 8px; padding: 6px 10px; font: inherit; cursor: pointer;
+        white-space: nowrap; min-height: 34px;
+      }
+      button:hover { background: #ffffff26; }
+      button:active { background: var(--acc); color: #000; }
+      button.on { background: var(--acc); color: #000; border-color: var(--acc); }
+      #kbdToggle {
+        position: fixed; left: 12px; z-index: 25;
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        background: var(--bar); border: 1px solid var(--bd); border-radius: 12px;
+        padding: 10px 14px; backdrop-filter: blur(8px); font-size: 16px;
+      }
+      /* Fullscreen sits next to the keyboard button, same shape, so the two
+         "screen modes" are adjacent instead of one being buried in the menu. */
+      #btnFullscreen {
+        position: fixed; left: 68px; z-index: 25;
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        background: var(--bar); border: 1px solid var(--bd); border-radius: 12px;
+        padding: 10px 14px; backdrop-filter: blur(8px); font-size: 16px;
+      }
+      /* Capability readout: small, monospace, wraps — it is reference text, not a
+         control, so it must stay readable in a narrow panel. */
+      .caps {
+        font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--fg2, #aaa); text-align: left; white-space: pre-wrap;
+        word-break: break-word; max-width: 62vw;
+      }
+      /* Keyboard: a FIXED-HEIGHT panel with TABBED groups (like a phone IME).
+         Every key is the SAME size; no scrolling. */
+      /* The keyboard ALWAYS comes up from the BOTTOM, on phones and on desktop.
+       *
+       * It used to be a left-hand side drawer on wide screens, which meant the
+       * same key lived somewhere different depending on the window size and the
+       * canvas was squeezed into a narrower column while typing. A bottom sheet
+       * is where every on-screen keyboard lives, so it needs no relearning, and
+       * the picture keeps its width. */
+      #kbd {
+        position: fixed; left: 0; right: 0; bottom: 0; top: auto; width: auto; z-index: 26;
+        height: var(--kbdh); max-height: var(--kbdh);
+        background: var(--bar); backdrop-filter: blur(12px);
+        border-top: 1px solid var(--bd);
+        border-radius: 14px 14px 0 0;
+        padding: 8px;
+        padding-bottom: calc(8px + env(safe-area-inset-bottom));
+        transform: translateY(102%); transition: transform .18s ease;
+        display: flex; flex-direction: column; gap: 6px;
+        overflow: hidden;                 /* no scroll: tabs swap panes */
+      }
+      #kbd.show { transform: none; }
+      #kbd .head { display: flex; align-items: center; gap: 8px; }
+      #kbd .head b { flex: 1 1 auto; }
+      #kbd .head button { min-height: 26px; padding: 2px 10px; }
+      #kbd .sticky-badge { font-size: 10px; color: var(--acc); white-space: nowrap; }
+      /* Tab bar */
+      #kbd .modrow { display: grid; grid-template-columns: repeat(6, 1fr);
+        gap: 6px; flex: 0 0 auto; height: 40px; }
+      #kbd .modrow .key.mod.on { background: var(--acc); color: #000; border-color: var(--acc); }
+      #kbd .tabs { display: flex; gap: 4px; flex: 0 0 auto; }
+      #kbd .tabs .tab {
+        flex: 1 1 0; min-width: 0; height: 32px; font-size: 12px;
+        background: #ffffff10; color: var(--fg); border: 1px solid var(--bd);
+        border-radius: 8px; cursor: pointer; padding: 0;
+      }
+      #kbd .tabs .tab.on { background: var(--acc); color: #000; border-color: var(--acc); }
+      /* Panes: only the active one is shown; the panel height is fixed. */
+      #kbd .panes { flex: 1 1 auto; min-height: 0; position: relative; }
+      #kbd .pane { position: absolute; inset: 0; display: none;
+        flex-direction: column; gap: 6px; }
+      #kbd .pane.on { display: flex; }
+      /* Grids: every key the SAME width AND height. Rows are 1fr each. */
+      #kbd .g3, #kbd .g4, #kbd .g6, #kbd .g9, #kbd .g10 {
+        display: grid; gap: 6px; flex: 1 1 0; min-height: 0;
+      }
+      #kbd .g3 { grid-template-columns: repeat(3, 1fr); }
+      #kbd .g4 { grid-template-columns: repeat(4, 1fr); }
+      #kbd .g6 { grid-template-columns: repeat(6, 1fr); }
+      /* 9-key rows (asdf… / zxcv…): centred, each key the SAME width as a
+         10-column key, so the whole keyboard reads as one grid. */
+      #kbd .g9 { display: flex; justify-content: center; }
+      #kbd .g9 .key { flex: 0 0 calc((100% - 9 * 6px) / 10); }
+      #kbd .g10 { grid-template-columns: repeat(10, 1fr); }
+      #kbd .key {
+        display: flex; align-items: center; justify-content: center;
+        min-width: 0; min-height: 0; height: 100%; overflow: hidden;
+        border: 1px solid var(--bd); border-radius: 8px;
+        background: #ffffff10; user-select: none; cursor: pointer;
+        font-size: 13px; line-height: 1;
+      }
+      #kbd .key:active { background: var(--acc); color: #000; }
+      #kbd .key.mod.on { background: var(--acc); color: #000; border-color: var(--acc); }
+      /* Bottom letters row: Shift , . space ' ⌫ ⏎ — a 10-column grid.
+         Proportions follow a real keyboard: the function keys are wider than the
+         punctuation keys and space gets the most room, so the row reads like
+         "⇧ , . [space] ' ⌫ ⏎" instead of seven identical squares.
+           1 ⇧ 2 | 3 , 1 | 4 . 1 | 5 space 3 | 6 ' 1 | 7 ⌫ 1 | 8 ⏎ 1  (sums to 10) */
+      #kbd .g10.grow { grid-template-columns: repeat(10, 1fr); }
+      #kbd .g10.grow .key:nth-child(1) { grid-column: span 2; }
+      #kbd .g10.grow .key:nth-child(4) { grid-column: span 3; }
+      #kbd .pane .hint { font-size: 11px; color: #999; }
+      #kbd .sendrow { display: grid; grid-template-columns: 1fr; flex: 0 0 auto; height: 40px; }
+      #kbd #ime { width: 100%; min-height: 40px; background: #00000055; color: #eee;
+        border: 1px solid var(--bd); border-radius: 8px; padding: 8px; font-size: 15px; }
+      #zoom {
+        position: fixed; right: 12px; z-index: 25;
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        transition: bottom .18s ease;
+        display: flex; flex-direction: column; gap: 6px;
+      }
+      #zoom button { width: 44px; height: 44px; padding: 0; font-size: 18px;
+        background: var(--bar); backdrop-filter: blur(8px); }
+      #zoom button.on { background: var(--acc); color: #000; border-color: var(--acc); }
+      #zoomLabel { text-align: center; font-size: 10px; color: #bbb; }
+      @media (max-width: 640px) {
+        /* On a phone the keyboard becomes a BOTTOM SHEET (slides up from the
+           bottom, full width) so the screen stays visible above it — the
+           termux/noVNC-mobile pattern. A left drawer would cover the screen. */
+        #kbd {
+          left: 0; right: 0; top: auto; bottom: 0; width: auto;
+          height: var(--kbdh); max-height: var(--kbdh); border-right: none; border-top: 1px solid var(--bd);
+          border-radius: 14px 14px 0 0;
+          transform: translateY(102%);
+          box-shadow: 0 -8px 24px #000a;
+        }
+        #kbd.show { transform: none; }
+        #kbd .key { height: 46px; font-size: 16px; }
+        #bar b { display: none; }
+        .micro.hideNarrow { display: none; }
+        #zoom { right: 8px; bottom: calc(12px + env(safe-area-inset-bottom)); }
+        #zoom button { width: 42px; height: 42px; }
+        /* keep the toggle above the sheet when it is open */
+        #kbdToggle { bottom: calc(12px + env(safe-area-inset-bottom)); }
+      }
+      @media (max-height: 420px) {
+        #kbd .key { height: 34px; font-size: 13px; }
+        #kbd h4 { margin-top: 3px; }
+      }
+          body.viewonly #kbd { display: none !important; }
+      body.viewonly #cursor-hint { display: none !important; }
+      /* right-edge menu button + slide-out panel (replaces the old top bar) */
+      #btnMenu { position: fixed; top: 10px; right: 10px; z-index: 40;
+        width: 44px; height: 44px; font-size: 20px; border-radius: 10px;
+        background: #000000aa; color: #eee; border: 1px solid var(--bd); }
+      #panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(320px, 86vw);
+        z-index: 39; background: var(--bar); color: var(--fg);
+        border-left: 1px solid var(--bd); padding: 64px 14px 14px;
+        transform: translateX(100%); transition: transform .18s ease;
+        overflow-y: auto; }
+      #panel.show { transform: none; }
+      #panel .prow { display: flex; align-items: center; justify-content: space-between;
+        gap: 10px; min-height: 44px; border-bottom: 1px solid var(--bd); }
+      #panel .prow label { opacity: .75; font-size: 13px; }
+      #panel .seg { display: flex; }
+      #panel .segbtn, #panel .toggle { min-height: 34px; padding: 4px 12px;
+        background: #ffffff10; color: var(--fg); border: 1px solid var(--bd); cursor: pointer; }
+      #panel .segbtn:first-child { border-radius: 8px 0 0 8px; }
+      #panel .segbtn:last-child { border-radius: 0 8px 8px 0; }
+      #panel .segbtn.on { background: var(--acc); color: #000; border-color: var(--acc); }
+      #panel .toggle.on { background: var(--acc); color: #000; border-color: var(--acc); }
+      /* When the keyboard is open the canvas shrinks so the screen is never
+         hidden behind it. Always the BOTTOM sheet, at every width — the old
+         wide-screen variant moved it to the left and squeezed the canvas into a
+         narrow column instead. */
+      body.kbd-open #screen { height: calc(100% - var(--kbdh, 46vh)); }
+      /* keep the zoom/pan controls and the two screen-mode buttons above the sheet */
+      body.kbd-open #zoom,
+      body.kbd-open #kbdToggle,
+      body.kbd-open #btnFullscreen { bottom: calc(var(--kbdh, 46vh) + 12px); }
+      #toast { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom));
+        transform: translateX(-50%) translateY(20px); z-index: 60;
+        background: #000000dd; color: #fff; border: 1px solid var(--bd);
+        border-radius: 10px; padding: 10px 14px; font-size: 13px; max-width: 84vw;
+        opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+      #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    </style>
+  </head>
+  <body>
+    <canvas id="screen" tabindex="0"></canvas>
+    <button id="btnMenu" title="menu" aria-label="menu">☰</button>
+    <div id="panel" role="dialog" aria-label="settings">
+      <div class="prow">
+        <span class="badge wait" id="state">connecting</span>
+        <span class="micro" id="stats">—</span>
+      </div>
+      <!-- What this guest can actually do, straight from the daemon's
+           /capabilities. Shown here (not in the panel buttons) because these are
+           facts about the sandbox, not settings: session type, and which backend
+           each capability resolved to. -->
+      <div class="prow" id="capRow" hidden>
+        <label>Caps</label>
+        <span class="caps" id="caps">—</span>
+      </div>
+      <div class="prow">
+        <label>Mode</label>
+        <div class="seg">
+          <button id="modeView" class="segbtn">View</button>
+          <button id="modeControl" class="segbtn">Control</button>
+        </div>
+      </div>
+      <!-- Quality: three presets (EST.md defines what each means). Hidden until
+           the daemon's Hello carries a video block, and disabled in view mode
+           because reconfiguring is a control-plane operation. -->
+      <div class="prow" id="qualityRow" hidden>
+        <label>Quality</label>
+        <div class="seg">
+          <button class="segbtn" data-q="0">标清</button>
+          <button class="segbtn" data-q="1">高清</button>
+          <button class="segbtn" data-q="2">原画</button>
+        </div>
+      </div>
+      <div class="prow" id="encRow" hidden>
+        <label>Encoder</label>
+        <span class="micro" id="encName">—</span>
+      </div>
+      <div class="prow">
+        <label>Audio</label>
+        <span>
+          <button id="audioToggle" class="toggle on">On</button>
+          <button id="btnMute" title="mute/unmute">🔊</button>
+        </span>
+      </div>
+      <div class="prow">
+        <label>Actions</label>
+        <span>
+          <button id="btnKbd" title="keyboard">⌨</button>
+          <button id="syncToggle" class="toggle" title="auto-sync the clipboard both ways">Sync</button>
+          <button id="btnFs" title="fullscreen">⛶</button>
+          <button id="btnRetry" title="reconnect">↻</button>
+        </span>
+      </div>
+    </div>
+    <button id="kbdToggle" title="keyboard">⌨</button>
+    <!-- Always-on fullscreen button. The panel one needs two taps (menu, then
+         the button) and the panel also hides while you watch; fullscreen is the
+         mode people actually live in, so it gets its own target. -->
+    <button id="btnFullscreen" title="fullscreen (locks the keyboard where supported)" aria-label="fullscreen">⛶</button>
+    <div id="zoom">
+      <button id="zIn" title="zoom in">＋</button>
+      <button id="zOut" title="zoom out">－</button>
+      <button id="zFit" title="fit" style="font-size:12px">Fit</button>
+      <span id="zoomLabel">100%</span>
+    </div>
+    <div id="kbd">
+      <div class="head">
+        <b>Keyboard</b>
+        <span class="sticky-badge" id="stickyBadge"></span>
+        <button id="kbdHide">✕</button>
+      </div>
+      <!-- Modifiers are ALWAYS visible, on every tab (they are latched, so the
+           next key press combines with them). -->
+      <div class="modrow" id="mods">
+        <div class="key mod" data-mod="Control">Ctrl</div>
+        <div class="key mod" data-mod="Alt">Alt</div>
+        <div class="key mod" data-mod="Shift">Shift</div>
+        <div class="key mod" data-mod="Meta">Meta</div>
+        <!-- clipboard: push local + paste, and copy + pull remote -->
+        <div class="key" id="btnPushPaste" title="copy the LOCAL clipboard to the guest and paste it there">⇥⇩</div>
+        <div class="key" id="btnCopyPull" title="send Ctrl+C to the guest, then copy its clipboard locally">⇤⇧</div>
+      </div>
+      <div class="tabs" id="kbdTabs">
+        <button class="tab on" data-tab="letters">ABC</button>
+        <button class="tab" data-tab="edit">Keys</button>
+        <button class="tab" data-tab="nav">Nav</button>
+        <button class="tab" data-tab="sym">#+</button>
+        <button class="tab" data-tab="ime">IME</button>
+      </div>
+      <div class="panes">
+        <!-- Letters: a phone-style QWERTY, every key the same size.
+             Row layout follows a hardware keyboard closely enough that muscle
+             memory works: digits, then QWERTY / ASDF / ZXCV, then a Shift key on
+             the left of Z and a Backspace on the right of M, and a bottom row
+             with punctuation, space and Return.
+
+             This page used to end after the ZXCV row plus a Shift/space/Backspace
+             strip — no Return at all, and no way to type "." or "," from the
+             page you type on. Both are now on the bottom row, where a keyboard
+             puts them. -->
+        <div class="pane on" data-pane="letters">
+          <div class="g10" id="rowDigits"></div>
+          <div class="g10" id="row1"></div>
+          <!-- 9 and 7 keys are CENTRED, as on a real keyboard: .g9 keeps the same
+               key width as the 10-key rows and centres the row, while the ZXCV row
+               gets half-key spacers on both sides so it starts where a keyboard
+               puts it instead of flush against the left edge. -->
+          <div class="g9" id="row2"></div>
+          <div class="g9" id="row3"></div>
+          <div class="g10 grow">
+            <div class="key" data-key="Shift">⇧</div>
+            <div class="key" data-txt=",">,</div>
+            <div class="key" data-txt=".">.</div>
+            <div class="key" data-txt=" ">space</div>
+            <div class="key" data-txt="'">'</div>
+            <div class="key" data-key="Backspace">⌫</div>
+            <div class="key" data-key="Return" title="Return">⏎</div>
+          </div>
+        </div>
+        <!-- Edit: modifiers + editing keys, all the same size -->
+        <div class="pane" data-pane="edit">
+          <div class="g4">
+            <div class="key" data-key="Escape">Esc</div>
+            <div class="key" data-key="Tab">Tab</div>
+            <div class="key" data-key="Delete">Del</div>
+            <div class="key" data-key="Insert">Ins</div>
+          </div>
+          <div class="g4">
+            <div class="key" data-key="Backspace">⌫</div>
+            <div class="key" data-key="Return">⏎</div>
+            <div class="key" data-key="Space">Space</div>
+            <div class="key" data-key="CapsLock">Caps</div>
+          </div>
+          <div class="g6">
+            <div class="key" data-key="F1">F1</div><div class="key" data-key="F2">F2</div>
+            <div class="key" data-key="F3">F3</div><div class="key" data-key="F4">F4</div>
+            <div class="key" data-key="F5">F5</div><div class="key" data-key="F6">F6</div>
+          </div>
+          <div class="g6">
+            <div class="key" data-key="F7">F7</div><div class="key" data-key="F8">F8</div>
+            <div class="key" data-key="F9">F9</div><div class="key" data-key="F10">F10</div>
+            <div class="key" data-key="F11">F11</div><div class="key" data-key="F12">F12</div>
+          </div>
+        </div>
+        <!-- Nav: arrows + paging, same size -->
+        <div class="pane" data-pane="nav">
+          <div class="g3">
+            <div class="key" data-key="Home">Home</div>
+            <div class="key" data-key="Up">↑</div>
+            <div class="key" data-key="End">End</div>
+          </div>
+          <div class="g3">
+            <div class="key" data-key="Left">←</div>
+            <div class="key" data-key="Down">↓</div>
+            <div class="key" data-key="Right">→</div>
+          </div>
+          <div class="g3">
+            <div class="key" data-key="PageUp">PgUp</div>
+            <div class="key" data-key="PageDown">PgDn</div>
+            <div class="key" data-key="Return">⏎</div>
+          </div>
+          <div class="g3">
+            <div class="key" data-key="SystemBack">Back</div>
+            <div class="key" data-key="SystemHome">Home</div>
+            <div class="key" data-key="Recents">Recents</div>
+          </div>
+        </div>
+        <!-- Sym: punctuation, 10 per row, same size -->
+        <div class="pane" data-pane="sym">
+          <!-- Four rows, ordered by how often each symbol is actually typed, not
+               by ASCII order: punctuation you use in a sentence comes first, then
+               brackets, then maths, then the rare ones. The previous three rows
+               were the US shift-plane only, so "." and "," — the two most common
+               symbols after the space — were missing from the symbol page. -->
+          <div class="g10" id="rowSym1"></div>
+          <div class="g10" id="rowSym2"></div>
+          <div class="g10" id="rowSym3"></div>
+          <div class="g10" id="rowSym4"></div>
+        </div>
+        <!-- IME / CJK text entry -->
+        <div class="pane" data-pane="ime">
+          <input id="ime" autocomplete="off" autocapitalize="off" spellcheck="false"
+                 placeholder="type here, then Enter / Send…" />
+          <div class="sendrow"><div class="key" id="imeSend">Send</div></div>
+          <div class="hint">ASCII is typed directly; other scripts are pasted (clipboard + Ctrl+V).</div>
+        </div>
+      </div>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

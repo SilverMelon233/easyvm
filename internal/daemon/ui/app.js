@@ -230,19 +230,16 @@ function startEst() {
   showNoScreen(null);
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  // `view=1` WITHHOLDS THE CONTROL TOKEN, so the daemon treats this connection as a viewer and
-  // refuses mutations at the SERVER rather than in the browser. The read-only switch therefore
-  // means the same thing on both transports instead of being a client-side courtesy on one.
-  // `/est/est/ws` IS NOT A TYPO AND THE DOUBLING IS THE MOUNT. This daemon serves easystream under
-  // `/est/`, stripping that prefix before forwarding - so `/est/est/ws` reaches the guest as
-  // `/est/ws`, which is where easystream keeps its byte pipe. The vendor UI builds the same URL for
-  // itself, because its app.js resolves `est/ws` against `location.pathname`.
-  //
   // READ-ONLY IS "NO TOKEN", NOT A FLAG. easystream's `authorize` maps a missing or wrong token to
   // VIEW and refuses every mutation for it (EST.md, and `auth.rs`), so a viewer that sends no
-  // subprotocol is read-only BY THE SERVER'S OWN RULE. Inventing `?view=1` here would have been a
-  // parameter easystream never reads - a switch that looked wired and changed nothing.
-  const url = proto + "//" + location.host + "/est/est/ws";
+  // subprotocol is read-only BY THE SERVER'S OWN RULE.
+  //
+  // ONE PATH, NO DOUBLING. easystream used to serve an HTTP surface beside the stream, and this
+  // page reached it through a prefix-stripping proxy. Both are gone: easystream now speaks `est://`
+  // and nothing else, this daemon provides the WebSocket, and the translation between WebSocket and
+  // the guest's raw TCP socket happens without a frame being parsed. This page is therefore the
+  // only client that understands the protocol at all.
+  const url = proto + "//" + location.host + "/est/ws";
   badge($("estState"), "est: connecting", "warn");
 
   // THE CONTROL TOKEN GOES IN THE SUBPROTOCOL LIST, which is where easystream reads it
