@@ -127,8 +127,12 @@ as_root tee "$ROOT/etc/inittab" >/dev/null <<'EOF'
 ::wait:/sbin/openrc default
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/bin/umount -a -r
-tty1::respawn:/sbin/getty -L tty1 38400 vt100
-ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100
+# `-a vmuser` IS BUSYBOX GETTY'S AUTOLOGIN, the OpenRC equivalent of the systemd images'
+# `agetty --autologin`. THE SESSION BELONGS TO vmuser BECAUSE THE DESKTOP DOES: PipeWire
+# refuses root (`ConditionUser=!root`), so a root console cannot start a Wayland session.
+# root keeps PID 1 and the services; the console is a user's.
+tty1::respawn:/sbin/getty -L -a vmuser tty1 38400 vt100
+ttyS0::respawn:/sbin/getty -L -a vmuser ttyS0 115200 vt100
 EOF
 
 # --- 4b. THE RESOLVER, WHICH WAS THE CONTAINER'S AND NOT THE GUEST'S -----------------------
@@ -188,8 +192,9 @@ as_root ln -sf /etc/init.d/networking "$ROOT/etc/runlevels/boot/networking"
 # `vmuser`, `--password` defaults to `admin`), and this image had no sshd at all - so `/api/state`
 # would answer `ssh_ready: false` forever on a guest with a healthy network.
 #
-# NO ROOT LOGIN: the console autologins root because that is how a serial prompt is asserted, and
-# remote root would be a second way in for no benefit. `PermitRootLogin no` states it.
+# NO ROOT LOGIN: the console autologins `vmuser` - see the inittab above for why the session
+# belongs to a user - and remote root would be a second way in for no benefit. `PermitRootLogin no`
+# states it.
 as_root chroot "$ROOT" /bin/sh -c '
 	set -e
 	id vmuser >/dev/null 2>&1 || adduser -D -s /bin/ash vmuser

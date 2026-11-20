@@ -97,7 +97,7 @@ mkdir -p "$ROOT/etc/systemd/system/getty.target.wants"
 cat > "$ROOT/etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf" <<'EOF'
 [Service]
 ExecStart=
-ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+ExecStart=-/sbin/agetty --autologin vmuser --noclear %I $TERM
 EOF
 ln -sf /usr/lib/systemd/system/serial-getty@.service \
 	"$ROOT/etc/systemd/system/getty.target.wants/serial-getty@ttyS0.service"

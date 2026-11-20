@@ -207,13 +207,21 @@
             boot.initrd.kernelModules = [ "virtio_blk" "virtio_mmio" ];
 
             # ---------------------------- A CONSOLE ----------------------------
-            # THE ROOT ACCOUNT IS THE ONLY ONE, with an empty password. The console is this
-            # machine's entire surface, so a login nobody can answer is a dead guest.
+            # THE CONSOLE LOGS IN AS vmuser, AND THE SESSION BELONGS TO IT.
+            #
+            # THE REASON IS PIPEWIRE. Its packaged unit carries `ConditionUser=!root`, so a root
+            # session cannot start it - MEASURED on KDE, where `systemctl --user start pipewire`
+            # answered "inactive" and the journal said the condition was unmet. Every Wayland
+            # desktop that captures or plays audio goes through PipeWire, so a root console cannot
+            # run one.
+            #
+            # root KEEPS THE MACHINE: PID 1, the initramfs, resize2fs, sshd. The desktop is a user
+            # process, which is what it is on every real system.
             users.users.root = {
               password = "";
               shell = pkgs.bashInteractive;
             };
-            services.getty.autologinUser = "root";
+            services.getty.autologinUser = "vmuser";
 
             # THE ACCOUNT AND THE DAEMON THE DRIVER LOGS IN AS.
             #
@@ -233,8 +241,8 @@
             # NOPASSWD BECAUSE THE DRIVER HAS NO TERMINAL TO ANSWER A SUDO PROMPT WITH.
             security.sudo.wheelNeedsPassword = false;
 
-            # PASSWORD AUTH AND NO ROOT LOGIN, matching the other two images: the console autologins
-            # root, so a remote root would be a second way in for no benefit.
+            # PASSWORD AUTH AND NO ROOT LOGIN: the console autologins vmuser, so a remote root
+            # would be a second way in for no benefit.
             services.openssh = {
               enable = true;
               settings = {
