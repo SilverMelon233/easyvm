@@ -216,7 +216,11 @@ rm -rf "$ROOT/var/cache/dnf" "$ROOT/var/cache/libdnf5" "$ROOT/var/log"/* 2>/dev/
 #
 # THE HEADROOM IS 8 GiB AND IT COSTS ALMOST NOTHING: qcow2 stores only clusters that were
 # written. MEASURED on the Debian image: 1.32 GiB virtual, 502 MiB in the file.
-SIZE=$(( $(du -sm "$ROOT" | cut -f1) + 8192 ))
+# 64 GiB, FIXED. The guest grows its filesystem into the disk with `growfs.service`,
+# so the virtual size is a POLICY decision and not a build artefact: qcow2 stores only
+# clusters that were written, so a large disk costs nothing until somebody fills it,
+# and an operator can install a toolchain or a desktop without rebuilding the image.
+SIZE=65536
 log "writing a ${SIZE} MiB ext4 image"
 rm -f "$WORK/rootfs.raw"
 truncate -s "${SIZE}M" "$WORK/rootfs.raw"

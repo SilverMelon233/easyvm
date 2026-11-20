@@ -900,7 +900,11 @@ umount "$ROOT/dev" 2>/dev/null || true
 # partition table (`mke2fs -d` writes the filesystem directly), so growing it is one command against
 # `/dev/vda` - no partition to move. `e2fsprogs` is installed above so the guest HAS that command, and
 # `growfs.service` runs it once at first boot in case a future image is handed a larger disk.
-SIZE=$(( $(du -sm "$ROOT" | cut -f1) + 8192 ))
+# 64 GiB, FIXED. The guest grows its filesystem into the disk with `growfs.service`,
+# so the virtual size is a POLICY decision and not a build artefact: qcow2 stores only
+# clusters that were written, so a large disk costs nothing until somebody fills it,
+# and an operator can install a toolchain or a desktop without rebuilding the image.
+SIZE=65536
 log "writing a ${SIZE} MiB ext4 image"
 rm -f "$WORK/rootfs.raw"
 truncate -s "${SIZE}M" "$WORK/rootfs.raw"
