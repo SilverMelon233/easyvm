@@ -249,7 +249,17 @@ if [ ! -d "$ROOT/usr" ]; then
 	#            and wayland-sessions/treeland.desktop  Exec=/usr/bin/dde-session
 	#   deepin   XSESSIONS/deepin.desktop               Exec=/usr/bin/dde-session
 	# (kylin and treeland are the Wayland side; deepin-session's own entry is X11.)
-	kylin)    DESKTOP_PKGS="kylin-wayland-compositor ukui-session-manager foot $DESKTOP_COMMON" ;;
+	# THE UKUI SESSION IS NOT IN THE OFFICIAL REPOS. MEASURED: `ukui-session-manager` answers
+	# "target not found", the package search API returns zero results for it, and the
+	# ukui family that IS published is components only - ukui-quick, ukui-sni,
+	# ukui-window-switch, ukui-search, none of which is a session. kylin-wayland-compositor's
+	# own session file says `Exec=kylin-wlcom -s ukui-session`, so that Exec points at a
+	# binary this repository does not carry.
+	#
+	# THE COMPOSITOR IS STILL WORTH BUILDING AND STARTING: it is wlroots-0.20 based, it exposes
+	# wlr-screencopy through wlroots, and it can be started bare. The session command below
+	# runs it without `-s ukui-session`, because that argument can only fail.
+	kylin)    DESKTOP_PKGS="kylin-wayland-compositor foot $DESKTOP_COMMON" ;;
 	# TREELAND IS DEEPIN'S WAYLAND COMPOSITOR, not a separate desktop: it runs
 	# `treeland-user-wrapper`, which starts dde on the treeland compositor. The bare `treeland`
 	# name is kept as an alias because that is the package, and the `-wayland` name exists for
@@ -744,7 +754,25 @@ STARTUP
 			# environment file and menu copied into place - all of which the script does for us.
 			SESSION_CMD='exec startbudgielabwc'
 		elif [ "$DESKTOP" = "kylin" ]; then
-			SESSION_CMD='exec kylin-wlcom -s ukui-session'
+			# NO `-s ukui-session`: MEASURED, that binary is not in the official repos (see the
+			# package list). `-s <process>` IS the compositor's own startup flag - MEASURED from
+			# its help: "-s, --session <process>  Run session on startup" - so a script takes
+			# the place of the session manager.
+			# `-d` WAS TRIED AND IS NOT ENOUGH: MEASURED, `kylin-wlcom -d` still writes nothing to
+			# stdout - no socket line, no output line, not even with debug on, and the journal
+			# for the session holds only systemd's own socket chatter. So a silent log cannot be
+			# told apart from a compositor that never drew, and the capture is 0 bytes.
+			#
+			# WHAT IS KNOWN: the binary links libwlroots-0.20 and carries zwlr_screencopy
+			# references, so the protocol should be there; the est server answers Hello at the
+			# default 1920x1080, which means it never attached to a real output. Left at `-d` so
+			# any later attempt starts from the most it will say.
+			SESSION_CMD='exec kylin-wlcom -d -s /opt/startup-client.sh'
+			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
+#!/bin/sh
+exec foot -T "ARCH KYLIN MICROVM" -e sh -c 'echo ARCH KYLIN MICROVM; echo compositor: kylin-wlcom; echo socket: $WAYLAND_DISPLAY; sleep 3600'
+STARTUP
+			chmod 0755 "$ROOT/opt/startup-client.sh"
 		elif [ "$DESKTOP" = "treeland" ] || [ "$DESKTOP" = "deepin-wayland" ]; then
 			# `treeland-user.desktop`, which is the VISIBLE one: the sibling `treeland.desktop`
 			# is `Hidden=true` and is the no-greeter variant.
