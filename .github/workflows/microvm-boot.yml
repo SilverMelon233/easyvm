@@ -12,9 +12,15 @@ name: microvm-boot
 # catch, and no existing job could have caught it.
 #
 # `alpine-microvm.yml` DOES boot alpine, and it is not extended to cover the others for a reason: it
-# exists to prove the TUN DEVICE, and it needs `CAP_NET_ADMIN`, `/dev/net/tun`, a socks5 echo and
-# policy-routing assertions. None of that is about a rootfs. This workflow boots machines and asserts
-# on their consoles; it needs no more privilege than a container to run qemu in.
+# exists to prove the UDP RELAY - a socks5 echo, policy-routing assertions, a tun device whose address
+# and route are checked from outside the guest. None of that is about a rootfs. This workflow boots
+# machines and reads their consoles.
+#
+# IT DOES STILL NEED `/dev/net/tun` AND `CAP_NET_ADMIN`, WHICH IS NOT OBVIOUS AND WAS MEASURED: the
+# daemon gives every guest a tap on a bridge, so a container without the device cannot start a
+# machine at all - see the comment on the boot step.
+
+
 #
 # ---------------------------------------------------------------------------------------------------
 # THE FOUR VARIANTS, AND WHY EACH WALKTHROUGH IS THE RIGHT ONE
@@ -170,10 +176,19 @@ jobs:
           docker build -f Containerfile --target tester -t easyvm-ci:local .
 
       - name: boot ${{ matrix.tag }}
-        # NO `--cap-add NET_ADMIN` AND NO `/dev/net/tun`: this job does not relay anything. The
-        # daemon asks for those only when `EASYVM_UDP_PROXY` is set, and it is not set here - so a
-        # guest with no proxy gets a working direct TCP path and no tun device, which is all a boot
-        # test needs.
+        # THE TUN DEVICE IS REQUIRED EVEN THOUGH NOTHING IS RELAYED, AND THAT IS MEASURED.
+        #
+        # This workflow's first version omitted it on the theory that a boot test needs no
+        # network. MEASURED on run 44683131986, all eight legs:
+        #
+        #	boot: /dev/net/tun is not usable: the file does not exist, so the container was
+        #	started without `--device /dev/net/tun`. Without it no guest can be reached on
+        #	the bridge, and qemu's user-mode networking cannot replace it because the host's
+        #	smbd listens on 172.30.0.1
+        #
+        # The daemon builds a real bridge with a tap for every guest - that is how the walk's
+        # own `ssh` and console steps reach the machine - so the device is part of starting a
+        # machine at all, not part of relaying its UDP.
         run: |
           set -eux
           work=$(mktemp -d)
@@ -204,6 +219,8 @@ jobs:
 
           docker run -d --name easyvm \
             --entrypoint easyvm \
+            --cap-add NET_ADMIN \
+            --device /dev/net/tun:/dev/net/tun \
             $kvm \
             -v "$work:/work" \
             easyvm-ci:local serve --work /work
