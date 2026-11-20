@@ -351,13 +351,13 @@
           # `mke2fs -d` NEEDS THE DIRECTORY TO HOLD EVERYTHING, not a tarball. The size is read from
           # the tree and rounded up: a NixOS closure is hundreds of MiB and a fixed size either
           # wastes space or fails at the 400th megabyte with `No space left on device`.
-          # 8 GiB, BECAUSE THE HEADROOM IS A GUESS AND QCOW2 MAKES IT CHEAP.
+          # 64 GiB, FIXED, AND THE SAME NUMBER EVERY OTHER VARIANT USES.
           #
-          # MEASURED on the Debian image with the same shape of arithmetic: 1.32 GiB virtual, 502 MiB
-          # in the file - qcow2 stores only clusters that were written, so a large virtual size costs
-          # nothing until somebody uses it. `+ 300` left a guest whose own `nix` store could not take
-          # another package.
-          size=$(( $(du -sm tree | cut -f1) + 8192 ))
+          # qcow2 stores only clusters that were written, so a large virtual size costs nothing in
+          # the file until somebody fills it - and `growfs` in the guest resizes the filesystem into
+          # whatever the daemon hands it. That makes this a POLICY number rather than a build
+          # artefact, and one number means "how big is a microvm disk" has an answer.
+          size=65536
           truncate -s "''${size}M" rootfs.raw
           # `-N` IS NOT OPTIONAL AND `-i` WOULD NOT HAVE SAVED THIS.
           #

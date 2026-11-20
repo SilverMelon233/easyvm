@@ -208,7 +208,11 @@ printf '# The bridge runs DNS for this guest.\nnameserver 172.30.0.1\n' > "$ROOT
 rm -rf "$ROOT/var/cache/zypp"/* "$ROOT/var/log"/* "$ROOT/tmp/gnupg" 2>/dev/null || true
 
 # --- 4. write the disk --------------------------------------------------------------------
-SIZE=$(( $(du -sm "$ROOT" | cut -f1) + 8192 ))
+# 64 GiB, FIXED. The guest grows its filesystem into the disk with `growfs.service`,
+# so the virtual size is a POLICY decision and not a build artefact: qcow2 stores only
+# clusters that were written, so a large disk costs nothing until somebody fills it,
+# and an operator can install a toolchain or a desktop without rebuilding the image.
+SIZE=65536
 log "writing a ${SIZE} MiB ext4 image"
 rm -f "$WORK/rootfs.raw"
 truncate -s "${SIZE}M" "$WORK/rootfs.raw"

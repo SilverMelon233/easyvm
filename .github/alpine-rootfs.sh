@@ -244,7 +244,11 @@ if [ ! -f "$WORK/rootfs.raw" ]; then
 	#	Space needed: 473 MB / 100 MB available
 	#
 	# - an image that cannot install packages, which is what a fixed small headroom means.
-	SIZE=$(( $(as_root du -sm "$ROOT" | cut -f1) + 8192 ))
+	# 64 GiB, FIXED. The guest grows its filesystem into the disk with `growfs.service`,
+# so the virtual size is a POLICY decision and not a build artefact: qcow2 stores only
+# clusters that were written, so a large disk costs nothing until somebody fills it,
+# and an operator can install a toolchain or a desktop without rebuilding the image.
+SIZE=65536
 	log "writing a ${SIZE} MiB ext4 image"
 	rm -f "$WORK/rootfs.raw"
 	truncate -s "${SIZE}M" "$WORK/rootfs.raw"
