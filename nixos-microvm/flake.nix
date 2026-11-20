@@ -127,6 +127,20 @@
             # nothing to do here.
             services.resolved.enable = lib.mkForce false;
 
+            # AND `resolvconf`, WHICH IS THE SAME ARGUMENT ONE LAYER UP. MEASURED on the run that
+            # first disabled resolved:
+            #
+            #	Failed assertions:
+            #	- networking.resolvconf.enable is true but environment.etc."resolv.conf"
+            #	  is also set. Set networking.resolvconf.enable = false if another
+            #	  service manages /etc/resolv.conf.
+            #
+            # resolved.nix used to turn this off as a side effect of being enabled
+            # (`networking.resolvconf.enable = false`), so disabling resolved handed the file back to
+            # resolvconf and the assertion fired instead of the conflict. Both writers have to be
+            # named, and this is the second one.
+            networking.resolvconf.enable = lib.mkForce false;
+
             # NO BOOTLOADER. A microvm has no firmware to read a boot sector, so qemu is handed the
             # kernel and the initramfs directly with `-kernel`/`-initrd`. GRUB would be a disk
             # partition nothing ever reads.
