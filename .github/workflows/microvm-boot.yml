@@ -177,7 +177,17 @@ jobs:
         run: |
           set -eux
           work=$(mktemp -d)
-          cp /tmp/rootfs/${{ matrix.files }} "$work"/
+          # ONE `cp` PER FILE, BECAUSE A BARE `${{ matrix.files }}` SPLITS INTO WORDS AND ONLY
+          # THE FIRST WOULD CARRY THE DIRECTORY. MEASURED, the one-liner expanded to
+          #
+          #	cp /tmp/rootfs/alpine-vmlinuz alpine-initramfs alpine.qcow2 /tmp/tmp.XXXX/
+          #
+          # so the last two were read as paths relative to the checkout and the boot step died
+          # with "cp: cannot stat 'alpine-initramfs'". Every leg failed the same way, including
+          # the ones whose images were fine.
+          for f in ${{ matrix.files }}; do
+            cp "/tmp/rootfs/$f" "$work/"
+          done
           cp ${{ matrix.walk }} "$work/walkthrough.walk"
           ls -l "$work"
 
