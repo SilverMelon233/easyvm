@@ -22,8 +22,13 @@ name: microvm-rootfs
 # ISOs are (`artifacts-publish.yml`): `oci-push` mirrors a single file, so the three files a microvm
 # boots are tarred. Consumers pull the tarball and untar it.
 #
-#	ghcr.io/<repo>:rootfs-alpine
-#	ghcr.io/<repo>:rootfs-debian
+#	ghcr.io/<repo>:rootfs-alpine-minimal
+#	ghcr.io/<repo>:rootfs-debian-minimal
+#	ghcr.io/<repo>:rootfs-debian-xfce
+#
+# THE TAG NAMES THE VARIANT AND NOT ONLY THE DISTRIBUTION, because Debian is TWO builds of one script
+# and a tag that said `rootfs-debian` would have to mean one of them. A consumer now asks for the
+# thing it wants: a system with no screen, or one with XFCE.
 #
 # THE TAG CARRIES NO VERSION, AND THAT IS DELIBERATE: a rootfs is a build of THIS COMMIT's scripts, so
 # a consumer on the same commit wants the same bytes. A version would let a test pin an image whose
@@ -31,14 +36,16 @@ name: microvm-rootfs
 # The content changes when the script changes, and the push refuses identical bytes - so a re-run
 # without a script change is a no-op rather than a churn of the registry.
 #
-# NIXOS IS NOT HERE. Its root filesystem is the output of `nix build` against a flake, which is a
-# different shape (a closure, not a directory tree), and it already has its own workflow.
+# NIXOS IS NOT HERE. Its root filesystem is the output of `nix build` against a flake, which needs a
+# nix store and a nix daemon that this `ubuntu-latest` job does not have - it builds inside a
+# `nixos/nix` container in `nixos-microvm.yml`, which publishes `rootfs-nixos-minimal` under the same
+# naming rule. The three tags above and that one are the four variants consumers may ask for.
 
 on:
   push:
     branches: ["**"]
     # A ROOTFS ONLY CHANGES WHEN THE SCRIPT THAT MAKES IT DOES. Path filters keep this off every
-    # unrelated push, which matters because it builds two images.
+    # unrelated push, which matters because it builds three images.
     paths:
       - ".github/alpine-rootfs.sh"
       - ".github/debian-rootfs.sh"
@@ -68,13 +75,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - distro: alpine
+          # ALPINE HAS ONE SHAPE, SO ITS NAME IS THE ONE THAT SAYS WHAT THAT SHAPE IS.
+          - tag: rootfs-alpine-minimal
             script: .github/alpine-rootfs.sh
             # THE THREE FILES EACH SCRIPT WRITES, named once here so a consumer and this file cannot
             # disagree about what a "rootfs" is.
             files: "alpine-vmlinuz alpine-initramfs alpine.qcow2"
-          - distro: debian
+          # DEBIAN IS TWO BUILDS OF ONE SCRIPT, DIFFERING ONLY IN `DESKTOP`. That switch exists
+          # because everything that makes a microvm boot - kernel, virtio modules, initramfs, fstab,
+          # autologin, DHCP - is identical between them, and a second script would be a copy that
+          # drifts. See the header of `debian-rootfs.sh`.
+          - tag: rootfs-debian-minimal
             script: .github/debian-rootfs.sh
+            desktop: "0"
+            files: "debian-vmlinuz debian-initramfs debian.qcow2"
+          - tag: rootfs-debian-xfce
+            script: .github/debian-rootfs.sh
+            desktop: "1"
             files: "debian-vmlinuz debian-initramfs debian.qcow2"
     steps:
       - uses: actions/checkout@v4
@@ -85,12 +102,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends e2fsprogs qemu-utils
 
-      - name: build ${{ matrix.distro }}
+      - name: build ${{ matrix.tag }}
         run: |
           set -eux
           out=/tmp/rootfs-out
           mkdir -p "$out"
-          sudo sh ${{ matrix.script }} "$out"
+          # `DESKTOP` GOES THROUGH `env` RATHER THAN `sudo -E`, because `-E` only passes what
+          # sudoers allows and the runner's file is not ours to rely on. An unset value (alpine's
+          # row) reaches the script as the empty string, which alpine's script does not read.
+          sudo env DESKTOP="${{ matrix.desktop }}" sh ${{ matrix.script }} "$out"
           sudo chown -R "$(id -u):$(id -g)" "$out"
 
           # EVERY FILE IS ASSERTED NON-EMPTY BEFORE IT IS PUBLISHED. A build that "succeeded" with an
@@ -111,9 +131,9 @@ jobs:
           # `tar` FROM INSIDE the directory, so the members are bare names and a consumer's `tar xf`
           # puts them where it expects. A leading `./` would be harmless; a leading absolute path
           # would not.
-          tar -cf /tmp/rootfs-${{ matrix.distro }}.tar ${{ matrix.files }}
-          ls -l /tmp/rootfs-${{ matrix.distro }}.tar
-          tar -tf /tmp/rootfs-${{ matrix.distro }}.tar
+          tar -cf /tmp/${{ matrix.tag }}.tar ${{ matrix.files }}
+          ls -l /tmp/${{ matrix.tag }}.tar
+          tar -tf /tmp/${{ matrix.tag }}.tar
 
       - name: push to the registry
         # A PULL REQUEST CANNOT PUSH, and that is correct: a fork's token has no write access to this
@@ -121,22 +141,22 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: easydev-org/easyactions/oci-push@main
         with:
-          path: /tmp/rootfs-${{ matrix.distro }}.tar
-          tag: rootfs-${{ matrix.distro }}
+          path: /tmp/${{ matrix.tag }}.tar
+          tag: ${{ matrix.tag }}
           repository: ${{ github.repository }}
           media-type: application/vnd.easydev.rootfs
           token: ${{ github.token }}
-          check-name: rootfs-${{ matrix.distro }}
+          check-name: ${{ matrix.tag }}
 
       - name: say what was published
         if: always()
         run: |
-          echo "### rootfs ${{ matrix.distro }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "### ${{ matrix.tag }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "Built, not published (a pull request has no package write access)." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Published as \`ghcr.io/${{ github.repository }}:rootfs-${{ matrix.distro }}\`." >> "$GITHUB_STEP_SUMMARY"
+            echo "Published as \`ghcr.io/${{ github.repository }}:${{ matrix.tag }}\`." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

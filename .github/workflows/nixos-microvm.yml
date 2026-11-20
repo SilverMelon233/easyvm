@@ -73,12 +73,13 @@ on:
         default: true
       push_disk:
         description: >-
-          push rootfs.qcow2 to the registry. OFF BY DEFAULT AND NOT A POLITENESS: MEASURED, the
-          job's token was refused with `denied: installation not allowed to Write organization
-          package`, so a dispatch that flipped this on would fail AFTER a twenty-minute build. The
-          publication workflow is the thing that owns disks - this one builds and verifies them.
+          push the rootfs to the registry as rootfs-nixos-minimal. ON BY DEFAULT: the four rootfs
+          variants are published by their own builds, and a NixOS variant that only exists when
+          somebody remembers a checkbox is not one of them. The earlier `denied: installation not
+          allowed to Write organization package` was the job having no `packages: write` permission,
+          not the token being unable to write - see the `permissions` block below.
         type: boolean
-        default: false
+        default: true
   push:
     branches: [main]
     paths:
@@ -95,6 +96,15 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    # THE PUSH NEEDS THIS AND NOTHING ELSE. MEASURED without it, the build passed every check and
+    # then stopped at the last step with
+    #
+    #	denied: installation not allowed to Write organization package
+    #
+    # which reads as a broken artifact and was a missing permission.
+    permissions:
+      contents: read
+      packages: write
     # THE SHIM'S SECOND HALF, AND IT MUST NOT CONTAIN GLIBC. See the header.
     env:
       LD_LIBRARY_PATH: /opt/actions-libs
@@ -335,26 +345,47 @@ jobs:
       # MEASURED, the rule this follows: uploading a disk as well as pushing it cost 22 GiB per
       # passing install leg and was downloaded by nobody. `internal/oci/artifacts_test.go` enforces it
       # for every workflow here.
+      # ONE TARBALL OF THE THREE FILES, WHICH IS THE SHAPE THE OTHER TWO VARIANTS PUBLISH.
+      #
+      # MEASURED, this used to push `rootfs.qcow2` alone: `oci-push` mirrors ONE FILE, so the disk
+      # went up without the kernel and initramfs that boot it, and a consumer had to come back to
+      # this workflow's artifacts for the other two. A tarred trio is what `microvm-rootfs.yml`
+      # publishes for alpine and debian, so a consumer untars all four variants the same way.
+      #
+      # THE MEMBER NAMES ARE THE ONES THE WALKTHROUGH ALREADY ASKS FOR (`needs nixos-kernel
+      # nixos-initrd nixos-rootfs.qcow2`), so an unpacked tarball can be dropped into a
+      # walkthrough's directory unchanged.
+      - name: tar the three files
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.push_disk)
+        run: |
+          set -eux
+          mkdir -p /tmp/nixos-out
+          cp nixos-microvm/out/kernel        /tmp/nixos-out/nixos-kernel
+          cp nixos-microvm/out/initrd        /tmp/nixos-out/nixos-initrd
+          cp nixos-microvm/out/rootfs.qcow2  /tmp/nixos-out/nixos-rootfs.qcow2
+          cd /tmp/nixos-out
+          tar -cf /tmp/rootfs-nixos-minimal.tar nixos-kernel nixos-initrd nixos-rootfs.qcow2
+          ls -l /tmp/rootfs-nixos-minimal.tar
+          tar -tf /tmp/rootfs-nixos-minimal.tar
+
       - name: push the root filesystem
-        # OFF UNLESS ASKED, SEE `push_disk`. THE DEFAULT IS `false` AND THAT IS THE MEASURED ANSWER:
-        # the first run of this workflow had it on and stopped at the last step with
-        #
-        #	denied: installation not allowed to Write organization package
-        #
-        # after the build and every check had passed. The token a `workflow_dispatch` job gets cannot
-        # write packages for this repository, and a leg that fails at its final step is worse than
-        # one that never tried - it reads like the artifact is broken.
-        if: github.event_name == 'workflow_dispatch' && inputs.push_disk
+        # `push_disk` IS ON BY DEFAULT (see the input), because the four rootfs variants are
+        # published by their own builds and a NixOS one that waits for a checkbox is not one of
+        # them. The earlier `denied: installation not allowed to Write organization package` was
+        # this job having no `packages: write` - see the `permissions` block on the job.
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.push_disk)
         uses: easydev-org/easyactions/oci-push@main
         with:
-          # THE NAME IS A TAG, and it carries the commit because a tag two runs can write says
-          # nothing about what is inside it.
-          path: nixos-microvm/out/rootfs.qcow2
-          tag: nixos-microvm-rootfs
+          # THE TAG NAMES THE VARIANT, matching `rootfs-alpine-minimal` and `rootfs-debian-minimal`
+          # in `microvm-rootfs.yml`. It carries no version for the same reason those do not: a
+          # rootfs is a build of this commit's flake, and a version would let a consumer pin an
+          # image whose definition no longer matches the tree.
+          path: /tmp/rootfs-nixos-minimal.tar
+          tag: rootfs-nixos-minimal
           repository: ${{ github.repository }}
-          media-type: application/vnd.easydev.artifact
+          media-type: application/vnd.easydev.rootfs
           token: ${{ github.token }}
-          check-name: nixos-microvm-rootfs
+          check-name: rootfs-nixos-minimal
 
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'workflow_dispatch' || inputs.publish
