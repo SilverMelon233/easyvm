@@ -156,6 +156,51 @@ jobs:
           - tag: rootfs-arch-i3
             walk: linux/arch-i3-microvm/steps/desktop.walk
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          # THE VERIFIED SET, ONE ROW EACH. Every one was booted and captured locally before
+          # its walkthrough was written, so these assert on a process that was MEASURED to
+          # reach a real screen. The ones with a stated limit - river's missing layout
+          # generator, weston's and KWin's absent capture protocol, kylin's unpublished ukui
+          # session, the two session managers that fail internally - are deliberately absent,
+          # because a row here would assert on a desktop that cannot draw.
+          - tag: rootfs-arch-flashback
+            walk: linux/arch-flashback-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-mate
+            walk: linux/arch-mate-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-qtile
+            walk: linux/arch-qtile-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-enlightenment
+            walk: linux/arch-enlightenment-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-deepin
+            walk: linux/arch-deepin-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-labwc
+            walk: linux/arch-labwc-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-wayfire
+            walk: linux/arch-wayfire-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-hyprland
+            walk: linux/arch-hyprland-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-budgie
+            walk: linux/arch-budgie-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-phosh
+            walk: linux/arch-phosh-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-xfce-wayland
+            walk: linux/arch-xfce-wayland-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-lxqt-wayland
+            walk: linux/arch-lxqt-wayland-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-qtile-wayland
+            walk: linux/arch-qtile-wayland-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
           - tag: rootfs-leap-minimal
             walk: linux/leap-microvm/steps/console.walk
             files: "leap-vmlinuz leap-initramfs leap.qcow2"

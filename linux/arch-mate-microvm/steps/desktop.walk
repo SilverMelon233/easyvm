@@ -1,0 +1,32 @@
+# AN ARCH LINUX MICROVM RUNNING MATE ON AN X SERVER IN MEMORY.
+#
+# X11 FAMILY: the display server is `Xvfb` and the capture path is XSHM rather than
+# wlr-screencopy. A microvm has no GPU; Xorg's modesetting driver has nothing to open, while
+# Xvfb renders into its own process memory. MEASURED: this session reaches a real desktop and
+# easystream captures it at 1024x768.
+#
+# THE SESSION BUS IS EXPLICIT. `dbus-daemon --session` with a named socket in the runtime
+# directory, started by the session script; MEASURED without it a desktop draws "Unable to
+# contact settings server" because nothing had a bus to talk to.
+
+walkthrough "mate microvm - MATE captured from the console assertion"
+  resolution 1024x768
+  recording_resolution 1024x768
+
+  needs arch-vmlinuz arch-initramfs arch.qcow2
+  disk arch.qcow2
+
+  boot as a microvm from kernel "arch-vmlinuz" and initramfs "arch-initramfs" with "console=ttyS0 root=/dev/vda rw rootfstype=ext4" without a display with memory 1536, waiting up to 240s
+
+  # THE KERNEL FOUND THE DISK AND USERSPACE STARTED.
+  the console will say "login"
+
+  # AND THE SESSION IS vmuser's - PipeWire refuses root (`ConditionUser=!root`).
+  the console will say "vmuser"
+
+  # THE SESSION'S OWN PROCESS NAME, which only appears once it is running.
+  the console will say "mate-session"
+
+  wait 20s
+
+  stop the machine by killing it, waiting up to 60s

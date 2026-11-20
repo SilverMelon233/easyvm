@@ -149,6 +149,81 @@ jobs:
             script: .github/arch-rootfs.sh
             desktop: "i3"
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          # THE REST OF THE VERIFIED SET. Each of these was booted locally and its screen
+          # captured before it was added; the evidence for each is its own PNG.
+          #
+          #	flashback      the GNOME Flashback panel, Home and Trash icons, the clock
+          #	mate           the Applications/Places/System menus and the window list
+          #	qtile          the Qtile logo and its bar with "Press <M-r> to spawn"
+          #	enlightenment  the first-run language wizard
+          #	deepin         the DDE dock with the circular launcher and the clock
+          #	labwc          a window titled ARCH LABWC MICROVM and its decorations
+          #	wayfire        the same shape, titled ARCH WAYFIRE MICROVM
+          #	hyprland       ARCH HYPRLAND MICROVM over its default wallpaper
+          #	budgie         the Budgie panel and its default wallpaper
+          #	phosh          the lock screen at 720x1280 with "Slide up to unlock"
+          #	xfce-wayland   the full XFCE desktop on labwc
+          #	lxqt-wayland   the LXQt Session Settings dialog with its Wayland page
+          #	qtile-wayland  qtile's bar on the Wayland backend
+          #
+          # THE ONES WITH A MEASURED LIMIT ARE NOT HERE. river has no layout generator in the
+          # official repos, mangowm and weston and the KWin sessions (plasma-mobile,
+          # plasma-bigscreen) expose no protocol easystream can read, kylin's compositor is
+          # silent and its ukui session is not published, and cinnamon-wayland and
+          # enlightenment-wayland fail inside their own session managers. Each is described
+          # where its session command is defined in arch-rootfs.sh.
+          - tag: rootfs-arch-flashback
+            script: .github/arch-rootfs.sh
+            desktop: "flashback"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-mate
+            script: .github/arch-rootfs.sh
+            desktop: "mate"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-qtile
+            script: .github/arch-rootfs.sh
+            desktop: "qtile"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-enlightenment
+            script: .github/arch-rootfs.sh
+            desktop: "enlightenment"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-deepin
+            script: .github/arch-rootfs.sh
+            desktop: "deepin"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-labwc
+            script: .github/arch-rootfs.sh
+            desktop: "labwc"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-wayfire
+            script: .github/arch-rootfs.sh
+            desktop: "wayfire"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-hyprland
+            script: .github/arch-rootfs.sh
+            desktop: "hyprland"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-budgie
+            script: .github/arch-rootfs.sh
+            desktop: "budgie"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-phosh
+            script: .github/arch-rootfs.sh
+            desktop: "phosh"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-xfce-wayland
+            script: .github/arch-rootfs.sh
+            desktop: "xfce-wayland"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-lxqt-wayland
+            script: .github/arch-rootfs.sh
+            desktop: "lxqt-wayland"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-qtile-wayland
+            script: .github/arch-rootfs.sh
+            desktop: "qtile-wayland"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
           - tag: rootfs-leap-minimal
             script: .github/leap-rootfs.sh
             files: "leap-vmlinuz leap-initramfs leap.qcow2"
