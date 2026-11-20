@@ -58,6 +58,7 @@ on:
       - "linux/fedora-microvm/**"
       - "linux/ubuntu-microvm/**"
       - "linux/arch-microvm/**"
+      - "linux/arch-sway-microvm/**"
       - "linux/leap-microvm/**"
       - "internal/**"
       - "cmd/**"
@@ -71,6 +72,7 @@ on:
       - "linux/fedora-microvm/**"
       - "linux/ubuntu-microvm/**"
       - "linux/arch-microvm/**"
+      - "linux/arch-sway-microvm/**"
       - "linux/leap-microvm/**"
       - "internal/**"
       - "cmd/**"
@@ -127,6 +129,12 @@ jobs:
             files: "ubuntu-vmlinuz ubuntu-initramfs ubuntu.qcow2"
           - tag: rootfs-arch-minimal
             walk: linux/arch-microvm/steps/console.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          # THE DESKTOP VARIANT, WITH ITS OWN WALKTHROUGH. It asserts on the compositor's bar
+          # rather than a login prompt, because a sway that cannot create a backend still
+          # reaches a prompt - it just never draws.
+          - tag: rootfs-arch-sway
+            walk: linux/arch-sway-microvm/steps/desktop.walk
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
           - tag: rootfs-leap-minimal
             walk: linux/leap-microvm/steps/console.walk
