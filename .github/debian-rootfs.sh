@@ -41,6 +41,29 @@
 set -eu
 
 V="${DEBIAN_VERSION:-trixie}"
+# DESKTOP=1 BUILDS THE XFCE GUEST; DESKTOP=0 BUILDS THE SAME SYSTEM WITHOUT A SCREEN.
+#
+# THE TWO ARE ONE SCRIPT RATHER THAN TWO, because everything that makes a microvm BOOT is identical:
+# the kernel, the virtio modules, the initramfs, the fatal fstab, the autologin, the DHCP interface and
+# the 8 GiB of headroom. A second script would be a copy of all of that with the package list changed,
+# and the copies would drift - which is the failure this repository has already paid for once with the
+# three rootfs scripts.
+#
+# WHAT THE SWITCH TURNS OFF: Xvfb, the XFCE session, easystream, PulseAudio and its null sink,
+# xclip/at-spi2-core, and the units that start them. What it leaves: an ssh-reachable Debian with
+# systemd, a DHCP address and nothing drawing anything.
+DESKTOP="${DESKTOP:-1}"
+
+# THE PACKAGES THE SCREEN NEEDS, EMPTY WHEN THERE IS NO SCREEN. Kept as one string so the apt line
+# above stays a single command in both variants - a second `apt-get install` would be a second
+# transaction, and a failure in it would leave a tree with some of the desktop installed.
+if [ "$DESKTOP" = "1" ]; then
+	DESKTOP_PKGS="xvfb xfce4 xfce4-terminal dbus-x11 xauth x11-utils x11-apps \
+		libx264-164 libyuv0 libxcb-xtest0 libpipewire-0.3-0t64 \
+		xclip at-spi2-core pulseaudio pulseaudio-utils dbus"
+else
+	DESKTOP_PKGS=""
+fi
 OUT="${1:-.}"
 WORK="${OUT}/debian-build"
 # SEE THE `DEBIAN_MIRROR` BLOCK BELOW THE SOURCES FOR THE MEASUREMENT. `DEBIAN_MIRROR=` (empty)
@@ -259,20 +282,22 @@ APTCONF
 
 env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_proxy"} \
 	DEBIAN_FRONTEND=noninteractive \
+	DESKTOP_PKGS="$DESKTOP_PKGS" \
 	chroot "$ROOT" /bin/sh -c '
 		set -e
 		apt-get update -qq
 		# THE VIRTIO MODULES ARE THE POINT. Without virtio_blk the guest boots to
 		# "ALERT! /dev/vda does not exist" because nothing ever claims the MMIO device.
+		# THE BASE IS THE SAME IN BOTH VARIANTS: a kernel that finds the disk, systemd, sshd and a
+		# network. `DESKTOP` expands below to add the screen stack or nothing.
 		apt-get install -y -qq --no-install-recommends \
 			linux-image-amd64 initramfs-tools udev systemd-sysv \
 			iproute2 iputils-ping ca-certificates tzdata openssh-server \
-			xvfb xfce4 xfce4-terminal dbus-x11 xauth x11-utils x11-apps \
-			libx264-164 libyuv0 libxcb-xtest0 libpipewire-0.3-0t64 curl ca-certificates \
-			xclip at-spi2-core pulseaudio pulseaudio-utils dbus \
-			e2fsprogs passwd sudo
+			curl e2fsprogs passwd sudo \
+			$DESKTOP_PKGS
 
-		# AND WHY THOSE LAST FOUR.
+		# AND WHY THOSE LAST FOUR - ALL OF WHICH ARRIVE THROUGH `$DESKTOP_PKGS`, SO THIS PARAGRAPH
+		# DESCRIBES THE XFCE VARIANT ONLY AND IS KEPT BESIDE THE LIST IT EXPLAINS.
 		#
 		#	xclip             makes the clipboard readable rather than absent. probe.rs looks for
 		#	                  xclip or xsel on PATH, and the first build had neither - so a desktop
@@ -358,6 +383,11 @@ PermitRootLogin prohibit-password
 UsePAM yes
 SSHD
 
+# THE WHOLE SCREEN STACK IS ONE BRANCH, because none of it can work without the others: a session
+# with no X server draws nothing, easystream with no session has no pixels to read, and PulseAudio
+# with no null sink has no device. `DESKTOP=0` skips all of it and the tree stays a systemd box
+# with sshd - which is what `debian-minimal` is.
+if [ "$DESKTOP" = "1" ]; then
 # --- 4b. THE DESKTOP, AND THE STREAM THAT CARRIES IT ----------------------------------------
 #
 # MEASURED, AND THE REASON THE WHOLE DESIGN IS SHAPED THIS WAY: a microvm has NO FIRMWARE and NO
@@ -707,6 +737,8 @@ UNIT
 # through a tun device (see `internal/net/udprelay.go`), MEASURED as `HTTP/3 200` inside a running
 # guest. A browser told to refuse QUIC would not use the path that now exists.
 
+fi
+
 # --- 4d. GROW INTO THE DISK, ONCE, BECAUSE THE IMAGE SIZE IS A GUESS AND THE DISK IS NOT -----
 #
 # THE PROBLEM THIS SOLVES: the image is written with a fixed 8 GiB of headroom, which is a guess about
@@ -747,10 +779,26 @@ StandardError=journal+console
 WantedBy=multi-user.target
 UNIT
 
-for unit in dbus xvfb xfce easystream pulseaudio vsink vsink-silence growfs; do
+# THE ONE UNIT EVERY VARIANT WANTS. growfs is the disk growing into the size the daemon handed it,
+# and without it a doubled disk keeps its old filesystem.
+#
+# `dbus` IS NOT HERE, because the package that provides it is in `$DESKTOP_PKGS`: enabling a unit
+# whose file does not exist is not an error systemd reports, it is a job that silently does not
+# exist, and it would read in the tree as if the bus were configured.
+for unit in growfs; do
 	ln -sf "/etc/systemd/system/$unit.service" \
 		"$ROOT/etc/systemd/system/multi-user.target.wants/$unit.service"
 done
+
+# THE SCREEN'S UNITS, ONLY WHERE THERE IS A SCREEN. A `WantedBy` symlink to a unit file that was
+# never written is not an error systemd reports - it is a job that silently does not exist - so
+# leaving these enabled in the minimal image would look fine and mean nothing.
+if [ "$DESKTOP" = "1" ]; then
+	for unit in dbus xvfb xfce easystream pulseaudio vsink vsink-silence; do
+		ln -sf "/etc/systemd/system/$unit.service" \
+			"$ROOT/etc/systemd/system/multi-user.target.wants/$unit.service"
+	done
+fi
 
 
 # --- 4a. THE GUEST'S NETWORK ------------------------------------------------------------------

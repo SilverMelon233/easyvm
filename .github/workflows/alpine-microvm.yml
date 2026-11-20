@@ -68,13 +68,13 @@ jobs:
         id: rootfs
         uses: easydev-org/easyactions/oci-pull@main
         with:
-          tag: rootfs-alpine
+          tag: rootfs-alpine-minimal
           repository: ${{ github.repository }}
           dest: /tmp/alpine-out
           # THE PUBLISHED FILE IS A TARBALL OF THE THREE FILES, because `oci-push` mirrors one file and
           # a kernel without its initramfs does not boot. The name is fixed so this cannot drift from
           # the publisher's.
-          path: rootfs-alpine.tar
+          path: rootfs-alpine-minimal.tar
           token: ${{ github.token }}
 
       # THE PULL WRITES TO THE WORKSPACE, NOT TO `dest`.
@@ -83,17 +83,17 @@ jobs:
       #
       #	--- what the pull left behind ---
       #	/tmp/alpine-out                                          <- empty
-      #	/home/runner/work/easyvm/easyvm/rootfs-alpine.tar         <- the file
+      #	/home/runner/work/easyvm/easyvm/rootfs-alpine-minimal.tar <- the file
       #
-      # `oci-pull` reports `rootfs-alpine.tar complete (91678720 bytes)` and puts it at the repository
+      # `oci-pull` reports `rootfs-alpine-minimal.tar complete (91678720 bytes)` and puts it at the repository
       # root, so both the action's `path` output and its `dest` input were misleading here. The
       # artifact is named from the workspace, which is where it actually lands.
       - name: unpack the three files
         run: |
           set -eux
           mkdir -p /tmp/alpine-out
-          tar -xf "$GITHUB_WORKSPACE/rootfs-alpine.tar" -C /tmp/alpine-out
-          rm -f "$GITHUB_WORKSPACE/rootfs-alpine.tar"
+          tar -xf "$GITHUB_WORKSPACE/rootfs-alpine-minimal.tar" -C /tmp/alpine-out
+          rm -f "$GITHUB_WORKSPACE/rootfs-alpine-minimal.tar"
           ls -l /tmp/alpine-out
 
       # THE THREE FILES ARE ASSERTED RATHER THAN ASSUMED. An artifact that arrived truncated would

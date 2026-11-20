@@ -140,10 +140,10 @@ jobs:
         id: rootfs
         uses: easydev-org/easyactions/oci-pull@main
         with:
-          tag: rootfs-alpine
+          tag: rootfs-alpine-minimal
           repository: ${{ github.repository }}
           dest: /tmp/alpine-out
-          path: rootfs-alpine.tar
+          path: rootfs-alpine-minimal.tar
           token: ${{ github.token }}
 
       # THE PULL WRITES TO THE WORKSPACE, NOT TO `dest`.
@@ -152,17 +152,17 @@ jobs:
       #
       #	--- what the pull left behind ---
       #	/tmp/alpine-out                                          <- empty
-      #	/home/runner/work/easyvm/easyvm/rootfs-alpine.tar         <- the file
+      #	/home/runner/work/easyvm/easyvm/rootfs-alpine-minimal.tar <- the file
       #
-      # `oci-pull` reports `rootfs-alpine.tar complete (91678720 bytes)` and puts it at the repository
+      # `oci-pull` reports `rootfs-alpine-minimal.tar complete (91678720 bytes)` and puts it at the repository
       # root, so both the action's `path` output and its `dest` input were misleading here. The
       # artifact is named from the workspace, which is where it actually lands.
       - name: unpack the three files
         run: |
           set -eux
           mkdir -p /tmp/alpine-out
-          tar -xf "$GITHUB_WORKSPACE/rootfs-alpine.tar" -C /tmp/alpine-out
-          rm -f "$GITHUB_WORKSPACE/rootfs-alpine.tar"
+          tar -xf "$GITHUB_WORKSPACE/rootfs-alpine-minimal.tar" -C /tmp/alpine-out
+          rm -f "$GITHUB_WORKSPACE/rootfs-alpine-minimal.tar"
           ls -l /tmp/alpine-out
 
       # THE CONTAINERFILE COPYs `dist/easyvm` RATHER THAN COMPILING IT, so the binary is produced here
@@ -318,7 +318,7 @@ jobs:
       # MEASURED: every request came back `ash: curl: not found` with exit 127 - so the four assertions
       # below were looking for proxy log lines that could never be written. Installing it here rather
       # than in `alpine-rootfs.sh` keeps the published artifact unchanged: adding a package there would
-      # rebuild `rootfs-alpine` and every consumer of it for a dependency only this test has.
+      # rebuild `rootfs-alpine-minimal` and every consumer of it for a dependency only this test has.
       #
       # IT GOES THROUGH THE SAME `/api/exec` THE REQUESTS DO, so this also proves the channel works
       # before four assertions depend on it.
