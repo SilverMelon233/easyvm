@@ -96,19 +96,7 @@ if [ ! -d "$WORK/root/usr" ]; then
 	# proxy answers "temporary failure in name resolution" and installs 9 MiB of nothing.
 	as_root env ${https_proxy:+https_proxy="$https_proxy"} ${http_proxy:+http_proxy="$http_proxy"} \
 		chroot "$WORK/root" /sbin/apk add --no-cache \
-		alpine-base linux-virt mkinitfs e2fsprogs openssh \
-		curl doas
-	# `curl` AND `doas` ARE FOR THE END-TO-END TEST, AND THEY ARE HERE RATHER THAN INSTALLED AT RUN
-	# TIME BECAUSE THE ALTERNATIVE DOES NOT WORK. MEASURED, trying to add curl to a booted guest:
-	#
-	#	ERROR: Unable to lock database: Permission denied
-	#	ERROR: Failed to open apk database: Permission denied
-	#
-	# - the ssh account is unprivileged, `doas` was not present to escalate, and `apk` cannot write its
-	# database without root. `doas` in the image makes the escalation available, and `curl` makes the
-	# client available; together they are about a megabyte and they make the guest usable by a test.
-	#
-	# THIS REBUILDS THE PUBLISHED `rootfs-alpine`. That is the cost of a guest a test can drive.
+		alpine-base linux-virt mkinitfs e2fsprogs openssh
 	log "root tree: $(du -sm "$WORK/root" | cut -f1) MiB"
 fi
 
