@@ -62,12 +62,24 @@ if [ ! -d "$ROOT/usr" ]; then
 	mkdir -p "$ROOT"
 	tar -xf "$WORK/rootfs.tar" -C "$ROOT"
 
+		# THE DIRECTORY IS MADE EXPLICITLY, AND THE mknod IS NOT ALLOWED TO FAIL QUIETLY.
+	#
+	# MEASURED on arch: `archlinux:latest` ships NO `dev` directory at all, so `mknod
+	# "$ROOT/dev/null"` failed - and the `|| true` that was here turned that into silence.
+	# The guest then stalled for three minutes at
+	#
+	#	A start job is running for…nts and Files (3min / 3min 2s)
+	#
+	# because the initramfs's `mount --move /proc /newroot/proc` had no directory to land
+	# in and the `|| true` there hid it too. This image DOES ship `dev/`, so it never hit
+	# it; the next base that changes that would.
+	mkdir -p "$ROOT/dev" "$ROOT/proc" "$ROOT/sys"
 	log "creating device nodes"
 	for spec in "null c 1 3" "zero c 1 5" "random c 1 8" "urandom c 1 9" "tty c 5 0"; do
 		set -- $spec
 		rm -f "$ROOT/dev/$1"
-		mknod "$ROOT/dev/$1" "$2" "$3" "$4" 2>/dev/null || true
-		chmod 666 "$ROOT/dev/$1" 2>/dev/null || true
+		mknod "$ROOT/dev/$1" "$2" "$3" "$4"
+		chmod 666 "$ROOT/dev/$1"
 	done
 
 	cp /etc/resolv.conf "$ROOT/etc/resolv.conf"

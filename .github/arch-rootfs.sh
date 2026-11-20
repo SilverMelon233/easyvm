@@ -47,15 +47,43 @@ if [ ! -d "$ROOT/usr" ]; then
 	mkdir -p "$ROOT"
 	tar -xf "$WORK/rootfs.tar" -C "$ROOT"
 
+	# THE IMAGE HAS NO /dev, /proc OR /sys AT ALL, AND THAT IS ARCH-SPECIFIC.
+	#
+	# MEASURED from the registry tarballs themselves: alpine, debian, ubuntu, fedora and
+	# leap each carry an empty `dev/` directory; `archlinux:latest` carries NO `dev` entry
+	# of any kind.
+	#
+	# THE FAILURE THAT CAUSES IS NOT IN THIS SCRIPT, IT IS LATER. The initramfs moves
+	# /proc and /sys onto the new root and switch_roots:
+	#
+	#	for d in proc sys; do mount --move "/$d" "/newroot/$d" || true; done
+	#
+	# `|| true` THERE IS DELIBERATE (a failed move is not worth refusing to boot), so a
+	# missing directory is SILENT. What it costs is a guest whose systemd cannot mount
+	# anything: MEASURED on a hand-built KDE image that had no /dev, boot stalled at
+	#
+	#	A start job is running for…nts and Files (1min 57s / 3min 2s)
+	#	A start job is running for… Credentials (2min 58s / no limit)
+	#
+	# for three minutes and then gave up. The minimal variant does not show it because a
+	# headless systemd tolerates the absent mounts; a desktop does not.
+	log "creating /dev, /proc and /sys, which this image does not ship"
+	mkdir -p "$ROOT/dev" "$ROOT/proc" "$ROOT/sys"
+
 	# THE DEVICE NODES tar DID NOT PRESERVE. MEASURED: pacman's own scriptlets fail with
 	# "/dev/null: No such file or directory" and the package database ends up half
 	# written.
+	#
+	# NO `|| true` ON THE mknod: the previous version had one, and it is exactly what let
+	# the missing directory above go unnoticed. A node that cannot be made is a build that
+	# cannot work, so it says so.
 	log "creating device nodes"
-	for spec in "null c 1 3" "zero c 1 5" "random c 1 8" "urandom c 1 9" "tty c 5 0"; do
+	for spec in "null c 1 3" "zero c 1 5" "random c 1 8" "urandom c 1 9" \
+	            "tty c 5 0" "console c 5 1" "ptmx c 5 2"; do
 		set -- $spec
 		rm -f "$ROOT/dev/$1"
-		mknod "$ROOT/dev/$1" "$2" "$3" "$4" 2>/dev/null || true
-		chmod 666 "$ROOT/dev/$1" 2>/dev/null || true
+		mknod "$ROOT/dev/$1" "$2" "$3" "$4"
+		chmod 666 "$ROOT/dev/$1"
 	done
 
 	cp /etc/resolv.conf "$ROOT/etc/resolv.conf"
