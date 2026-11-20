@@ -26,21 +26,36 @@
 # so exactly ONE module goes into the initramfs, same as Fedora.
 set -eu
 
-# DESKTOP=1 ADDS SWAY, THE SESSION AROUND IT, AND EASYSTREAM. DESKTOP=0 IS THE MINIMAL IMAGE.
+# DESKTOP NAMES THE SESSION TO INSTALL: 0, sway, hyprland, xfce, cinnamon, lxqt, lxde, mate, i3.
 #
-# THE TWO ARE ONE SCRIPT FOR THE REASON THE DEBIAN PAIR IS: everything that makes this boot -
-# the kernel, the initramfs modules, /dev, the fstab, the console session, growfs - is
-# identical, and a second script would be a copy that drifts.
+# ONE SCRIPT FOR ALL OF THEM, because everything that makes this boot is identical - the
+# kernel, the initramfs modules, /dev, the fstab, the console session, growfs - and a script
+# per desktop would be nine copies of that which drift.
 #
-# WHY SWAY AND NOT KDE OR GNOME. MEASURED: both of those capture through the portal, which
-# means xdg-desktop-portal plus its backend plus PipeWire plus a PermissionStore plus a
-# graphical-session.target that only a greeter creates. On a microvm that chain is a stack of
-# services pretending to be a desktop that nobody logged into. Sway has `wlr-screencopy` IN
-# THE COMPOSITOR, so easystream reads frames over the Wayland socket with no portal in the
-# path at all. That difference was measured end to end: a screenshot of a Sway guest came back
-# as a 3.1 MB PNG with the expected content, while the KDE probe never got past
-# "No such interface org.freedesktop.portal.RemoteDesktop".
+# THE DESKTOPS SPLIT INTO TWO FAMILIES, AND THE SPLIT DECIDES THE CAPTURE PATH:
+#
+#	WAYLAND  sway, hyprland          wlroots `wlr-screencopy`, which the compositor
+#	                                 implements itself. easystream reads it over the socket.
+#	X11      xfce, cinnamon,         an X server (Xvfb, in memory - a microvm has no GPU),
+#	         lxqt, lxde, mate, i3     and easystream reads it with XSHM.
+#
+# KDE AND GNOME ARE NOT HERE ON PURPOSE. Both capture through xdg-desktop-portal, which needs
+# a backend, PipeWire, a PermissionStore and a `graphical-session.target` that only a greeter
+# creates. MEASURED on the KDE probe: the backend's own unit aborted with `status=6/ABRT`,
+# the frontend came up without it, and easystream looped on
+# "No such interface org.freedesktop.portal.RemoteDesktop". That is a separate problem and it
+# is being solved separately.
 DESKTOP="${DESKTOP:-0}"
+
+case "$DESKTOP" in
+0|"")             DESKTOP_FAMILY=none ;;
+sway|hyprland)    DESKTOP_FAMILY=wayland ;;
+xfce|cinnamon|lxqt|lxde|mate|i3) DESKTOP_FAMILY=x11 ;;
+*)
+	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland xfce cinnamon lxqt lxde mate i3" >&2
+	exit 2
+	;;
+esac
 
 OUT="${1:-.}"
 WORK="${OUT}/arch-build"
@@ -122,14 +137,25 @@ if [ ! -d "$ROOT/usr" ]; then
 	# check here.
 	sed -i 's/^SigLevel.*/SigLevel = Never/' "$ROOT/etc/pacman.conf"
 
-	if [ "$DESKTOP" = "1" ]; then
-		# SWAY, ITS TERMINAL, AND THE CAPTURE DAEMON'S LIBRARIES. `sway` carries wlroots and
-		# the screencopy protocol; `foot` is the terminal a screenshot needs something to
-		# show; the rest are easystream's own links (libyuv, x264, opus, pipewire).
-		DESKTOP_PKGS="sway foot xorg-xwayland libyuv x264 opus pipewire ttf-dejavu ttf-liberation mesa"
-	else
-		DESKTOP_PKGS=""
-	fi
+	# THE PACKAGES EACH SESSION NEEDS, AND THE ONE SET THEY ALL SHARE.
+	#
+	# THE SHARED SET is what a screen needs regardless of who draws it: fonts, a terminal (a
+	# session with no window shows a background and nothing else, which is a weak thing to
+	# assert on), Mesa for the software rasteriser, and easystream's own links.
+	DESKTOP_COMMON="libyuv x264 opus pipewire ttf-dejavu ttf-liberation mesa"
+	case "$DESKTOP" in
+	sway)     DESKTOP_PKGS="sway foot $DESKTOP_COMMON" ;;
+	hyprland) DESKTOP_PKGS="hyprland foot $DESKTOP_COMMON" ;;
+	# THE X11 FAMILY SHARES `xvfb` RATHER THAN DRIVING THE GPU: a microvm has no DRM card
+	# unless vkms is loaded, and X11 does not need one at all when it renders into memory.
+	xfce)     DESKTOP_PKGS="xfce4 xfce4-terminal xfce4-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	cinnamon) DESKTOP_PKGS="cinnamon cinnamon-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	lxqt)     DESKTOP_PKGS="lxqt-session lxqt-panel openbox qterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	lxde)     DESKTOP_PKGS="lxde-common lxsession openbox lxterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	mate)     DESKTOP_PKGS="mate mate-session-manager mate-terminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	i3)       DESKTOP_PKGS="i3-wm i3status dmenu foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	*)        DESKTOP_PKGS="" ;;
+	esac
 	export DESKTOP_PKGS
 
 	log "installing the kernel and an ssh server"
@@ -156,11 +182,20 @@ if [ ! -d "$ROOT/usr" ]; then
 		# problem that was a download.
 		if ! pacman -S --noconfirm --quiet linux openssh e2fsprogs $DESKTOP_PKGS >/tmp/pacman.log 2>&1; then
 			tail -15 /tmp/pacman.log
-			echo "pacman failed to install the kernel or the desktop packages" >&2
+			# THE ONE THING THIS BLOCK CANNOT DO IS CLEAN UP AFTER ITSELF, BECAUSE IT RUNS
+			# INSIDE THE CHROOT. `$ROOT` is not set in there, so an `rm -rf "$ROOT"` here
+			# expands to `rm -rf ""` - which does nothing - and the half-built tree survives
+			# to poison every later run: the unpack is guarded by `[ ! -d "$ROOT/usr" ]`, so
+			# each retry skipped it and answered "no vmlinuz under .../usr/lib/modules".
+			# MEASURED, three attempts in a row. The marker file is what the caller reads.
 			exit 1
 		fi
 		tail -2 /tmp/pacman.log
-	'
+	' || {
+		rm -rf "$ROOT"
+		log "pacman failed; the tree is removed so the next run starts clean"
+		exit 1
+	}
 fi
 
 KVER=$(ls "$ROOT/usr/lib/modules" | head -1)
@@ -280,8 +315,8 @@ rm -rf "$ROOT/var/cache/pacman/pkg"/* "$ROOT/var/log"/* 2>/dev/null || true
 # THE WHOLE SCREEN STACK IS ONE BRANCH, for the same reason the Debian image's is: a
 # compositor with no client draws nothing, easystream with no compositor has no frames, and
 # PipeWire with no user session refuses root (`ConditionUser=!root`).
-if [ "$DESKTOP" = "1" ]; then
-	# --- 3b. EASYSTREAM ------------------------------------------------------------------
+if [ "$DESKTOP_FAMILY" != "none" ]; then
+	# --- 3b. EASYSTREAM, WHATEVER THE SESSION IS ------------------------------------------
 	ES_VERSION="${EAZYSTREAM_VERSION:-v0.10.2}"
 	ES_PKG="easystream-${ES_VERSION#v}-1-x86_64.pkg.tar-arch.zst"
 	if [ ! -x "$ROOT/usr/bin/easystream" ]; then
@@ -294,110 +329,105 @@ if [ "$DESKTOP" = "1" ]; then
 		tar --zstd -xf "$WORK/$ES_PKG" -C "$ROOT" 2>/dev/null
 		chmod 0755 "$ROOT/usr/bin/easystream"
 	fi
-	# THE PROOF IT CAN LOAD, taken here rather than discovered on a guest that boots to a
-	# dead frame.
 	if chroot "$ROOT" ldd /usr/bin/easystream 2>&1 | grep -q "not found"; then
 		log "WARNING: easystream has unresolved libraries: $(chroot "$ROOT" ldd /usr/bin/easystream 2>&1 | grep 'not found' | tr '\n' ' ')"
 	else
 		log "easystream: all libraries resolve"
 	fi
 
-	# --- 3c. THE SWAY SESSION ------------------------------------------------------------
-	#
-	# SWAY RUNS AS vmuser IN A LINGERED SESSION, NOT AS A SYSTEM SERVICE.
-	#
-	# `ConditionUser=!root` in PipeWire's unit is the reason: a root session cannot start
-	# it. MEASURED - `systemctl --user start pipewire` as root answered "inactive" and the
-	# journal named the condition.
-	#
-	# SWAY ON vkms, NOT ON A GPU. A microvm has neither PCIe nor a DRM card; `vkms.ko` is a
-	# software DRM device that provides /dev/dri/card0, and wlroots' `drm` backend drives
-	# it with the `pixman` renderer - no GPU, no firmware, no PCI.
-	# VKMS, THE SOFTWARE DRM DEVICE, IS A KERNEL MODULE AND HAS TO BE SHIPPED.
-	#
-	# MEASURED, BEFORE THIS WAS WRITTEN: sway answered
-	#
-	#	Failed to open device: '/dev/dri/card0': No such file or directory
-	#	Found 0 GPUs, cannot create backend
-	#
-	# and restarted forever - a guest that boots cleanly to a prompt and never draws
-	# anything. `vkms.ko` provides /dev/dri/card0 with no GPU, no firmware and no PCI, which
-	# is exactly what a microvm has.
-	#
-	# IT COMES OUT OF THE SAME PACKAGE THE KERNEL CAME FROM, so it is always the matching
-	# build; `VGEM` goes beside it because Mesa's software path wants the dumb-buffer
-	# device when the compositor allocates its first framebuffer.
-	VKMS_SRC="$ROOT/usr/lib/modules/$KVER/kernel/drivers/gpu/drm/vkms/vkms.ko.zst"
-	VGEM_SRC="$ROOT/usr/lib/modules/$KVER/kernel/drivers/gpu/drm/vgem/vgem.ko.zst"
-	if [ -f "$VKMS_SRC" ]; then
-		# DECOMPRESSED, because insmod does not open a .zst - that is kmod's job.
-		command -v zstd >/dev/null || { log "zstd is required to ship vkms.ko"; exit 1; }
-		zstd -dc "$VKMS_SRC" > "$ROOT/etc/vkms.ko"
-		[ -f "$VGEM_SRC" ] && zstd -dc "$VGEM_SRC" > "$ROOT/etc/vgem.ko"
-		log "shipping vkms.ko ($(stat -c %s "$ROOT/etc/vkms.ko") bytes)"
-	else
-		log "ERROR: no vkms.ko in the kernel package; the desktop could never start"
-		exit 1
+	# VKMS IS ONLY NEEDED BY THE WAYLAND FAMILY. The X11 family renders into Xvfb's memory
+	# and never opens a DRM node; loading vkms there would add a device nothing uses.
+	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
+		VKMS_SRC="$ROOT/usr/lib/modules/$KVER/kernel/drivers/gpu/drm/vkms/vkms.ko.zst"
+		if [ -f "$VKMS_SRC" ]; then
+			command -v zstd >/dev/null || { log "zstd is required to ship vkms.ko"; exit 1; }
+			zstd -dc "$VKMS_SRC" > "$ROOT/etc/vkms.ko"
+			log "shipping vkms.ko ($(stat -c %s "$ROOT/etc/vkms.ko") bytes)"
+		else
+			log "ERROR: no vkms.ko in the kernel package; the desktop could never start"
+			exit 1
+		fi
+
+		# THE DRM NODE IS root:video 0660, so vmuser must be in `video`. MEASURED: without
+		# it the compositor answers "Permission denied" with the same words it uses for a
+		# missing device, which sends you looking for the wrong fault.
+		chroot "$ROOT" /bin/sh -c '
+			groupadd -f video
+			id -nG vmuser | grep -qw video || usermod -aG video vmuser
+		' 2>&1 | tail -2 || true
+
+		# A ROOT ONESHOT, BECAUSE `insmod` NEEDS CAP_SYS_MODULE AND THE COMPOSITOR IS vmuser.
+		# MEASURED: loading it from the session script answered "Operation not permitted" and
+		# the only visible symptom was the compositor's "Found 0 GPUs".
+		cat > "$ROOT/etc/systemd/system/vkms.service" <<'UNIT'
+[Unit]
+Description=load vkms, the software DRM device
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe vkms
+# THE NODE IS WHAT THE COMPOSITOR OPENS. udev creates it when it notices the device; the
+# mknod fallback keeps the compositor from racing the device manager.
+ExecStart=/bin/sh -c 'i=0; while [ $i -lt 50 ] && [ ! -e /dev/dri/card0 ]; do i=$((i+1)); sleep 0.1; done; if [ ! -e /dev/dri/card0 ]; then mkdir -p /dev/dri; M=$(cat /sys/class/drm/card0/dev 2>/dev/null); [ -n "$M" ] && mknod /dev/dri/card0 c ${M%:*} ${M#*:}; fi'
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+		ln -sf /etc/systemd/system/vkms.service \
+			"$ROOT/etc/systemd/system/multi-user.target.wants/vkms.service"
+
+		mkdir -p "$ROOT/lib/modules/$KVER/extra"
+		cp "$ROOT/etc/vkms.ko" "$ROOT/lib/modules/$KVER/extra/vkms.ko"
+		chroot "$ROOT" /sbin/depmod -a "$KVER" 2>&1 | tail -2 || true
 	fi
 
-	mkdir -p "$ROOT/opt/sway" "$ROOT/etc/sway"
-	cat > "$ROOT/opt/sway-session.sh" <<'SESSION'
-#!/bin/sh
-# vkms IS LOADED BY A ROOT UNIT BEFORE THIS ONE - see `vkms.service`. insmod needs
-# CAP_SYS_MODULE and this script runs as vmuser, so an `insmod` here answers "Operation not
-# permitted" and the only symptom is a compositor that cannot find a GPU.
-#
-# THIS SCRIPT ONLY WAITS FOR THE RESULT, and says so if it never arrives: a guest that boots
-# to a prompt and draws nothing is the failure this line makes visible.
-i=0
-while [ $i -lt 100 ]; do [ -e /dev/dri/card0 ] && break; i=$((i+1)); sleep 0.1; done
-if [ ! -e /dev/dri/card0 ]; then
-	echo "sway-session: /dev/dri/card0 never appeared; vkms.service failed" >&2
-	exit 1
-fi
+	# --- 3c. THE SESSION ------------------------------------------------------------------
+	#
+	# THE SESSION RUNS AS vmuser, NOT root, IN A LINGERED USER SESSION.
+	#
+	# `ConditionUser=!root` in PipeWire's unit is the reason: a root session cannot start it,
+	# and every desktop that plays audio or captures through the portal goes through
+	# PipeWire. MEASURED - `systemctl --user start pipewire` as root answered "inactive" and
+	# the journal named the condition.
+	#
+	# THE LINGER IS WHAT MAKES A USER MANAGER EXIST WITH NOBODY LOGGED IN, which is the form
+	# an appliance needs and the form the packaged user units assume.
+	mkdir -p "$ROOT/var/lib/systemd/linger"
+	touch "$ROOT/var/lib/systemd/linger/vmuser"
 
-export XDG_RUNTIME_DIR=/run/user/$(id -u)
-export LIBSEAT_BACKEND=noop
-export WLR_BACKENDS=drm
-# THE DEVICE IS DISCOVERED, NOT NAMED. MEASURED: with both vgem and vkms loaded the nodes are
-#
-#	/dev/dri/card0  -> vgem   (a dumb-buffer device, NOT a display)
-#	/dev/dri/card1  -> vkms   (the one that can drive an output)
-#
-# so `WLR_DRM_DEVICES=/dev/dri/card0` pointed the compositor at the wrong one and it answered
-# "Found 0 GPUs, cannot create backend". wlroots walks every card and picks the first that
-# supports KMS.
-export WLR_RENDERER=pixman
-export WLR_LIBINPUT_NO_DEVICES=1
-export LIBGL_ALWAYS_SOFTWARE=1
-# NO XWAYLAND: nothing in this image is an X client, and easystream reads Wayland through
-# wlr-screencopy rather than the X protocol.
-export WLR_XWAYLAND=
-unset DISPLAY
+	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
+		# THE COMPOSITOR NEEDS A REAL NAME FOR ITS SOCKET, AND `ConditionEnvironment=` IS
+		# EVALUATED AGAINST THE USER MANAGER'S ENVIRONMENT, NOT THE UNIT'S.
+		#
+		# THIS TOOK THE LONGEST TO FIND. The packaged unit carries
+		#
+		#	ConditionEnvironment=WAYLAND_DISPLAY
+		#	ConditionEnvironment=DISPLAY
+		#
+		# and a lingered manager starts at boot, before any compositor exists - so both are
+		# absent and the unit is skipped with no log line beyond the manager's own "Started".
+		# `environment.d` is where a user manager's environment comes from.
+		mkdir -p "$ROOT/etc/systemd/user/environment.d"
+		{
+			echo '# THE MANAGER ENVIRONMENT `ConditionEnvironment=` READS. wayland-1 is the'
+			echo '# socket the compositor in this image creates; easystream waits for it.'
+			echo 'WAYLAND_DISPLAY=wayland-1'
+			echo '# The unit ALSO requires DISPLAY and systemd ANDs conditions. Nothing here is'
+			echo '# an X client; the value exists only to satisfy the check.'
+			echo 'DISPLAY=:0'
+		} > "$ROOT/etc/systemd/user/environment.d/50-session.conf"
 
-# EASYSTREAM IS ITS OWN SERVICE, STARTED BY THE USER MANAGER.
-#
-# IT WAS TEMPORARILY STARTED FROM THIS SCRIPT AND THAT WAS WRONG. The two are related by a
-# DEPENDENCY (easystream needs the compositor's socket), not by a LIFECYCLE: a sway restart
-# should reconnect the capture daemon, not kill it, and mixing them puts two restart policies
-# in one unit and makes a failure in either look like a failure in both.
-#
-# The reason it was moved here was a measurement that turned out to be wrong: `systemctl
-# --user` run as ROOT cannot talk to another user's manager -
-#
-#	Failed to connect to user scope bus via local transport: Operation not permitted
-#	(consider using --machine=<user>@.host --user to connect to bus of other user)
-#
-# - so "the unit is not running" was concluded from a probe that could never succeed. The
-# unit's own `ExecStartPre` waits for the socket, which is the ordering this needs.
-exec sway --config /etc/sway/config
-SESSION
-	chmod 0755 "$ROOT/opt/sway-session.sh"
-
-	# A CONFIG THAT DRAWS SOMETHING. `output * bg` needs swaybg to paint, so it is not used;
-	# `bar` runs swaybar, which ships with sway, and that is a region of certain non-background
-	# pixels a screenshot can be checked against.
-	cat > "$ROOT/etc/sway/config" <<'SWAYCFG'
+		if [ "$DESKTOP" = "sway" ]; then
+			SESSION_CMD='exec sway --config /etc/sway/config'
+			cat > "$ROOT/etc/sway/config" <<'SWAYCFG'
+# THE BAR IS THE ASSERTION. A compositor that cannot create a backend still reaches a login
+# prompt, so a walkthrough that only checks "login" would pass on a machine that never drew.
+# swaybar draws text this file controls, and that text can only appear if sway started, found
+# an output and rendered.
 output * bg #3366cc solid_color
 bar {
     position top
@@ -409,60 +439,103 @@ bar {
     }
 }
 SWAYCFG
+		else
+			# HYPRLAND: the same vkms device, a different compositor and config language.
+			mkdir -p "$ROOT/etc/hypr"
+			cat > "$ROOT/etc/hypr/hyprland.conf" <<'HYPRCFG'
+# NO AUTOSTART OF A BAR: hyprland has none built in, and the screenshot assertion here is the
+# terminal this file opens - a window is a region of certain non-background pixels.
+monitor=,preferred,auto,1
+exec-once = foot
+HYPRCFG
+			SESSION_CMD='exec hyprland --config /etc/hypr/hyprland.conf'
+		fi
 
-	# VKMS AS A ROOT ONESHOT, BEFORE THE COMPOSITOR.
-	#
-	# `insmod` needs CAP_SYS_MODULE. The compositor runs as vmuser, so a module loaded from
-	# inside it answers "Operation not permitted" - MEASURED, and the only visible effect was
-	# sway restarting forever with "Found 0 GPUs".
-	#
-	# `Type=oneshot` WITH NO `DefaultDependencies=no` AND NO `Wants=` ON ANOTHER UNIT.
-	# MEASURED with the earlier shape: the boot hung for a full minute at
-	#
-	#	A start job is running for…ftware DRM device (58s / no limit)
-	#
-	# because `DefaultDependencies=no` removed the ordering that lets a oneshot finish during
-	# normal boot, and `Wants=systemd-modules-load.service` made it wait on a unit that had
-	# already run. A plain oneshot in `multi-user.target` is enough: it has no inputs and no
-	# dependencies, and `sway.service` orders itself after it.
-	cat > "$ROOT/etc/systemd/system/vkms.service" <<'UNIT'
+		cat > "$ROOT/opt/session.sh" <<SESSION
+#!/bin/sh
+# THE COMPOSITOR ON vkms, AND NOTHING ELSE. easystream is its own unit.
+#
+# THE DEVICE IS DISCOVERED, NOT NAMED. MEASURED with vgem also loaded: vgem took card0 and
+# vkms took card1, so \`WLR_DRM_DEVICES=/dev/dri/card0\` pointed the compositor at a
+# dumb-buffer device that cannot drive an output and it answered "Found 0 GPUs".
+i=0
+while [ \$i -lt 100 ]; do [ -e /dev/dri/card0 ] && break; i=\$((i+1)); sleep 0.1; done
+if [ ! -e /dev/dri/card0 ]; then
+	echo "session: /dev/dri/card0 never appeared; vkms.service failed" >&2
+	exit 1
+fi
+
+export XDG_RUNTIME_DIR=/run/user/\$(id -u)
+export LIBSEAT_BACKEND=noop
+export WLR_BACKENDS=drm
+export WLR_RENDERER=pixman
+export WLR_LIBINPUT_NO_DEVICES=1
+export LIBGL_ALWAYS_SOFTWARE=1
+# NO XWAYLAND: easystream reads Wayland through wlr-screencopy, not the X protocol.
+export WLR_XWAYLAND=
+unset DISPLAY
+
+$SESSION_CMD
+SESSION
+		chmod 0755 "$ROOT/opt/session.sh"
+	else
+		# --- THE X11 FAMILY ------------------------------------------------------------
+		#
+		# AN X SERVER IN MEMORY, BECAUSE A MICROVM HAS NO GPU. Xvfb needs no DRM node, no
+		# framebuffer and no firmware - it draws into its own heap - which is why the whole
+		# X11 family works on a machine that cannot run Xorg.
+		#
+		# MEASURED, and it is the same choice the Debian image makes for its XFCE variant.
+		# The X socket is 0600 under /tmp/.X11-unix by default; server and clients are both
+		# vmuser, so there is no cookie dance.
+		cat > "$ROOT/opt/session.sh" <<'SESSION'
+#!/bin/sh
+# Xvfb, then the session manager on it. `-ac` disables access control: the display is
+# reachable from nowhere but this machine, and both sides run as the same uid.
+export XDG_RUNTIME_DIR=/run/user/$(id -u)
+exec Xvfb :0 -screen 0 1024x768x24 -ac -nolisten tcp
+SESSION
+		chmod 0755 "$ROOT/opt/session.sh"
+
+		case "$DESKTOP" in
+		xfce)     SESSION_EXEC='/usr/bin/xfce4-session' ;;
+		cinnamon) SESSION_EXEC='/usr/bin/cinnamon-session' ;;
+		lxqt)     SESSION_EXEC='/usr/bin/startlxqt' ;;
+		lxde)     SESSION_EXEC='/usr/bin/lxsession' ;;
+		mate)     SESSION_EXEC='/usr/bin/mate-session' ;;
+		i3)       SESSION_EXEC='/usr/bin/i3' ;;
+		esac
+
+		cat > "$ROOT/opt/desktop.sh" <<DESKTOP
+#!/bin/sh
+# THE SESSION MANAGER ON :0, AS vmuser. It waits for the X socket rather than for the unit,
+# because the two are separate services and ordering across them is not expressible.
+i=0
+while [ \$i -lt 200 ]; do [ -S /tmp/.X11-unix/X0 ] && break; i=\$((i+1)); sleep 0.1; done
+if [ ! -S /tmp/.X11-unix/X0 ]; then
+	echo "desktop: Xvfb's socket never appeared" >&2
+	exit 1
+fi
+export DISPLAY=:0
+export XDG_RUNTIME_DIR=/run/user/\$(id -u)
+export XDG_SESSION_TYPE=x11
+exec $SESSION_EXEC
+DESKTOP
+		chmod 0755 "$ROOT/opt/desktop.sh"
+	fi
+
+	# --- 3d. THE UNITS --------------------------------------------------------------------
+	cat > "$ROOT/etc/systemd/system/session.service" <<'UNIT'
 [Unit]
-Description=load vkms, the software DRM device
-After=systemd-modules-load.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/sbin/modprobe vkms
-# THE NODE IS WHAT THE COMPOSITOR OPENS. udev creates it when it notices the new device; if
-# it is slow, mknod from the device numbers the kernel assigned is the fallback, so the
-# compositor never races the device manager.
-ExecStart=/bin/sh -c 'i=0; while [ $i -lt 50 ] && [ ! -e /dev/dri/card0 ]; do i=$((i+1)); sleep 0.1; done; if [ ! -e /dev/dri/card0 ]; then mkdir -p /dev/dri; M=$(cat /sys/class/drm/card0/dev 2>/dev/null); [ -n "$M" ] && mknod /dev/dri/card0 c ${M%:*} ${M#*:}; fi'
-StandardOutput=journal+console
-StandardError=journal+console
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-	ln -sf /etc/systemd/system/vkms.service \
-		"$ROOT/etc/systemd/system/multi-user.target.wants/vkms.service"
-
-	# THE MODULE GOES WHERE `modprobe` CAN FIND IT, with a modules.dep the loader can read.
-	mkdir -p "$ROOT/lib/modules/$KVER/extra"
-	cp "$ROOT/etc/vkms.ko" "$ROOT/lib/modules/$KVER/extra/vkms.ko"
-	chroot "$ROOT" /sbin/depmod -a "$KVER" 2>&1 | tail -2 || true
-
-	cat > "$ROOT/etc/systemd/system/sway.service" <<'UNIT'
-[Unit]
-Description=sway on vkms, for vmuser
-After=systemd-logind.service vkms.service
-Wants=systemd-logind.service vkms.service
+Description=the session: Xvfb or a Wayland compositor, for vmuser
+After=systemd-logind.service
+Wants=systemd-logind.service
 
 [Service]
 Type=simple
 User=vmuser
 Environment=HOME=/home/vmuser
-ExecStart=/opt/sway-session.sh
+ExecStart=/opt/session.sh
 Restart=always
 RestartSec=3
 StandardOutput=journal+console
@@ -471,99 +544,76 @@ StandardError=journal+console
 [Install]
 WantedBy=multi-user.target
 UNIT
-	ln -sf /etc/systemd/system/sway.service \
-		"$ROOT/etc/systemd/system/multi-user.target.wants/sway.service"
+	ln -sf /etc/systemd/system/session.service \
+		"$ROOT/etc/systemd/system/multi-user.target.wants/session.service"
 
-	# EASYSTREAM AS A SYSTEM UNIT WITH AN EXPLICIT SESSION ENVIRONMENT.
-	#
-	# THE PACKAGE'S OWN USER UNIT CANNOT BE USED AS SHIPPED: it carries
-	# `ConditionEnvironment=WAYLAND_DISPLAY` AND `ConditionEnvironment=DISPLAY`, systemd ANDs
-	# conditions, and this guest is pure Wayland - MEASURED, the unit was skipped with
-	# "unmet condition check ConditionEnvironment=DISPLAY". The drop-in that clears it is
-	# written here beside the unit, so both live in one place.
-	mkdir -p "$ROOT/etc/systemd/user/easystream.service.d"
-	cat > "$ROOT/etc/systemd/user/easystream.service.d/10-wayland-only.conf" <<'DROPIN'
+	if [ "$DESKTOP_FAMILY" = "x11" ]; then
+		cat > "$ROOT/etc/systemd/system/desktop.service" <<'UNIT'
 [Unit]
-# THE PACKAGED UNIT REQUIRES WAYLAND_DISPLAY *AND* DISPLAY; systemd ANDs conditions and this
-# guest is pure Wayland (no Xwayland), so DISPLAY is unset and the unit is skipped. An empty
-# assignment clears the list and leaves every other line of the package's unit in charge.
+Description=the desktop session on Xvfb :0
+After=session.service
+Wants=session.service
+
+[Service]
+Type=simple
+User=vmuser
+Environment=HOME=/home/vmuser
+Environment=DISPLAY=:0
+ExecStart=/opt/desktop.sh
+Restart=always
+RestartSec=3
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+		ln -sf /etc/systemd/system/desktop.service \
+			"$ROOT/etc/systemd/system/multi-user.target.wants/desktop.service"
+	fi
+
+	# EASYSTREAM IS ITS OWN UNIT, WITH ITS OWN RESTART POLICY. It is joined to the session by
+	# a DEPENDENCY (a socket that must exist), not by a lifecycle: a compositor restart must
+	# reconnect the capture daemon, not kill it.
+	mkdir -p "$ROOT/etc/systemd/user/easystream.service.d"
+	cat > "$ROOT/etc/systemd/user/easystream.service.d/10-conditions.conf" <<'DROPIN'
+[Unit]
+# THE PACKAGED UNIT REQUIRES WAYLAND_DISPLAY *AND* DISPLAY AND systemd ANDs conditions. Both
+# are set in the manager environment (environment.d) for the Wayland family; for X11 they
+# come from DISPLAY being real. An empty assignment clears the list and leaves every other
+# line of the package's unit in charge, which is the point.
 ConditionEnvironment=
 DROPIN
+	# THE DISPLAY IS SET ON THE UNIT, NOT ONLY IN `environment.d`.
+	#
+	# MEASURED: with `DISPLAY=:0` in `etc/systemd/user/environment.d/50-session.conf`, the
+	# user manager's own environment did not have it - `/proc/<manager>/environ` showed
+	# neither DISPLAY nor WAYLAND_DISPLAY - and easystream answered a screenshot request with
+	# a ZERO-BYTE png because its capture had no display to attach to. `environment.d` is
+	# read where systemd looks for user configuration, which is not the same path on every
+	# distribution; a unit `Environment=` is not subject to that.
+	if [ "$DESKTOP_FAMILY" = "x11" ]; then
+		cat > "$ROOT/etc/systemd/user/easystream.service.d/15-display.conf" <<'DROPIN'
+[Service]
+Environment=DISPLAY=:0
+DROPIN
+	fi
 
-	# THE DRM NODE BELONGS TO ROOT:video WITH MODE 0660, SO vmuser MUST BE IN `video`.
-	#
-	# MEASURED, one step after vkms started working: sway answered
-	#
-	#	Failed to open device: '/dev/dri/card0': Permission denied
-	#	Found 0 GPUs, cannot create backend
-	#
-	# which is the same sentence as the "No such file" failure one permission later - the
-	# compositor cannot tell a missing device from one it may not open.
-	chroot "$ROOT" /bin/sh -c '
-		groupadd -f video
-		id -nG vmuser | grep -qw video || usermod -aG video vmuser
-	' 2>&1 | tail -2 || true
+	cat > "$ROOT/etc/systemd/user/easystream.service.d/20-session.conf" <<'DROPIN'
+[Service]
+# THE SOCKET IS WAITED FOR RATHER THAN ASSUMED. The compositor and this unit are in different
+# systemd instances - system and user - so `After=` cannot express the order.
+#
+# MEASURED: easystream started before the socket existed, could not connect, and the est
+# server answered nothing; the bounded wait plus `Restart=on-failure` is what makes that a
+# retry instead of a dead service.
+ExecStartPre=/bin/sh -c 'i=0; while [ $i -lt 600 ]; do if [ -n "$WAYLAND_DISPLAY" ] && [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then exit 0; fi; [ -S /tmp/.X11-unix/X0 ] && exit 0; i=$((i+1)); sleep 0.1; done; echo "no session socket in 60s" >&2; exit 1'
+Environment=EAZYSTREAM_PORT=48079
+DROPIN
 
-	# AND THE LINGER THAT MAKES A USER MANAGER EXIST WITH NOBODY LOGGED IN, which is what
-	# makes the packaged user unit runnable at all.
-	mkdir -p "$ROOT/var/lib/systemd/linger"
-	touch "$ROOT/var/lib/systemd/linger/vmuser"
-
-	# THE MANAGER'S OWN ENVIRONMENT IS WHAT `ConditionEnvironment=` READS.
-	#
-	# THIS IS THE ROOT CAUSE OF "THE UNIT NEVER STARTED", AND IT TOOK A WHILE TO SEE.
-	# The package's unit carries
-	#
-	#	ConditionEnvironment=WAYLAND_DISPLAY
-	#	ConditionEnvironment=DISPLAY
-	#
-	# and systemd evaluates those against THE USER MANAGER'S ENVIRONMENT, not against the
-	# `Environment=` lines a drop-in adds to the unit. A lingered manager starts at boot,
-	# before any compositor exists, so both are absent and the unit is skipped -
-	# MEASURED: "Started User Manager for UID 1000" and no easystream process, no 48079,
-	# no journal line, with the drop-in that clears the conditions already in place.
-	#
-	# `environment.d` IS HOW A USER MANAGER'S ENVIRONMENT IS SET: the `user@.service`
-	# reads every `*.conf` in this directory before starting, so the variable exists when
-	# the conditions are evaluated. A fixed display name is correct here because this image
-	# has exactly one compositor and it always gets the same name.
-	mkdir -p "$ROOT/etc/systemd/user/environment.d"
-	cat > "$ROOT/etc/systemd/user/environment.d/50-wayland.conf" <<'ENVD'
-# THE MANAGER'S ENVIRONMENT, WHICH `ConditionEnvironment=` READS. The compositor this image
-# ships creates wayland-1, and easystream's own `ExecStartPre` waits for that socket, so
-# naming it here and waiting there are the two halves of one assumption.
-WAYLAND_DISPLAY=wayland-1
-ENVD
-
-	# AND A `DISPLAY` FOR THE SAME REASON, because the unit requires BOTH and systemd ANDs
-	# them. Nothing is an X client here; the value only has to exist for the condition to
-	# pass, and sway's own Xwayland is off.
-	cat >> "$ROOT/etc/systemd/user/environment.d/50-wayland.conf" <<'ENVD'
-DISPLAY=:0
-ENVD
-
-	# THE PACKAGE'S OWN UNIT, ENABLED - WITH THE ONE THING IT NEEDS THAT A DESKTOP WOULD
-	# HAVE SUPPLIED: WAYLAND_DISPLAY. The unit is `WantedBy=graphical-session.target`, which
-	# nothing creates here, so it is pulled in by `default.target` instead and given the
-	# display name sway chose.
-	#
-	# `After=sway.service` IS NOT EXPRESSIBLE ACROSS THE SYSTEM/USER BOUNDARY, so the
-	# session script polls the socket instead of the unit ordering being perfect.
 	mkdir -p "$ROOT/etc/systemd/user/default.target.wants"
 	ln -sf /usr/lib/systemd/user/easystream.service \
 		"$ROOT/etc/systemd/user/default.target.wants/easystream.service"
-	cat > "$ROOT/etc/systemd/user/easystream.service.d/20-sway-display.conf" <<'DROPIN'
-[Service]
-# THE COMPOSITOR'S SOCKET NAME, AND A WAIT FOR IT TO EXIST.
-#
-# `After=sway.service` cannot cross the system/user boundary, so this unit may start before
-# the compositor has created its socket. MEASURED on the first attempt: easystream came up,
-# could not connect, and the est server answered nothing. The wait is bounded and exits
-# non-zero rather than hanging, so `Restart=on-failure` retries it.
-ExecStartPre=/bin/sh -c 'i=0; while [ $i -lt 600 ]; do [ -S "$XDG_RUNTIME_DIR/wayland-1" ] && exit 0; i=$((i+1)); sleep 0.1; done; echo "wayland-1 never appeared in 60s" >&2; exit 1'
-Environment=WAYLAND_DISPLAY=wayland-1
-Environment=EAZYSTREAM_PORT=48079
-DROPIN
 fi
 
 # --- 4. write the disk --------------------------------------------------------------------
