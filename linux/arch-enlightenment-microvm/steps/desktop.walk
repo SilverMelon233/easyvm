@@ -25,7 +25,7 @@ walkthrough "enlightenment microvm - ENLIGHTENMENT captured from the console ass
   the console will say "vmuser"
 
   # THE SESSION'S OWN PROCESS NAME, which only appears once it is running.
-  the console will say "enlightenment"
+  the console will say "ARCH-SESSION-STARTING: enlightenment"
 
   wait 20s
 

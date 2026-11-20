@@ -960,6 +960,11 @@ fi
 	done
 ) &
 
+# THE CONSOLE MARKER, for the same measured reason as in desktop.sh: MEASURED in CI, a
+# walkthrough that waited for the compositor's own name in console.log timed out even though
+# the compositor was running and rendering - none of these write to ttyS0. This line is the
+# image's own promise that the session got this far.
+echo "ARCH-SESSION-STARTING: $DESKTOP"
 $SESSION_CMD
 SESSION
 		chmod 0755 "$ROOT/opt/session.sh"
@@ -1062,6 +1067,19 @@ if [ ! -S "\$XDG_RUNTIME_DIR/bus" ]; then
 	echo "desktop: the session bus never appeared" >&2
 	exit 1
 fi
+# THE CONSOLE MARKER THE WALKTHROUGH ASSERTS ON.
+#
+# A DESKTOP MAY LOG NOTHING TO THE SERIAL CONSOLE. MEASURED in CI: the i3 walkthrough waited
+# three minutes for "i3-wm" in console.log and never saw it, even though the machine was
+# running i3 and a screenshot proved it - i3 writes its banner to its own log, not to ttyS0.
+# The same held for the other window managers. Asserting on a desktop's stdout is therefore
+# asserting on something the desktop does not promise.
+#
+# THIS LINE IS A PROMISE THE IMAGE MAKES ITSELF: it prints once, here, after the bus exists
+# and immediately before the session manager is exec'd. A machine that never got this far does
+# not print it, so it is still a real assertion - it just does not depend on the desktop's own
+# logging habits. The name is the image's, not the session's.
+echo "ARCH-SESSION-STARTING: $DESKTOP"
 exec $SESSION_EXEC
 DESKTOP
 		chmod 0755 "$ROOT/opt/desktop.sh"

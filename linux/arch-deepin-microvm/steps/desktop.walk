@@ -25,7 +25,7 @@ walkthrough "deepin microvm - DEEPIN DDE captured from the console assertion"
   the console will say "vmuser"
 
   # THE SESSION'S OWN PROCESS NAME, which only appears once it is running.
-  the console will say "dde-session"
+  the console will say "ARCH-SESSION-STARTING: deepin"
 
   wait 20s
 

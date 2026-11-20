@@ -42,7 +42,7 @@ walkthrough "arch sway microvm - a wayland compositor on a software drm device"
 
   # THE COMPOSITOR'S OWN BAR. A sway that could not create a backend exits and restarts
   # forever, and the bar is the first thing that proves it did not.
-  the console will say "sway"
+  the console will say "ARCH-SESSION-STARTING: sway"
 
   # TWENTY SECONDS AT A DESKTOP, so the recording is a machine that stayed up.
   wait 20s

@@ -25,7 +25,7 @@ walkthrough "mate microvm - MATE captured from the console assertion"
   the console will say "vmuser"
 
   # THE SESSION'S OWN PROCESS NAME, which only appears once it is running.
-  the console will say "mate-session"
+  the console will say "ARCH-SESSION-STARTING: mate"
 
   wait 20s
 

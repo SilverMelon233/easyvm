@@ -35,7 +35,7 @@ walkthrough "cinnamon microvm - Cinnamon on xvfb, captured over xshm"
 
   # THE SESSION MANAGER ITSELF. A desktop that could not start leaves the console quiet;
   # this line is the manager's own name, printed once it is running.
-  the console will say "cinnamon-session"
+  the console will say "ARCH-SESSION-STARTING: cinnamon"
 
   wait 20s
 

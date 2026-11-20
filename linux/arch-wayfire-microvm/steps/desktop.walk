@@ -24,7 +24,7 @@ walkthrough "wayfire microvm - WAYFIRE captured from the console assertion"
   the console will say "vmuser"
 
   # THE SESSION'S OWN PROCESS NAME, which only appears once it is running.
-  the console will say "wayfire"
+  the console will say "ARCH-SESSION-STARTING: wayfire"
 
   wait 20s
 
