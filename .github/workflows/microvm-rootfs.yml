@@ -49,11 +49,23 @@ on:
     paths:
       - ".github/alpine-rootfs.sh"
       - ".github/debian-rootfs.sh"
+      - ".github/fedora-rootfs.sh"
+      - ".github/ubuntu-rootfs.sh"
+      - ".github/arch-rootfs.sh"
+      - ".github/leap-rootfs.sh"
+      - ".github/fetch-image.py"
+      - ".github/make-initramfs.py"
       - ".github/workflows/microvm-rootfs.yml"
   pull_request:
     paths:
       - ".github/alpine-rootfs.sh"
       - ".github/debian-rootfs.sh"
+      - ".github/fedora-rootfs.sh"
+      - ".github/ubuntu-rootfs.sh"
+      - ".github/arch-rootfs.sh"
+      - ".github/leap-rootfs.sh"
+      - ".github/fetch-image.py"
+      - ".github/make-initramfs.py"
       - ".github/workflows/microvm-rootfs.yml"
   workflow_dispatch:
 
@@ -93,6 +105,20 @@ jobs:
             script: .github/debian-rootfs.sh
             desktop: "1"
             files: "debian-vmlinuz debian-initramfs debian.qcow2"
+          # THE FOUR BELOW ARE THE SAME SHAPE AND EVERY ONE OF THEM WAS BOOTED BEFORE IT WAS
+          # WRITTEN. They differ only in where the parts come from; see each script's header.
+          - tag: rootfs-fedora-minimal
+            script: .github/fedora-rootfs.sh
+            files: "fedora-vmlinuz fedora-initramfs fedora.qcow2"
+          - tag: rootfs-ubuntu-minimal
+            script: .github/ubuntu-rootfs.sh
+            files: "ubuntu-vmlinuz ubuntu-initramfs ubuntu.qcow2"
+          - tag: rootfs-arch-minimal
+            script: .github/arch-rootfs.sh
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-leap-minimal
+            script: .github/leap-rootfs.sh
+            files: "leap-vmlinuz leap-initramfs leap.qcow2"
     steps:
       - uses: actions/checkout@v4
 
@@ -100,7 +126,10 @@ jobs:
         run: |
           set -eux
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends e2fsprogs qemu-utils
+          # cpio AND zstd ARE FOR .github/make-initramfs.py, which builds the archive for the
+          # four distributions whose initramfs cannot be generated without a mounted /proc.
+          # python3 IS ALREADY ON THE RUNNER.
+          sudo apt-get install -y --no-install-recommends e2fsprogs qemu-utils cpio zstd
 
       - name: build ${{ matrix.tag }}
         run: |
