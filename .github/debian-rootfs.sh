@@ -156,7 +156,7 @@ cat > "$ROOT/etc/fstab" <<'EOF'
 EOF
 
 # --- 3. a console that reaches a prompt -----------------------------------------------------
-log "unlocking root and enabling autologin on tty1 and ttyS0"
+log "unlocking the console account and enabling autologin on tty1 and ttyS0"
 sed -i 's/^root:[^:]*:/root::/' "$ROOT/etc/shadow"
 for unit in serial-getty@ttyS0 getty@tty1; do
 	mkdir -p "$ROOT/etc/systemd/system/${unit}.service.d"
@@ -165,7 +165,7 @@ for unit in serial-getty@ttyS0 getty@tty1; do
 # THE AUTOLOGIN IS THE ASSERTION, not a convenience. `login: root (automatic login)` can only appear
 # after systemd reached multi-user and the store's own binaries ran, which is what a step checks.
 ExecStart=
-ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+ExecStart=-/sbin/agetty --autologin vmuser --noclear %I $TERM
 EOF
 done
 
@@ -448,7 +448,17 @@ After=local-fs.target
 
 [Service]
 Type=simple
-# `-ac` disables access control: the port is not reachable from anywhere but this machine.
+# THE WHOLE X SESSION RUNS AS vmuser, NOT root.
+#
+# THE REASON IS THE WAYLAND SIDE OF THIS SAME IMAGE FAMILY: PipeWire refuses root
+# (`ConditionUser=!root`), so a desktop session owned by root can never be extended into
+# one that captures or plays audio. MEASURED on the KDE variant, where `systemctl --user
+# start pipewire` answered "inactive".
+#
+# `-ac` disables access control: the port is not reachable from anywhere but this machine,
+# and with the server and its clients both under vmuser the cookie dance would be for an
+# audience of one.
+User=vmuser
 ExecStart=/usr/bin/Xvfb :0 -screen 0 1024x768x24 -ac -nolisten tcp
 Restart=always
 RestartSec=2
@@ -467,8 +477,9 @@ Requires=xvfb.service
 
 [Service]
 Type=simple
+User=vmuser
 Environment=DISPLAY=:0
-Environment=HOME=/root
+Environment=HOME=/home/vmuser
 Environment=XDG_SESSION_TYPE=x11
 # `xfce4-session` AND NOT `startxfce4`. MEASURED: `startxfce4` first looks for a FREE display and,
 # finding ours already up, answers `X server already running on display :0` and exits. It is a
@@ -510,7 +521,9 @@ After=pulseaudio.service vsink.service vsink-silence.service
 
 [Service]
 Type=simple
+User=vmuser
 Environment=DISPLAY=:0
+Environment=HOME=/home/vmuser
 Environment=EAZYSTREAM_PORT=48079
 Environment=EAZYSTREAM_HTTP_PORT=48080
 ExecStart=/usr/bin/easystream
@@ -624,6 +637,13 @@ UNIT
 # from `pactl` - the daemon was up, the socket existed, and the client was refused because root was
 # not in the image's pulse-access group. The edit has to happen against the tree being built.
 chroot "$ROOT" gpasswd -a root pulse-access >/dev/null 2>&1 || true
+# AND vmuser, BECAUSE THE DESKTOP MOVED THERE. easystream is the client that reads audio
+# and it now runs as vmuser; without this it is refused with
+#
+#	pulseaudio[311]: protocol-native.c: Denied access to client with invalid authentication data
+#
+# which is the same failure this line was written for, one user later.
+chroot "$ROOT" gpasswd -a vmuser pulse-access >/dev/null 2>&1 || true
 
 # THE UNIX SOCKET MUST ACCEPT AN ANONYMOUS CLIENT, AND THE DEFAULT DOES NOT.
 #
