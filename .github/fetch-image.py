@@ -15,9 +15,33 @@ REG = "https://registry-1.docker.io/v2"
 AUTH = "https://auth.docker.io/token?service=registry.docker.io&scope=repository:%s:pull"
 
 
+class _StripAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect WITHOUT the Authorization header.
+
+    MEASURED on CI: a blob request answers 302 to a CDN host, and urllib's default
+    redirect handler carries the original headers across - so the CDN receives a Docker
+    Hub bearer token for a URL that is not Docker Hub. The failure is a bare
+    `http_error_302` traceback with no status line, which reads like a broken registry.
+
+    THE TOKEN IS SCOPED TO THE REGISTRY and must not leave it; the CDN URL is already
+    signed, so it needs no header at all.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None:
+            for name in list(new.headers):
+                if name.lower() == "authorization":
+                    del new.headers[name]
+        return new
+
+
+_opener = urllib.request.build_opener(_StripAuthOnRedirect)
+
+
 def get(url, headers=None):
     req = urllib.request.Request(url, headers=headers or {})
-    return urllib.request.urlopen(req, timeout=120).read()
+    return _opener.open(req, timeout=120).read()
 
 
 def main():
