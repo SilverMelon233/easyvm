@@ -106,6 +106,27 @@
               nameserver 172.30.0.1
             '';
 
+            # AND systemd-resolved IS TURNED OFF, BECAUSE IT WANTS THE SAME FILE.
+            #
+            # MEASURED, with `systemd.network.enable = true` and the file above, the evaluation of
+            # this configuration stopped with
+            #
+            #	error: The option `environment.etc."resolv.conf".source' has conflicting definition values:
+            #	- In .../modules/system/etc/etc.nix: <derivation etc-resolv.conf>
+            #	- In .../modules/system/boot/resolved.nix: "/run/systemd/resolve/stub-resolv.conf"
+            #
+            # `networkd.nix` sets `services.resolved.enable = lib.mkDefault true`, so the two are in
+            # conflict by design rather than by accident: resolved's whole job is to own
+            # /etc/resolv.conf and point it at its own stub. `mkForce` is used rather than a plain
+            # `false` so a future version of networkd that raises that priority does not turn this
+            # back into a conflict - the guest's resolver is the bridge, and it is written one line
+            # above.
+            #
+            # THE GUEST LOSES NOTHING BY THIS. Its only nameserver is 172.30.0.1, a fixed address
+            # that never changes, so the caching and per-link routing resolved exists to provide have
+            # nothing to do here.
+            services.resolved.enable = lib.mkForce false;
+
             # NO BOOTLOADER. A microvm has no firmware to read a boot sector, so qemu is handed the
             # kernel and the initramfs directly with `-kernel`/`-initrd`. GRUB would be a disk
             # partition nothing ever reads.
