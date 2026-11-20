@@ -498,12 +498,12 @@ SESSION
 		chmod 0755 "$ROOT/opt/session.sh"
 
 		case "$DESKTOP" in
-		xfce)     SESSION_EXEC='/usr/bin/xfce4-session' ;;
-		cinnamon) SESSION_EXEC='/usr/bin/cinnamon-session' ;;
-		lxqt)     SESSION_EXEC='/usr/bin/startlxqt' ;;
-		lxde)     SESSION_EXEC='/usr/bin/lxsession' ;;
-		mate)     SESSION_EXEC='/usr/bin/mate-session' ;;
-		i3)       SESSION_EXEC='/usr/bin/i3' ;;
+		xfce)     SESSION_EXEC=/usr/bin/xfce4-session ;;
+		cinnamon) SESSION_EXEC=/usr/bin/cinnamon-session ;;
+		lxqt)     SESSION_EXEC=/usr/bin/startlxqt ;;
+		lxde)     SESSION_EXEC=/usr/bin/lxsession ;;
+		mate)     SESSION_EXEC=/usr/bin/mate-session ;;
+		i3)       SESSION_EXEC=/usr/bin/i3 ;;
 		esac
 
 		cat > "$ROOT/opt/desktop.sh" <<DESKTOP
@@ -519,7 +519,17 @@ fi
 export DISPLAY=:0
 export XDG_RUNTIME_DIR=/run/user/\$(id -u)
 export XDG_SESSION_TYPE=x11
-exec $SESSION_EXEC
+
+# THE SESSION BUS IS NOT OPTIONAL FOR AN X11 DESKTOP.
+#
+# MEASURED on XFCE: the session started and drew a dialog reading
+#
+#	Unable to contact settings server
+#	Could not connect: No such file or directory
+#
+# because xfconf talks to a session D-Bus that nothing had started. `dbus-run-session` gives
+# the whole session one bus, which is what a login would have provided.
+exec dbus-run-session -- "$SESSION_EXEC"
 DESKTOP
 		chmod 0755 "$ROOT/opt/desktop.sh"
 	fi
