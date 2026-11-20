@@ -26,7 +26,17 @@ def main():
         raise SystemExit("usage: guest-curl.py <api-url> <host>")
     api, host = sys.argv[1], sys.argv[2]
 
-    command = "curl -sS --max-time 6 http://%s/ ; echo EXIT:$?" % host
+    # `wget` RATHER THAN `curl`, BECAUSE THE ALPINE ROOTFS HAS NO `curl` AND DOES NOT NEED ONE.
+    #
+    # MEASURED: `ash: curl: not found` (exit 127) for every request, and installing curl into a running
+    # guest fails - `apk` cannot write its database as an unprivileged user:
+    #
+    #	ERROR: Unable to lock database: Permission denied
+    #
+    # `busybox` ships `wget` (`CONFIG_WGET=y` in Alpine's busyboxconfig) and `alpine-base` ships
+    # busybox, so the client is already there. `-T 6` is wget's timeout and `-O -` writes the body to
+    # stdout, which is what this needs to see.
+    command = "wget -q -T 6 -O - http://%s/ 2>&1; echo EXIT:$?" % host
     req = urllib.request.Request(
         api + "/api/exec", method="POST",
         data=json.dumps({"command": command, "timeout_seconds": 20}).encode(),
