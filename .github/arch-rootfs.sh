@@ -646,7 +646,7 @@ HYPRCFG
 # THE COMPOSITOR ON vkms, AND NOTHING ELSE. easystream is its own unit.
 #
 # THE DEVICE IS DISCOVERED, NOT NAMED. MEASURED with vgem also loaded: vgem took card0 and
-# vkms took card1, so \`WLR_DRM_DEVICES=/dev/dri/card0\` pointed the compositor at a
+# vkms took card1, so \WLR_DRM_DEVICES=/dev/dri/card0\ pointed the compositor at a
 # dumb-buffer device that cannot drive an output and it answered "Found 0 GPUs".
 i=0
 while [ \$i -lt 100 ]; do [ -e /dev/dri/card0 ] && break; i=\$((i+1)); sleep 0.1; done
@@ -661,8 +661,8 @@ export LIBGL_ALWAYS_SOFTWARE=1
 
 # THE WLR_* VARIABLES ARE wlroots', AND HYPRLAND IS NOT wlroots.
 #
-# MEASURED from the packages: sway and labwc link \`libwlroots\`; hyprland links its own
-# \`libaquamarine\`, \`libhyprlang\` and \`libhyprgraphics\` and has no wlroots dependency at
+# MEASURED from the packages: sway and labwc link \libwlroots\; hyprland links its own
+# \libaquamarine\, \libhyprlang\ and \libhyprgraphics\ and has no wlroots dependency at
 # all. Setting WLR_BACKENDS=... for hyprland is not an error - it is simply ignored, which
 # is the worse outcome: the session looks configured and the variable does nothing.
 if [ "${DESKTOP}" = "hyprland" ]; then
@@ -670,7 +670,7 @@ if [ "${DESKTOP}" = "hyprland" ]; then
 	# pixman renderer when EGL finds no hardware. Nothing to force.
 	export HYPRLAND_NO_CRASHREPORTER=1
 elif [ "${DESKTOP}" = "budgie" ]; then
-	# BUDGIE 10.10 RUNS ON \`budgie-wm\`, which is mutter-based, so it takes Mutter's
+	# BUDGIE 10.10 RUNS ON \budgie-wm\, which is mutter-based, so it takes Mutter's
 	# variables rather than wlroots'.
 	:
 else
@@ -681,6 +681,31 @@ else
 	export WLR_XWAYLAND=
 fi
 unset DISPLAY
+
+# THE CAPTURE SERVICE IS TRIGGERED ONCE THE SOCKET EXISTS, AS vmuser.
+#
+# THIS IS NOT A LIFECYCLE BINDING: easystream stays its own unit with its own
+# Restart=on-failure, and this line only starts it. It runs as vmuser so it talks to
+# vmuser's own manager.
+#
+# MEASURED, AND IT IS WHY THE TRIGGER EXISTS: with only
+# etc/systemd/user/default.target.wants/easystream.service, the lingered manager came up
+# ("Started User Manager for UID 1000") and NEVER STARTED THE UNIT - no easystream process, no
+# 48079, no journal line. WantedBy=default.target assumes a session that reaches that
+# target, and a linger-only manager stops at basic.target.
+#
+# AND environment.d DID NOT RELIABLY PUT WAYLAND_DISPLAY WHERE ConditionEnvironment LOOKS,
+# which is what the package's own unit checks. Starting it from a process that already knows
+# the socket is there removes both uncertainties at once.
+(
+	i=0
+	while [ \$i -lt 300 ]; do [ -S "\$XDG_RUNTIME_DIR/wayland-1" ] && break; i=\$((i+1)); sleep 0.1; done
+	i=0
+	while [ \$i -lt 100 ]; do
+		systemctl --user start easystream 2>/dev/null && break
+		i=\$((i+1)); sleep 0.2
+	done
+) &
 
 $SESSION_CMD
 SESSION
@@ -857,9 +882,31 @@ DROPIN
 	# a ZERO-BYTE png because its capture had no display to attach to. `environment.d` is
 	# read where systemd looks for user configuration, which is not the same path on every
 	# distribution; a unit `Environment=` is not subject to that.
+	# THE SESSION'S OWN NAME IS SET ON THE UNIT FOR BOTH FAMILIES, AND IT IS NOT OPTIONAL.
+	#
+	# MEASURED, and this is the whole of a Wayland failure that looked like a capture bug: with
+	# only the X11 branch writing this file, a Wayland session started easystream with NO
+	# WAYLAND_DISPLAY in its environment at all. The packaged `ConditionEnvironment=` lines
+	# were cleared by 10-conditions.conf, so nothing stopped it, and it ran with no display to
+	# attach to - the est server answered every Hello with the DEFAULT 1920x1080 and every
+	# frame came back ZERO BYTES, because there was no surface to copy.
+	#
+	# `environment.d` is not where this can live: MEASURED, the manager's own
+	# `/proc/<manager>/environ` had neither DISPLAY nor WAYLAND_DISPLAY, so the value was never
+	# reaching the daemon. A unit `Environment=` is not subject to that lookup.
 	if [ "$DESKTOP_FAMILY" = "x11" ]; then
 		cat > "$ROOT/etc/systemd/user/easystream.service.d/15-display.conf" <<'DROPIN'
 [Service]
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+DROPIN
+	else
+		cat > "$ROOT/etc/systemd/user/easystream.service.d/15-display.conf" <<'DROPIN'
+[Service]
+# The compositor's socket name, and the directory it lives in. Both are named explicitly
+# because the daemon is started by the user manager, whose environment is not the session's.
+Environment=WAYLAND_DISPLAY=wayland-1
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=DISPLAY=:0
 DROPIN
 	fi
