@@ -601,15 +601,55 @@ SWAYCFG
 			SESSION_CMD='exec labwc -s /opt/startup-client.sh'
 			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
 #!/bin/sh
-exec foot -T "ARCH LABWC MICROVM" -a -e sh -c 'echo ARCH LABWC MICROVM; echo compositor: labwc; echo socket: $WAYLAND_DISPLAY; sleep 3600'
+exec foot -T "ARCH LABWC MICROVM" -e sh -c 'echo ARCH LABWC MICROVM; echo compositor: labwc; echo socket: $WAYLAND_DISPLAY; sleep 3600'
 STARTUP
 			chmod 0755 "$ROOT/opt/startup-client.sh"
 		elif [ "$DESKTOP" = "river" ]; then
-			SESSION_CMD='exec river'
+			# RIVER MAPS NOTHING WITHOUT A LAYOUT GENERATOR, AND THE OFFICIAL REPOS HAVE NONE.
+			#
+			# MEASURED: with `river -c /opt/startup-client.sh` the client ran - `ps` showed
+			# `vmuser foot -T ARCH RIVER MICROVM ...` - and the capture was still pure black with
+			# a cursor. river implements river-window-management-v1 and leaves placement to an
+			# external client; the Arch package ships /usr/bin/river ONLY. `rivertile` is
+			# upstream's reference generator and lives in the AUR (pacman -Ss river-tile found
+			# nothing; the package search API returned zero results), which this image does not
+			# use.
+			#
+			# SO THE CLIENT IS STILL STARTED - it proves the compositor accepts a Wayland
+			# connection and a surface - and the walkthrough asserts on what can actually be
+			# seen: the session is up and the capture dimension is the real mode. This is a
+			# limit of the repository, not of the image, and it is written here so the next
+			# person does not spend an afternoon on it.
+			SESSION_CMD='exec river -c /opt/startup-client.sh'
+			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
+#!/bin/sh
+exec foot -T "ARCH RIVER MICROVM" -e sh -c 'echo ARCH RIVER MICROVM; echo compositor: river; echo socket: $WAYLAND_DISPLAY; sleep 3600'
+STARTUP
+			chmod 0755 "$ROOT/opt/startup-client.sh"
 		elif [ "$DESKTOP" = "wayfire" ]; then
+			# WAYFIRE DOES HAVE A PANEL AND A BACKGROUND, but its default config opens none of
+			# them, so a bare start is black too. One client is enough evidence, and wayfire's
+			# own `[autostart]` section is where it belongs.
+			# THE CONFIG PATH IS MEASURED, NOT GUESSED. wayfire's log said
+			# "Using config file: /home/vmuser/.config/wayfire.ini", and it does NOT read
+			# /etc/xdg/wayfire/wayfire.ini - an autostart written there would never have run.
+			mkdir -p "$ROOT/home/vmuser/.config"
+			cat > "$ROOT/home/vmuser/.config/wayfire.ini" <<'WAYFIRE'
+[autostart]
+term = foot -T "ARCH WAYFIRE MICROVM" -e sh -c 'echo ARCH WAYFIRE MICROVM; echo compositor: wayfire; echo socket: $WAYLAND_DISPLAY; sleep 3600'
+WAYFIRE
+			chown -R 1000:1000 "$ROOT/home/vmuser" 2>/dev/null || true
 			SESSION_CMD='exec wayfire'
 		elif [ "$DESKTOP" = "mangowm" ]; then
-			SESSION_CMD='exec mango'
+			# `mango -s <command>` IS ITS STARTUP FLAG; MEASURED from its own `-h`:
+			# "-s <command>   Execute startup command". The script is used rather than a quoted
+			# string for the same reason as labwc: exec'd arguments, not a shell.
+			SESSION_CMD='exec mango -s /opt/startup-client.sh'
+			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
+#!/bin/sh
+exec foot -T "ARCH MANGOWM MICROVM" -e sh -c 'echo ARCH MANGOWM MICROVM; echo compositor: mangowm; echo socket: $WAYLAND_DISPLAY; sleep 3600'
+STARTUP
+			chmod 0755 "$ROOT/opt/startup-client.sh"
 		elif [ "$DESKTOP" = "phosh" ]; then
 			SESSION_CMD='exec phosh-session'
 		elif [ "$DESKTOP" = "weston" ]; then
@@ -631,10 +671,9 @@ STARTUP
 		elif [ "$DESKTOP" = "enlightenment-wayland" ]; then
 			# E_WL_FORCE=drm IS THE WHOLE DIFFERENCE from the X11 entry: it tells enlightenment
 			# to drive the DRM device rather than run as a client of another display server.
-			SESSION_CMD='env E_WL_FORCE=drm E_COMP_ENGINE=gl exec /usr/bin/enlightenment_start' 
 			# THE SESSION FILE'S OWN LINE: `env E_WL_FORCE=drm E_COMP_ENGINE=gl`. E_WL_FORCE=drm
 			# is what tells it to use the DRM backend rather than nest in another compositor.
-			SESSION_CMD='env E_WL_FORCE=drm E_COMP_ENGINE=gl exec /usr/bin/enlightenment_start'
+			SESSION_CMD='exec env E_WL_FORCE=drm E_COMP_ENGINE=gl enlightenment_start'
 		elif [ "$DESKTOP" = "plasma-mobile" ]; then
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile'
 		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
@@ -651,14 +690,32 @@ STARTUP
 			SESSION_CMD='exec treeland-user-wrapper'
 		elif [ "$DESKTOP" = "hyprland" ]; then
 			# HYPRLAND: the same vkms device, a different compositor and config language.
+			# HYPRLAND 0.57 READS LUA, NOT THE KEY=VALUE FORMAT. MEASURED from the package:
+			# /usr/share/hypr/hyprland.lua is its example, and the header says so - there is no
+			# hyprland.conf.example any more. MEASURED from the binary: `hyprland --version`
+			# reported 0.57.2. The previous file failed with
+			#	`/etc/hypr/hyprland.conf:2: unexpected symbol near '#'`
+			# because a `#` comment is not Lua; the emergency path still drew the wallpaper and
+			# the otter, which is why the screenshot looked like a success.
+			#
+			# `.lua` EXTENSION, because that is what the parser selects on. `hl.monitor` and
+			# `hl.on("hyprland.start", ...)` are the documented forms in that example.
 			mkdir -p "$ROOT/etc/hypr"
-			cat > "$ROOT/etc/hypr/hyprland.conf" <<'HYPRCFG'
-# NO AUTOSTART OF A BAR: hyprland has none built in, and the screenshot assertion here is the
-# terminal this file opens - a window is a region of certain non-background pixels.
-monitor=,preferred,auto,1
-exec-once = foot
+			cat > "$ROOT/etc/hypr/hyprland.lua" <<'HYPRCFG'
+-- NO BAR: hyprland has none built in. The assertion is the terminal opened below, whose
+-- title and text are this image's own.
+hl.monitor({
+    output   = "",
+    mode     = "preferred",
+    position = "auto",
+    scale    = "auto",
+})
+
+hl.on("hyprland.start", function ()
+    hl.exec_cmd([[foot -T "ARCH HYPRLAND MICROVM" -e sh -c 'echo ARCH HYPRLAND MICROVM; echo compositor: hyprland; echo socket: $WAYLAND_DISPLAY; sleep 3600']])
+end)
 HYPRCFG
-			SESSION_CMD='exec hyprland --config /etc/hypr/hyprland.conf'
+			SESSION_CMD='exec hyprland --config /etc/hypr/hyprland.lua'
 		else
 			# NOTHING SHOULD REACH HERE: the case at the top of the file already refused any
 			# name it does not know. A fallback would silently start hyprland for a typo,
@@ -695,6 +752,16 @@ if [ "${DESKTOP}" = "hyprland" ]; then
 	# HYPRLAND PICKS THE DRM DEVICE ITSELF through aquamarine, and falls back to the
 	# pixman renderer when EGL finds no hardware. Nothing to force.
 	export HYPRLAND_NO_CRASHREPORTER=1
+elif [ "${DESKTOP}" = "mangowm" ]; then
+	# MANGOWM HAS NO PIXMAN PATH: its fx_renderer is EGL-only. MEASURED with WLR_RENDERER=pixman:
+	# "Software rendering detected, please use the WLR_RENDERER_ALLOW_SOFTWARE environment
+	# variable to proceed", "Failed to initialize EGL context", "couldn't create renderer", and
+	# a restart loop. Allowing software lets it take llvmpipe through EGL, which on vkms is the
+	# only EGL there is.
+	export WLR_BACKENDS=drm
+	export WLR_RENDERER_ALLOW_SOFTWARE=1
+	export WLR_LIBINPUT_NO_DEVICES=1
+	export WLR_XWAYLAND=
 elif [ "${DESKTOP}" = "budgie" ]; then
 	# BUDGIE 10.10 RUNS ON \budgie-wm\, which is mutter-based, so it takes Mutter's
 	# variables rather than wlroots'.
