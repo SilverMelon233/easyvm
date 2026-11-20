@@ -735,9 +735,43 @@ export XDG_SESSION_TYPE=x11
 #	Unable to contact settings server
 #	Could not connect: No such file or directory
 #
-# because xfconf talks to a session D-Bus that nothing had started. `dbus-run-session` gives
+# because xfconf talks to a session D-Bus that nothing had started. dbus-run-session gives
 # the whole session one bus, which is what a login would have provided.
-exec dbus-run-session -- "$SESSION_EXEC"
+#
+# THE RUNTIME DIR IS MADE FIRST, BECAUSE dbus-run-session PUTS ITS SOCKET THERE.
+# MEASURED on GNOME Flashback with the directory absent: the session restarted forever with
+#
+#	A connection to the bus can't be made
+#
+# and nothing else - dbus-run-session could not create its socket, so every child found no bus.
+# /run/user/<uid> exists only when login made it; this image makes it itself.
+mkdir -p "\$XDG_RUNTIME_DIR"
+chmod 700 "\$XDG_RUNTIME_DIR"
+
+# THE BUS IS STARTED EXPLICITLY, WITH A KNOWN ADDRESS, RATHER THAN BY dbus-run-session.
+#
+# MEASURED on GNOME Flashback: with dbus-run-session, the daemon came up, activated
+# org.gtk.vfs.Daemon successfully, and gnome-session STILL answered
+#
+#	A connection to the bus can't be made
+#
+# eleven times. dbus-run-session exports DBUS_SESSION_BUS_ADDRESS only to the process it
+# execs, and gnome-session's session launcher re-executes its children through a path that
+# did not carry it - the daemon was reachable and nothing could find it.
+#
+# NAMING THE SOCKET IN THE RUNTIME DIR IS THE FORM A LOGIN WOULD PRODUCE, and it is what every
+# desktop here is tested against: a fixed path that a child can find without an inherited
+# variable.
+export DBUS_SESSION_BUS_ADDRESS="unix:path=\$XDG_RUNTIME_DIR/bus"
+exec dbus-daemon --session --address="\$DBUS_SESSION_BUS_ADDRESS" --nofork --nopidfile &
+DBUS_PID=\$!
+i=0
+while [ \$i -lt 100 ]; do [ -S "\$XDG_RUNTIME_DIR/bus" ] && break; i=\$((i+1)); sleep 0.1; done
+if [ ! -S "\$XDG_RUNTIME_DIR/bus" ]; then
+	echo "desktop: the session bus never appeared" >&2
+	exit 1
+fi
+exec $SESSION_EXEC
 DESKTOP
 		chmod 0755 "$ROOT/opt/desktop.sh"
 	fi
