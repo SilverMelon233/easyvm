@@ -59,6 +59,10 @@ on:
       - "linux/ubuntu-microvm/**"
       - "linux/arch-microvm/**"
       - "linux/arch-sway-microvm/**"
+      - "linux/arch-xfce-microvm/**"
+      - "linux/arch-cinnamon-microvm/**"
+      - "linux/arch-lxqt-microvm/**"
+      - "linux/arch-i3-microvm/**"
       - "linux/leap-microvm/**"
       - "internal/**"
       - "cmd/**"
@@ -73,6 +77,10 @@ on:
       - "linux/ubuntu-microvm/**"
       - "linux/arch-microvm/**"
       - "linux/arch-sway-microvm/**"
+      - "linux/arch-xfce-microvm/**"
+      - "linux/arch-cinnamon-microvm/**"
+      - "linux/arch-lxqt-microvm/**"
+      - "linux/arch-i3-microvm/**"
       - "linux/leap-microvm/**"
       - "internal/**"
       - "cmd/**"
@@ -135,6 +143,18 @@ jobs:
           # reaches a prompt - it just never draws.
           - tag: rootfs-arch-sway
             walk: linux/arch-sway-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-xfce
+            walk: linux/arch-xfce-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-cinnamon
+            walk: linux/arch-cinnamon-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-lxqt
+            walk: linux/arch-lxqt-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-i3
+            walk: linux/arch-i3-microvm/steps/desktop.walk
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
           - tag: rootfs-leap-minimal
             walk: linux/leap-microvm/steps/console.walk

@@ -26,7 +26,13 @@
 # so exactly ONE module goes into the initramfs, same as Fedora.
 set -eu
 
-# DESKTOP NAMES THE SESSION TO INSTALL: 0, sway, hyprland, xfce, cinnamon, lxqt, lxde, mate, i3.
+# DESKTOP NAMES THE SESSION TO INSTALL:
+#
+#	0  sway  hyprland  budgie  xfce  cinnamon  lxqt  mate  i3
+#
+# LXDE IS DELIBERATELY ABSENT. Its package is still 0.99.4 - a version it has carried for
+# years - and LXQt exists precisely as its modern replacement. Shipping a desktop whose own
+# upstream never reached 1.0 is not what "a microvm running a current desktop" means.
 #
 # ONE SCRIPT FOR ALL OF THEM, because everything that makes this boot is identical - the
 # kernel, the initramfs modules, /dev, the fstab, the console session, growfs - and a script
@@ -34,10 +40,10 @@ set -eu
 #
 # THE DESKTOPS SPLIT INTO TWO FAMILIES, AND THE SPLIT DECIDES THE CAPTURE PATH:
 #
-#	WAYLAND  sway, hyprland          wlroots `wlr-screencopy`, which the compositor
-#	                                 implements itself. easystream reads it over the socket.
+#	WAYLAND  sway, hyprland, budgie  `wlr-screencopy`, or for budgie the compositor's own
+#	                                 protocol. easystream reads it over the socket.
 #	X11      xfce, cinnamon,         an X server (Xvfb, in memory - a microvm has no GPU),
-#	         lxqt, lxde, mate, i3     and easystream reads it with XSHM.
+#	         lxqt, mate, i3           and easystream reads it with XSHM.
 #
 # KDE AND GNOME ARE NOT HERE ON PURPOSE. Both capture through xdg-desktop-portal, which needs
 # a backend, PipeWire, a PermissionStore and a `graphical-session.target` that only a greeter
@@ -48,11 +54,11 @@ set -eu
 DESKTOP="${DESKTOP:-0}"
 
 case "$DESKTOP" in
-0|"")             DESKTOP_FAMILY=none ;;
-sway|hyprland)    DESKTOP_FAMILY=wayland ;;
-xfce|cinnamon|lxqt|lxde|mate|i3) DESKTOP_FAMILY=x11 ;;
+0|"")                 DESKTOP_FAMILY=none ;;
+sway|hyprland|budgie) DESKTOP_FAMILY=wayland ;;
+xfce|cinnamon|lxqt|mate|i3) DESKTOP_FAMILY=x11 ;;
 *)
-	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland xfce cinnamon lxqt lxde mate i3" >&2
+	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland budgie xfce cinnamon lxqt mate i3" >&2
 	exit 2
 	;;
 esac
@@ -146,12 +152,14 @@ if [ ! -d "$ROOT/usr" ]; then
 	case "$DESKTOP" in
 	sway)     DESKTOP_PKGS="sway foot $DESKTOP_COMMON" ;;
 	hyprland) DESKTOP_PKGS="hyprland foot $DESKTOP_COMMON" ;;
+	# BUDGIE 10.10 IS WAYLAND-ONLY: its package ships `wayland-sessions/budgie-desktop.desktop`
+	# and no xsessions entry at all. MEASURED from the package listing.
+	budgie)   DESKTOP_PKGS="budgie-desktop foot $DESKTOP_COMMON" ;;
 	# THE X11 FAMILY SHARES `xvfb` RATHER THAN DRIVING THE GPU: a microvm has no DRM card
 	# unless vkms is loaded, and X11 does not need one at all when it renders into memory.
 	xfce)     DESKTOP_PKGS="xfce4 xfce4-terminal xfce4-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	cinnamon) DESKTOP_PKGS="cinnamon cinnamon-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	lxqt)     DESKTOP_PKGS="lxqt-session lxqt-panel openbox qterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
-	lxde)     DESKTOP_PKGS="lxde-common lxsession openbox lxterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	mate)     DESKTOP_PKGS="mate mate-session-manager mate-terminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	i3)       DESKTOP_PKGS="i3-wm i3status dmenu foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	*)        DESKTOP_PKGS="" ;;
@@ -439,6 +447,10 @@ bar {
     }
 }
 SWAYCFG
+		elif [ "$DESKTOP" = "budgie" ]; then
+			# BUDGIE IS A DESKTOP ENVIRONMENT, NOT A COMPOSITOR: it runs on top of
+			# `budgie-wm`, whose Wayland session is the one its .desktop file starts.
+			SESSION_CMD='exec budgie-desktop'
 		else
 			# HYPRLAND: the same vkms device, a different compositor and config language.
 			mkdir -p "$ROOT/etc/hypr"
@@ -467,12 +479,29 @@ fi
 
 export XDG_RUNTIME_DIR=/run/user/\$(id -u)
 export LIBSEAT_BACKEND=noop
-export WLR_BACKENDS=drm
-export WLR_RENDERER=pixman
-export WLR_LIBINPUT_NO_DEVICES=1
 export LIBGL_ALWAYS_SOFTWARE=1
-# NO XWAYLAND: easystream reads Wayland through wlr-screencopy, not the X protocol.
-export WLR_XWAYLAND=
+
+# THE WLR_* VARIABLES ARE wlroots', AND HYPRLAND IS NOT wlroots.
+#
+# MEASURED from the packages: sway and labwc link \`libwlroots\`; hyprland links its own
+# \`libaquamarine\`, \`libhyprlang\` and \`libhyprgraphics\` and has no wlroots dependency at
+# all. Setting WLR_BACKENDS=... for hyprland is not an error - it is simply ignored, which
+# is the worse outcome: the session looks configured and the variable does nothing.
+if [ "${DESKTOP}" = "hyprland" ]; then
+	# HYPRLAND PICKS THE DRM DEVICE ITSELF through aquamarine, and falls back to the
+	# pixman renderer when EGL finds no hardware. Nothing to force.
+	export HYPRLAND_NO_CRASHREPORTER=1
+elif [ "${DESKTOP}" = "budgie" ]; then
+	# BUDGIE 10.10 RUNS ON \`budgie-wm\`, which is mutter-based, so it takes Mutter's
+	# variables rather than wlroots'.
+	:
+else
+	export WLR_BACKENDS=drm
+	export WLR_RENDERER=pixman
+	export WLR_LIBINPUT_NO_DEVICES=1
+	# NO XWAYLAND: easystream reads Wayland through wlr-screencopy, not the X protocol.
+	export WLR_XWAYLAND=
+fi
 unset DISPLAY
 
 $SESSION_CMD
@@ -501,7 +530,6 @@ SESSION
 		xfce)     SESSION_EXEC=/usr/bin/xfce4-session ;;
 		cinnamon) SESSION_EXEC=/usr/bin/cinnamon-session ;;
 		lxqt)     SESSION_EXEC=/usr/bin/startlxqt ;;
-		lxde)     SESSION_EXEC=/usr/bin/lxsession ;;
 		mate)     SESSION_EXEC=/usr/bin/mate-session ;;
 		i3)       SESSION_EXEC=/usr/bin/i3 ;;
 		esac
