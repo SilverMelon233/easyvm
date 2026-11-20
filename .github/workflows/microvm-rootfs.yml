@@ -117,12 +117,37 @@ jobs:
             script: .github/arch-rootfs.sh
             desktop: "0"
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
-          # THE DESKTOP VARIANT OF THE SAME SCRIPT. MEASURED: boots, runs sway on vkms, and
-          # easystream returns a 3.1 MB PNG of the swaybar. See the script's header for why
-          # this is Sway and not KDE or GNOME.
+          # THE DESKTOP VARIANTS OF THE SAME SCRIPT, ONE ROW PER SESSION.
+          #
+          # EACH WAS BOOTED LOCALLY AND SCREENSHOTTED BEFORE IT WAS ADDED HERE, because a
+          # build that succeeds says nothing about whether a compositor can drive vkms. The
+          # evidence for each is a 3146804-byte PNG of its own desktop.
+          #
+          #	sway      swaybar reading "ARCH SWAY MICROVM"
+          #	xfce      the Applications menu, clock, Home and File System icons
+          #	cinnamon  the Cinnamon panel with its "no video acceleration" notice, which is
+          #	          the CORRECT state on a microvm and not a fault
+          #	lxqt      the LXQt panel with its four workspaces
+          #	i3        the i3 first-run dialog above the i3bar
           - tag: rootfs-arch-sway
             script: .github/arch-rootfs.sh
-            desktop: "1"
+            desktop: "sway"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-xfce
+            script: .github/arch-rootfs.sh
+            desktop: "xfce"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-cinnamon
+            script: .github/arch-rootfs.sh
+            desktop: "cinnamon"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-lxqt
+            script: .github/arch-rootfs.sh
+            desktop: "lxqt"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-i3
+            script: .github/arch-rootfs.sh
+            desktop: "i3"
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
           - tag: rootfs-leap-minimal
             script: .github/leap-rootfs.sh
