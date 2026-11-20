@@ -122,7 +122,21 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # --- 1. the root tree ---------------------------------------------------------------------
 if [ ! -f "$WORK/rootfs.tar" ]; then
 	log "pulling archlinux:latest from docker.io"
-	python3 "$HERE/fetch-image.py" library/archlinux latest "$WORK/rootfs.tar"
+	# RETRIED, because the registry closes connections mid-body and a build that gives up on
+	# the first one can never start. MEASURED: three consecutive runs died inside urllib with
+	# RemoteDisconnected and a read timeout, on a network where the layer is fine a minute
+	# later. The retry writes to a temporary name so a truncated tar is never seen as complete.
+	i=0
+	until python3 "$HERE/fetch-image.py" library/archlinux latest "$WORK/rootfs.tar.part" \
+		&& mv "$WORK/rootfs.tar.part" "$WORK/rootfs.tar"; do
+		i=$((i+1))
+		if [ "$i" -ge 5 ]; then
+			echo "could not pull archlinux:latest after 5 attempts" >&2
+			exit 1
+		fi
+		rm -f "$WORK/rootfs.tar.part"
+		sleep 10
+	done
 fi
 
 ROOT="$WORK/root"
@@ -546,15 +560,13 @@ UNIT
 		# and a lingered manager starts at boot, before any compositor exists - so both are
 		# absent and the unit is skipped with no log line beyond the manager's own "Started".
 		# `environment.d` is where a user manager's environment comes from.
-		mkdir -p "$ROOT/etc/systemd/user/environment.d"
-		{
-			echo '# THE MANAGER ENVIRONMENT `ConditionEnvironment=` READS. wayland-1 is the'
-			echo '# socket the compositor in this image creates; easystream waits for it.'
-			echo 'WAYLAND_DISPLAY=wayland-1'
-			echo '# The unit ALSO requires DISPLAY and systemd ANDs conditions. Nothing here is'
-			echo '# an X client; the value exists only to satisfy the check.'
-			echo 'DISPLAY=:0'
-		} > "$ROOT/etc/systemd/user/environment.d/50-session.conf"
+		# THE MANAGER ENVIRONMENT IS SET WHEN THE SOCKET IS KNOWN, NOT HERE.
+		#
+		# A COMPOSITOR DOES NOT ALWAYS GET THE NAME wayland-1. wlroots asks libwayland for the
+		# first free name, which is wayland-0 on a clean boot: MEASURED, sway and labwc on the
+		# same image produced DIFFERENT names, and a fixed value broke whichever one differed.
+		# The name is discovered from the filesystem in session.sh and pushed into the manager
+		# with `systemctl --user set-environment` before the capture unit starts.
 
 		if [ "$DESKTOP" = "sway" ]; then
 			SESSION_CMD='exec sway --config /etc/sway/config'
@@ -577,7 +589,21 @@ SWAYCFG
 		elif [ "$DESKTOP" = "niri" ]; then
 			SESSION_CMD='exec niri'
 		elif [ "$DESKTOP" = "labwc" ]; then
-			SESSION_CMD='exec labwc'
+			# LABWC HAS NO WALLPAPER AND NO BAR OF ITS OWN, so a bare session captures a BLACK
+			# FRAME WITH A CURSOR - a real render, but nothing in it proves which compositor
+			# made it. MEASURED: exactly that, 3146804 bytes of black.
+			#
+			# THE EVIDENCE IS A CLIENT, STARTED THROUGH A SCRIPT RATHER THAN A QUOTED STRING.
+			# MEASURED with `-s "foot -T ... -e sh -c \"...\""`: labwc printed
+			# "slave.c:554: LABWC: failed to execute: No such file or directory" because its
+			# startup command is split and exec'd, not handed to a shell - the quotes were
+			# treated as part of the program name. A file has no quoting to get wrong.
+			SESSION_CMD='exec labwc -s /opt/startup-client.sh'
+			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
+#!/bin/sh
+exec foot -T "ARCH LABWC MICROVM" -a -e sh -c 'echo ARCH LABWC MICROVM; echo compositor: labwc; echo socket: $WAYLAND_DISPLAY; sleep 3600'
+STARTUP
+			chmod 0755 "$ROOT/opt/startup-client.sh"
 		elif [ "$DESKTOP" = "river" ]; then
 			SESSION_CMD='exec river'
 		elif [ "$DESKTOP" = "wayfire" ]; then
@@ -698,11 +724,37 @@ unset DISPLAY
 # which is what the package's own unit checks. Starting it from a process that already knows
 # the socket is there removes both uncertainties at once.
 (
+	# THE SOCKET IS DISCOVERED, NOT ASSUMED. libwayland hands out the first free name, so on a
+	# clean boot it is wayland-0 and after a restart it may be wayland-1. MEASURED: sway and
+	# labwc on identical images produced different names, and a fixed name broke the one that
+	# differed - the capture unit then had no display to attach to and answered every request
+	# with a zero-byte png at the default resolution.
 	i=0
-	while [ \$i -lt 300 ]; do [ -S "\$XDG_RUNTIME_DIR/wayland-1" ] && break; i=\$((i+1)); sleep 0.1; done
+	WL=
+	while [ \$i -lt 600 ]; do
+		for f in "\$XDG_RUNTIME_DIR"/wayland-*; do
+			case "\$f" in *.lock) continue ;; esac
+			[ -S "\$f" ] && { WL=\${f##*/}; break; }
+		done
+		[ -n "\$WL" ] && break
+		i=\$((i+1)); sleep 0.1
+	done
+	if [ -z "\$WL" ]; then
+		echo "session: no compositor socket appeared in 60s" >&2
+		exit 1
+	fi
+	# PUSHED INTO THE MANAGER, because the unit's environment is the manager's environment and
+	# `environment.d` was MEASURED not to reach it.
+	systemctl --user set-environment "WAYLAND_DISPLAY=\$WL"
+	systemctl --user set-environment "XDG_RUNTIME_DIR=\$XDG_RUNTIME_DIR"
+	# RESTARTED, NOT STARTED. The unit can already be active by the time this runs, because
+	# `default.target.wants` puts a link in and a manager that does reach that target starts it
+	# with the OLD environment. `start` on an active unit is a no-op, so the environment set
+	# above would never be picked up - MEASURED: labwc kept answering at the default 1920x1080
+	# with zero-byte frames while the unit reported itself active.
 	i=0
 	while [ \$i -lt 100 ]; do
-		systemctl --user start easystream 2>/dev/null && break
+		systemctl --user restart easystream 2>/dev/null && break
 		i=\$((i+1)); sleep 0.2
 	done
 ) &
@@ -903,9 +955,10 @@ DROPIN
 	else
 		cat > "$ROOT/etc/systemd/user/easystream.service.d/15-display.conf" <<'DROPIN'
 [Service]
-# The compositor's socket name, and the directory it lives in. Both are named explicitly
-# because the daemon is started by the user manager, whose environment is not the session's.
-Environment=WAYLAND_DISPLAY=wayland-1
+# THE RUNTIME DIRECTORY IS FIXED, THE SOCKET NAME IS NOT. The compositor chooses its socket
+# name at start-up and session.sh pushes the real one into the user manager just before it
+# starts this unit, so nothing here can go stale. NAME, not path: easystream joins
+# $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY itself.
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=DISPLAY=:0
 DROPIN
