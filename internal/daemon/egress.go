@@ -45,6 +45,9 @@ type upstreamJSON struct {
 }
 
 type egressRule struct {
+	// ID addresses this rule in a URL. It is derived from the rule's content (see net.RuleID), so a
+	// caller that changes the match gets a new identifier back.
+	ID string `json:"id,omitempty"`
 	// Match is a domain, a CIDR or a single address.
 	Match string `json:"match"`
 	// Action is "proxy", "direct" or "block".
@@ -179,8 +182,9 @@ func (d *Daemon) writeEgress(w http.ResponseWriter) {
 	if !at.IsZero() {
 		out.AppliedAt = at.UTC().Format("2006-01-02T15:04:05Z")
 	}
-	for _, rule := range policy.Rules {
+	for _, rule := range easyvmnet.EgressRules() {
 		out.Rules = append(out.Rules, egressRule{
+			ID:    easyvmnet.RuleID(rule),
 			Match: rule.Match, Action: verdictAction(rule.Verdict),
 			Upstream: rule.Verdict.Upstream, Ports: rule.Ports,
 		})
