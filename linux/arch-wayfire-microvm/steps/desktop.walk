@@ -1,0 +1,31 @@
+# AN ARCH LINUX MICROVM RUNNING WAYFIRE ON A SOFTWARE DRM DEVICE.
+#
+# WAYLAND FAMILY: `vkms.ko` is the software DRM device (no PCI, no firmware, no GPU), the
+# compositor drives it through wlroots' `drm` backend with `pixman`, and easystream reads the
+# frames over wlr-screencopy. MEASURED: reaching a real desktop and capturing it at 1024x768.
+#
+# THE CAPTURE SOCKET IS DISCOVERED, NOT NAMED. libwayland hands out the first free name, so
+# the session finds whichever wayland-* appeared and pushes it into the user manager before
+# starting the capture unit. A fixed name broke whichever compositor picked differently.
+
+walkthrough "wayfire microvm - WAYFIRE captured from the console assertion"
+  resolution 1024x768
+  recording_resolution 1024x768
+
+  needs arch-vmlinuz arch-initramfs arch.qcow2
+  disk arch.qcow2
+
+  boot as a microvm from kernel "arch-vmlinuz" and initramfs "arch-initramfs" with "console=ttyS0 root=/dev/vda rw rootfstype=ext4" without a display with memory 1536, waiting up to 240s
+
+  # THE KERNEL FOUND THE DISK AND USERSPACE STARTED.
+  the console will say "login"
+
+  # AND THE SESSION IS vmuser's - PipeWire refuses root (`ConditionUser=!root`).
+  the console will say "vmuser"
+
+  # THE SESSION'S OWN PROCESS NAME, which only appears once it is running.
+  the console will say "wayfire"
+
+  wait 20s
+
+  stop the machine by killing it, waiting up to 60s
