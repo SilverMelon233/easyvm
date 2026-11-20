@@ -242,7 +242,11 @@ if [ ! -d "$ROOT/usr" ]; then
 	# symmetry with the other dual-stack desktops.
 	treeland) DESKTOP_PKGS="treeland deepin-session foot $DESKTOP_COMMON" ;;
 	deepin-wayland) DESKTOP_PKGS="treeland deepin-session foot $DESKTOP_COMMON" ;;
-	deepin)   DESKTOP_PKGS="deepin-session deepin-desktop-environment foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	# `deepin-desktop-environment` IS NOT IN THE OFFICIAL REPOS. MEASURED: pacman answered
+	# "target not found" for it. What `deepin-session` needs is already in its own dependency
+	# list - `deepin-kwin`, `deepin-shell`, `deepin-session-ui`, the dtk6 libraries - so the
+	# package is the whole install and adding a meta name that does not exist only breaks it.
+	deepin)   DESKTOP_PKGS="deepin-session foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# THE X11 FAMILY SHARES `xvfb` RATHER THAN DRIVING THE GPU: a microvm has no DRM card
 	# unless vkms is loaded, and X11 does not need one at all when it renders into memory.
 	xfce)     DESKTOP_PKGS="xfce4 xfce4-terminal xfce4-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
@@ -304,8 +308,13 @@ if [ ! -d "$ROOT/usr" ]; then
 		# "error: command failed to execute correctly" twice and STILL INSTALLS EVERYTHING.
 		# An exit-code check refused six good builds in a row - the opposite of the bug it was
 		# written to catch, which was a download failure that left no kernel at all.
-		if ! pacman -S --noconfirm --quiet linux openssh e2fsprogs $DESKTOP_PKGS >/tmp/pacman.log 2>&1 \
-		   || ! ls /usr/lib/modules/*/vmlinuz >/dev/null 2>&1; then
+		i=0
+		until pacman -S --noconfirm --quiet linux openssh e2fsprogs $DESKTOP_PKGS >/tmp/pacman.log 2>&1; do
+			i=$((i+1))
+			[ "$i" -ge 5 ] && break
+			sleep 5
+		done
+		if ! ls /usr/lib/modules/*/vmlinuz >/dev/null 2>&1; then
 			# `cat`, not `tail`: tail does not exist in this tree yet.
 			cat /tmp/pacman.log
 			# THE ONE THING THIS BLOCK CANNOT DO IS CLEAN UP AFTER ITSELF, BECAUSE IT RUNS
@@ -706,7 +715,11 @@ SESSION
 		# qtile's is `Exec=qtile start` and enlightenment's is `enlightenment_start`. Without
 		# these two lines both names fall through to the Wayland branch and the X11 copy of a
 		# dual-stack desktop starts the wrong protocol.
-		qtile)         SESSION_EXEC=/usr/bin/qtile ;;
+		# `qtile start` WITH `-d`: MEASURED, without a config file it answers
+		# "usage: qtile [-h] [-v]" and restarts forever, which reads as a broken session
+		# rather than a missing default. `-d` uses qtile's own built-in config, which is the
+		# thing that draws a bar and makes the screenshot meaningful.
+		qtile)         SESSION_EXEC="/usr/bin/qtile start -d" ;;
 		enlightenment) SESSION_EXEC=/usr/bin/enlightenment_start ;;
 		# THE SESSION FILE'S OWN Exec= LINE, not a guess: gnome-flashback ships
 		# `Exec=/usr/lib/gnome-flashback-metacity`, which is a wrapper that starts
