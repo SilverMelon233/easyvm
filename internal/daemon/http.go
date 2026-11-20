@@ -217,6 +217,14 @@ func (d *Daemon) ServeHTTP(opts HTTPServeOptions) error {
 	})
 	mux.HandleFunc("/api/state", d.handleState)
 	mux.HandleFunc("/api/egress", d.handleEgress)
+	// THE COLLECTION AND THE SINGLE RULE, BECAUSE A REST CLIENT ADDRESSES ONE AT A TIME. The whole-policy
+	// `GET`/`POST` above stays for the dashboard, which edits a block of text.
+	//
+	// REGISTERED ON THE PREFIX WITH A TRAILING SLASH: Go's ServeMux treats that as a subtree, so
+	// `/api/egress/rules` (no slash) would not match it - hence the two registrations.
+	mux.HandleFunc("/api/egress/rules", d.handleEgressRules)
+	mux.HandleFunc("/api/egress/rules/", d.handleEgressRules)
+	mux.HandleFunc("/api/egress/default", d.handleEgressDefault)
 	mux.HandleFunc("/api/exec", d.handleExec)
 	mux.HandleFunc("/api/screen", d.handleScreenJSON)
 	mux.HandleFunc("/screen.png", d.handleScreenPNG)

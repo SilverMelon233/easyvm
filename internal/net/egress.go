@@ -25,8 +25,12 @@
 package net
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -196,6 +200,16 @@ type Policy struct {
 // address was resolved for, which this daemon learns from its own resolver (see dns.go) - so a
 // `suffix:` rule covers every subdomain that resolved through it, and nothing that did not.
 type Rule struct {
+	// ID identifies this rule across requests, and it is DERIVED rather than assigned.
+	//
+	// AN ID THAT COMES FROM THE POSITION IN THE LIST WOULD MOVE WHEN A RULE ABOVE IT IS DELETED, so
+	// `DELETE /api/egress/rules/{id}` would sometimes remove the wrong line - which is the one failure
+	// mode a REST API must not have. A hash of the rule's own content is stable under reordering and
+	// under concurrent edits, and two identical rules cannot both exist (which is also what a person
+	// means by a duplicate).
+	//
+	// IT IS COMPUTED, NOT STORED, so a caller cannot send one that disagrees with the content.
+	ID string `json:"id,omitempty"`
 	// Match is the thing to match: a name for `name` rules, an address or CIDR for `address` ones.
 	Match string `json:"match"`
 	// Verdict is what to do when this rule matches.
@@ -204,6 +218,26 @@ type Rule struct {
 	Action string `json:"action"`
 	// Ports limits the rule to specific destination ports. Empty means every port.
 	Ports []int `json:"ports,omitempty"`
+}
+
+// RuleID derives the identifier from what the rule says.
+//
+// THE ACTION WORD IS PART OF IT, not just the match: `github.com direct` and `github.com block` are
+// different rules, and an ID that ignored that would make editing one of them a delete of the other.
+//
+// IT IS A HASH OF A NORMALISED STRING rather than of the struct, so field order and an empty `Ports`
+// slice do not change the answer - two callers describing the same rule must get the same ID.
+func RuleID(r Rule) string {
+	ports := make([]string, 0, len(r.Ports))
+	for _, p := range r.Ports {
+		ports = append(ports, strconv.Itoa(p))
+	}
+	sort.Strings(ports)
+	seed := r.Match + "\x00" + r.Verdict.String() + "\x00" + strings.Join(ports, ",")
+	sum := sha256.Sum256([]byte(seed))
+	// TWELVE HEX CHARACTERS, because the ID is read by a person in a URL and this many is far past the
+	// point where two rules in one policy collide.
+	return hex.EncodeToString(sum[:6])
 }
 
 // egress is the process-wide table. A rules feature with no configuration is a table with no rules
@@ -266,6 +300,98 @@ func Egress() (Policy, []string, time.Time) {
 	egressMu.RLock()
 	defer egressMu.RUnlock()
 	return egress.policy, append([]string(nil), egress.errs...), egress.at
+}
+
+// EgressRules returns the rules in force, each with its derived ID.
+//
+// IT IS A SEPARATE ACCESSOR because the policy a caller edits and the policy the data path reads are
+// different shapes: `Egress()` returns what `resolvePolicy` kept (for the UI's unresolved list), this
+// returns what a REST client addresses.
+func EgressRules() []Rule {
+	policy, _, _ := Egress()
+	out := make([]Rule, len(policy.Rules))
+	for i, r := range policy.Rules {
+		r.ID = RuleID(r)
+		out[i] = r
+	}
+	return out
+}
+
+// AddRule appends one rule and resolves the table again.
+//
+// A DUPLICATE IS REFUSED RATHER THAN ADDED, because two rules with the same content have the same ID -
+// `DELETE /rules/{id}` would then have two candidates, and the answer would depend on order.
+func AddRule(r Rule) (Rule, error) {
+	policy, _, _ := Egress()
+	r.ID = RuleID(r)
+	for _, existing := range policy.Rules {
+		if RuleID(existing) == r.ID {
+			return r, fmt.Errorf("a rule with this match, action and ports already exists (id %s)",
+				r.ID)
+		}
+	}
+	policy.Rules = append(policy.Rules, r)
+	if err := SetEgress(policy); err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
+// ReplaceRule swaps the rule with this ID for a new one, and returns what is now stored.
+//
+// THE ID COMES FROM THE OLD RULE, SO CHANGING THE MATCH CHANGES THE IDENTIFIER. That is the cost of
+// deriving it from content: a caller that patches a rule must read the new ID from the response rather
+// than assume the old one still addresses it. It is stated here because a REST client that caches IDs
+// across a PATCH is the one that would be surprised.
+func ReplaceRule(id string, r Rule) (Rule, error) {
+	policy, _, _ := Egress()
+	for i, existing := range policy.Rules {
+		if RuleID(existing) != id {
+			continue
+		}
+		r.ID = RuleID(r)
+		// A RENAME ONTO ANOTHER RULE'S IDENTIFIER IS A DUPLICATE, not a swap.
+		for j, other := range policy.Rules {
+			if j != i && RuleID(other) == r.ID {
+				return r, fmt.Errorf("editing this rule would duplicate id %s", r.ID)
+			}
+		}
+		policy.Rules[i] = r
+		if err := SetEgress(policy); err != nil {
+			return r, err
+		}
+		return r, nil
+	}
+	return r, fmt.Errorf("no rule with id %q", id)
+}
+
+// DeleteRule removes the rule with this ID and reports whether it existed.
+func DeleteRule(id string) (bool, error) {
+	policy, _, _ := Egress()
+	for i, existing := range policy.Rules {
+		if RuleID(existing) != id {
+			continue
+		}
+		policy.Rules = append(policy.Rules[:i], policy.Rules[i+1:]...)
+		if err := SetEgress(policy); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+// SetDefault changes what an unmatched destination gets, leaving the rules alone.
+func SetDefault(v Verdict) error {
+	policy, _, _ := Egress()
+	policy.Default = v
+	return SetEgress(policy)
+}
+
+// DefaultVerdict is the current default, for the API to report.
+func DefaultVerdict() Verdict {
+	policy, _, _ := Egress()
+	return policy.Default
 }
 
 // VerdictFor answers what to do with a connection to ip:port.
