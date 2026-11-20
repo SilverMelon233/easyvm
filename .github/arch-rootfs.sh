@@ -653,7 +653,43 @@ STARTUP
 		elif [ "$DESKTOP" = "phosh" ]; then
 			SESSION_CMD='exec phosh-session'
 		elif [ "$DESKTOP" = "weston" ]; then
-			SESSION_CMD='exec weston'
+			# WESTON ABORTS WHEN IT CANNOT OPEN AN INPUT DEVICE, AND A MICROVM HAS NO
+			# /dev/input AT ALL. MEASURED: the image ships only console/null/ptmx/random/tty/
+			# urandom/zero, and weston answered
+			#
+			#	event0: opening input device '/dev/input/event0' failed (Operation not permitted)
+			#	failed to create input devices
+			#	fatal: failed to create compositor backend
+			#
+			# and restarted forever. Its own binary carries the way out - the string
+			# "no input devices found, but none required as per configuration" - and the key is
+			# `require-input` in the `[core]` section, MEASURED from libexec_weston.so.
+			mkdir -p "$ROOT/etc/xdg/weston"
+			cat > "$ROOT/etc/xdg/weston/weston.ini" <<'WESTON'
+[core]
+# A HEADLESS APPLIANCE HAS NO KEYBOARD AND THAT IS NOT A FAULT.
+require-input=false
+
+# THE CLIENT IS THE EVIDENCE: weston's own desktop shell draws a panel, and this window's
+# title and text are the image's own.
+[autostart]
+path=/opt/startup-client.sh
+WESTON
+			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
+#!/bin/sh
+exec foot -T "ARCH WESTON MICROVM" -e sh -c 'echo ARCH WESTON MICROVM; echo compositor: weston; echo socket: $WAYLAND_DISPLAY; sleep 3600'
+STARTUP
+			chmod 0755 "$ROOT/opt/startup-client.sh"
+			# AND EASYSTREAM CANNOT CAPTURE WESTON AT ALL, WHICH IS NOT A CONFIGURATION PROBLEM.
+			# MEASURED: `strings` over weston's binary and every module finds ZERO occurrences of
+			# zwlr_screencopy - weston implements its own weston-screenshooter protocol instead,
+			# and ships no xdg-desktop-portal backend either. easystream reads wlr-screencopy
+			# (it links wlr-screencopy-protocol.c) and falls back to the ScreenCast portal; with
+			# neither present the est server answers at the DEFAULT 1920x1080 and every frame is
+			# ZERO BYTES. The session itself is healthy - weston logs its output at 1024x768,
+			# loads desktop-shell and launches the client. Recording the limit so it is not
+			# mistaken for a broken image.
+			SESSION_CMD='exec weston --config=/etc/xdg/weston/weston.ini'
 		elif [ "$DESKTOP" = "xfce-wayland" ]; then
 			# THE SESSION FILE'S OWN LINE: `Exec=startxfce4 --wayland`. labwc is the compositor
 			# that `--wayland` drives, which is why it is in this variant's package list.
@@ -679,9 +715,20 @@ STARTUP
 		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland'
 		elif [ "$DESKTOP" = "budgie" ]; then
-			# BUDGIE IS A DESKTOP ENVIRONMENT, NOT A COMPOSITOR: it runs on top of
-			# `budgie-wm`, whose Wayland session is the one its .desktop file starts.
-			SESSION_CMD='exec budgie-desktop'
+			# BUDGIE'S WAYLAND SESSION IS labwc, AND `budgie-desktop` IS NOT ITS ENTRY POINT.
+			#
+			# MEASURED from the package: usr/share/wayland-sessions/budgie-desktop.desktop has
+			#	Exec=/usr/bin/startbudgielabwc
+			# and that script ends with
+			#	labwc --config-dir .../budgie-desktop/labwc -S budgie-desktop
+			# so labwc is the COMPOSITOR and budgie-desktop is a CLIENT it starts. Calling
+			# `budgie-desktop` directly asks a panel to attach to a Wayland display nobody
+			# created: MEASURED, it printed "Failed to connect to Wayland display" in a loop and
+			# never produced a socket or a frame.
+			#
+			# THE SESSION FILE'S OWN COMMAND IS USED, which also gets its config directory,
+			# environment file and menu copied into place - all of which the script does for us.
+			SESSION_CMD='exec startbudgielabwc'
 		elif [ "$DESKTOP" = "kylin" ]; then
 			SESSION_CMD='exec kylin-wlcom -s ukui-session'
 		elif [ "$DESKTOP" = "treeland" ] || [ "$DESKTOP" = "deepin-wayland" ]; then
@@ -763,9 +810,13 @@ elif [ "${DESKTOP}" = "mangowm" ]; then
 	export WLR_LIBINPUT_NO_DEVICES=1
 	export WLR_XWAYLAND=
 elif [ "${DESKTOP}" = "budgie" ]; then
-	# BUDGIE 10.10 RUNS ON \budgie-wm\, which is mutter-based, so it takes Mutter's
-	# variables rather than wlroots'.
-	:
+	# BUDGIE'S COMPOSITOR IS labwc - MEASURED from startbudgielabwc, which ends in
+	# `labwc ... -S budgie-desktop` - so it takes wlroots' variables like every other
+	# wlroots compositor here.
+	export WLR_BACKENDS=drm
+	export WLR_RENDERER=pixman
+	export WLR_LIBINPUT_NO_DEVICES=1
+	export WLR_XWAYLAND=
 else
 	export WLR_BACKENDS=drm
 	export WLR_RENDERER=pixman
@@ -774,6 +825,30 @@ else
 	export WLR_XWAYLAND=
 fi
 unset DISPLAY
+
+# THE SESSION BUS IS STARTED HERE TOO, FOR THE SAME REASON IT IS IN desktop.sh.
+#
+# MEASURED on Phosh: `phosh-session` checks DBUS_SESSION_BUS_ADDRESS and, when it is empty,
+# wraps the compositor in its own dbus-run-session. That nested bus is not the one a login
+# would provide, and gnome-session inside it failed with
+#
+#	A connection to the bus can't be made
+#
+# then the session exited and systemd restarted it, forever. Naming the socket first means
+# phosh-session finds a bus and runs the compositor directly.
+#
+# The socket lives where a login puts it, and the wait is for the socket rather than for the
+# daemon, so nothing races it.
+export DBUS_SESSION_BUS_ADDRESS="unix:path=\$XDG_RUNTIME_DIR/bus"
+if [ ! -S "\$XDG_RUNTIME_DIR/bus" ]; then
+	dbus-daemon --session --address="\$DBUS_SESSION_BUS_ADDRESS" --nofork --nopidfile &
+	i=0
+	while [ \$i -lt 100 ]; do [ -S "\$XDG_RUNTIME_DIR/bus" ] && break; i=\$((i+1)); sleep 0.1; done
+	if [ ! -S "\$XDG_RUNTIME_DIR/bus" ]; then
+		echo "session: the session bus never appeared" >&2
+		exit 1
+	fi
+fi
 
 # THE CAPTURE SERVICE IS TRIGGERED ONCE THE SOCKET EXISTS, AS vmuser.
 #
