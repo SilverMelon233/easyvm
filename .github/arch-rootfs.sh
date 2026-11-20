@@ -80,11 +80,26 @@ case "$DESKTOP" in
 sway|hyprland|budgie|niri|labwc|river|wayfire|mangowm|phosh|weston|plasma-mobile|plasma-bigscreen|kylin|treeland) DESKTOP_FAMILY=wayland ;;
 
 # X11 ONLY.
-mate|i3|flashback|deepin) DESKTOP_FAMILY=x11 ;;
+mate|i3|flashback) DESKTOP_FAMILY=x11 ;;
 
 # BOTH, AND THE BARE NAME IS THE X11 SESSION.
-xfce|cinnamon|lxqt|qtile|enlightenment) DESKTOP_FAMILY=x11 ;;
-xfce-wayland|cinnamon-wayland|lxqt-wayland|qtile-wayland|enlightenment-wayland) DESKTOP_FAMILY=wayland ;;
+#
+# DEEPIN IS HERE AND IT IS NOT OBVIOUSLY SO. Its X11 entry and its Wayland entry live in
+# DIFFERENT PACKAGES, which is why a list built by package name missed the pairing:
+#
+#	deepin-session  xsessions/deepin.desktop        Exec=/usr/bin/dde-session
+#	treeland        wayland-sessions/treeland-user.desktop  Exec=/usr/bin/treeland-user-wrapper
+#
+# MEASURED from the packages: `dde-session` is the SESSION MANAGER - it is what both entries
+# ultimately run - and the COMPOSITOR underneath differs. `deepin-session` depends on
+# `deepin-kwin` (Deepin's KWin fork, in its X11 role); `treeland` is Deepin's own Wayland
+# compositor and depends on `deepin-session` rather than the other way round.
+#
+# SO "dde" IS THE DESKTOP AND TREELAND IS ONE OF ITS TWO COMPOSITORS. `deepin-kwin` is the
+# other. The `treeland.desktop` that also ships is `Hidden=true` and carries
+# `X-DDE-SINGLE-WAYLAND=true` - it is the no-greeter variant, not a second desktop.
+xfce|cinnamon|lxqt|qtile|enlightenment|deepin) DESKTOP_FAMILY=x11 ;;
+xfce-wayland|cinnamon-wayland|lxqt-wayland|qtile-wayland|enlightenment-wayland|deepin-wayland) DESKTOP_FAMILY=wayland ;;
 *)
 	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland budgie niri labwc river wayfire" >&2
 	echo "  mangowm phosh weston plasma-mobile plasma-bigscreen kylin treeland" >&2
@@ -221,7 +236,12 @@ if [ ! -d "$ROOT/usr" ]; then
 	#   deepin   XSESSIONS/deepin.desktop               Exec=/usr/bin/dde-session
 	# (kylin and treeland are the Wayland side; deepin-session's own entry is X11.)
 	kylin)    DESKTOP_PKGS="kylin-wayland-compositor ukui-session-manager foot $DESKTOP_COMMON" ;;
+	# TREELAND IS DEEPIN'S WAYLAND COMPOSITOR, not a separate desktop: it runs
+	# `treeland-user-wrapper`, which starts dde on the treeland compositor. The bare `treeland`
+	# name is kept as an alias because that is the package, and the `-wayland` name exists for
+	# symmetry with the other dual-stack desktops.
 	treeland) DESKTOP_PKGS="treeland deepin-session foot $DESKTOP_COMMON" ;;
+	deepin-wayland) DESKTOP_PKGS="treeland deepin-session foot $DESKTOP_COMMON" ;;
 	deepin)   DESKTOP_PKGS="deepin-session deepin-desktop-environment foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# THE X11 FAMILY SHARES `xvfb` RATHER THAN DRIVING THE GPU: a microvm has no DRM card
 	# unless vkms is loaded, and X11 does not need one at all when it renders into memory.
@@ -590,7 +610,9 @@ SWAYCFG
 			SESSION_CMD='exec budgie-desktop'
 		elif [ "$DESKTOP" = "kylin" ]; then
 			SESSION_CMD='exec kylin-wlcom -s ukui-session'
-		elif [ "$DESKTOP" = "treeland" ]; then
+		elif [ "$DESKTOP" = "treeland" ] || [ "$DESKTOP" = "deepin-wayland" ]; then
+			# `treeland-user.desktop`, which is the VISIBLE one: the sibling `treeland.desktop`
+			# is `Hidden=true` and is the no-greeter variant.
 			SESSION_CMD='exec treeland-user-wrapper'
 		elif [ "$DESKTOP" = "hyprland" ]; then
 			# HYPRLAND: the same vkms device, a different compositor and config language.
