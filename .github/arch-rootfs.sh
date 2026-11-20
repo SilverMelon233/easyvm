@@ -29,9 +29,10 @@ set -eu
 # DESKTOP NAMES THE SESSION TO INSTALL:
 #
 #	0  sway  hyprland  budgie  niri  labwc  river  wayfire  mangowm
-#	   phosh  weston  qtile  enlightenment  plasma-mobile  plasma-bigscreen
-#	   kylin  treeland  deepin
-#	   xfce  cinnamon  lxqt  mate  i3  flashback
+#	   phosh  weston  plasma-mobile  plasma-bigscreen  kylin  treeland
+#	   mate  i3  flashback  deepin
+#	   xfce  xfce-wayland  cinnamon  cinnamon-wayland  lxqt  lxqt-wayland
+#	   qtile  qtile-wayland  enlightenment  enlightenment-wayland
 #
 # THE LIST IS EXHAUSTIVE, TAKEN FROM ARCH'S OWN FILE DATABASE rather than from memory.
 # `extra.files.tar.gz` lists every file each package owns, so grepping it for
@@ -63,13 +64,33 @@ set -eu
 # is being solved separately.
 DESKTOP="${DESKTOP:-0}"
 
+# FIVE DESKTOPS SHIP BOTH KINDS OF SESSION, AND THEY GET ONE NAME EACH PER PROTOCOL.
+#
+# MEASURED by intersecting the two file-database lists: cinnamon, enlightenment, qtile,
+# xfce4-session, and lxqt (whose Wayland session is a SEPARATE package,
+# `lxqt-wayland-session`, with `Exec=startlxqtwayland`).
+#
+# THE BARE NAME IS THE X11 ONE AND `-wayland` IS THE OTHER, which keeps every name that
+# already existed working and makes the difference visible in the tag. A desktop that only has
+# one protocol has only one name, so nothing is pretending to be a choice it does not have.
 case "$DESKTOP" in
 0|"")                 DESKTOP_FAMILY=none ;;
-sway|hyprland|budgie|niri|labwc|river|wayfire|mangowm|phosh|weston|qtile|enlightenment|plasma-mobile|plasma-bigscreen|kylin|treeland) DESKTOP_FAMILY=wayland ;;
-xfce|cinnamon|lxqt|mate|i3|flashback|deepin) DESKTOP_FAMILY=x11 ;;
+
+# WAYLAND ONLY.
+sway|hyprland|budgie|niri|labwc|river|wayfire|mangowm|phosh|weston|plasma-mobile|plasma-bigscreen|kylin|treeland) DESKTOP_FAMILY=wayland ;;
+
+# X11 ONLY.
+mate|i3|flashback|deepin) DESKTOP_FAMILY=x11 ;;
+
+# BOTH, AND THE BARE NAME IS THE X11 SESSION.
+xfce|cinnamon|lxqt|qtile|enlightenment) DESKTOP_FAMILY=x11 ;;
+xfce-wayland|cinnamon-wayland|lxqt-wayland|qtile-wayland|enlightenment-wayland) DESKTOP_FAMILY=wayland ;;
 *)
 	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland budgie niri labwc river wayfire" >&2
-	echo "  mangowm phosh weston qtile enlightenment plasma-mobile plasma-bigscreen" >&2
+	echo "  mangowm phosh weston plasma-mobile plasma-bigscreen kylin treeland" >&2
+	echo "  mate i3 flashback deepin" >&2
+	echo "  dual-stack: xfce xfce-wayland  cinnamon cinnamon-wayland  lxqt lxqt-wayland" >&2
+	echo "              qtile qtile-wayland  enlightenment enlightenment-wayland" >&2
 	echo "  xfce cinnamon lxqt mate i3 flashback" >&2
 	exit 2
 	;;
@@ -184,8 +205,10 @@ if [ ! -d "$ROOT/usr" ]; then
 	# QTILE AND ENLIGHTENMENT SHIP BOTH KINDS OF SESSION; this image takes the Wayland one,
 	# because the X11 path is already covered by six other desktops and the Wayland path is
 	# the one worth widening.
-	qtile)    DESKTOP_PKGS="qtile foot $DESKTOP_COMMON" ;;
-	enlightenment) DESKTOP_PKGS="enlightenment foot $DESKTOP_COMMON" ;;
+	qtile)    DESKTOP_PKGS="qtile foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	qtile-wayland)    DESKTOP_PKGS="qtile foot $DESKTOP_COMMON" ;;
+	enlightenment) DESKTOP_PKGS="enlightenment foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	enlightenment-wayland) DESKTOP_PKGS="enlightenment foot $DESKTOP_COMMON" ;;
 	# THE KDE VARIANTS ARE SEPARATE PACKAGES FROM plasma-desktop, with their own session files
 	# and their own Exec lines. They are not themes: plasma-mobile is a phone shell and
 	# plasma-bigscreen is a TV one.
@@ -203,8 +226,19 @@ if [ ! -d "$ROOT/usr" ]; then
 	# THE X11 FAMILY SHARES `xvfb` RATHER THAN DRIVING THE GPU: a microvm has no DRM card
 	# unless vkms is loaded, and X11 does not need one at all when it renders into memory.
 	xfce)     DESKTOP_PKGS="xfce4 xfce4-terminal xfce4-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	# THE SAME DESKTOP ON ITS WAYLAND SESSION. No X server at all - the session file is
+	# `xfce-wayland.desktop` and it runs on `labwc` as its compositor, which is why labwc is
+	# a dependency here and not a separate variant.
+	xfce-wayland)     DESKTOP_PKGS="xfce4 xfce4-terminal xfce4-session labwc $DESKTOP_COMMON" ;;
 	cinnamon) DESKTOP_PKGS="cinnamon cinnamon-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	# CINNAMON'S WAYLAND SESSION RUNS ON `muffin` AS ITS OWN COMPOSITOR - the same binary that
+	# is its X11 window manager, built with the Wayland backend.
+	cinnamon-wayland) DESKTOP_PKGS="cinnamon cinnamon-session $DESKTOP_COMMON" ;;
 	lxqt)     DESKTOP_PKGS="lxqt-session lxqt-panel openbox qterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	# LXQT'S WAYLAND SESSION IS A SEPARATE PACKAGE, `lxqt-wayland-session`, whose only job is
+	# the `startlxqtwayland` wrapper. MEASURED: `Exec=startlxqtwayland`, and it needs a
+	# compositor of its own - labwc, the same one XFCE's Wayland session uses.
+	lxqt-wayland)     DESKTOP_PKGS="lxqt-session lxqt-panel lxqt-wayland-session qterminal labwc $DESKTOP_COMMON" ;;
 	mate)     DESKTOP_PKGS="mate mate-session-manager mate-terminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	i3)       DESKTOP_PKGS="i3-wm i3status dmenu foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# GNOME FLASHBACK IS GNOME'S OWN X11 SESSION, NOT AN OLD FORK: MEASURED, its package is
@@ -243,17 +277,26 @@ if [ ! -d "$ROOT/usr" ]; then
 		# non-zero, `tail` exited zero, and the build carried on to fail forty lines later
 		# with "no vmlinuz under .../usr/lib/modules" - a message about the kernel for a
 		# problem that was a download.
-		if ! pacman -S --noconfirm --quiet linux openssh e2fsprogs $DESKTOP_PKGS >/tmp/pacman.log 2>&1; then
-			# `cat`, not `tail`: tail does not exist in this tree yet - see above.
+		# THE TEST IS "DID THE KERNEL ARRIVE", NOT "DID PACMAN EXIT ZERO".
+		#
+		# MEASURED, and it cost six builds: `systemd-tmpfiles` needs /proc and the journal
+		# catalog hook wants a file this image does not ship, so pacman prints
+		# "error: command failed to execute correctly" twice and STILL INSTALLS EVERYTHING.
+		# An exit-code check refused six good builds in a row - the opposite of the bug it was
+		# written to catch, which was a download failure that left no kernel at all.
+		if ! pacman -S --noconfirm --quiet linux openssh e2fsprogs $DESKTOP_PKGS >/tmp/pacman.log 2>&1 \
+		   || ! ls /usr/lib/modules/*/vmlinuz >/dev/null 2>&1; then
+			# `cat`, not `tail`: tail does not exist in this tree yet.
+			cat /tmp/pacman.log
 			# THE ONE THING THIS BLOCK CANNOT DO IS CLEAN UP AFTER ITSELF, BECAUSE IT RUNS
 			# INSIDE THE CHROOT. `$ROOT` is not set in there, so an `rm -rf "$ROOT"` here
 			# expands to `rm -rf ""` - which does nothing - and the half-built tree survives
-			# to poison every later run: the unpack is guarded by `[ ! -d "$ROOT/usr" ]`, so
-			# each retry skipped it and answered "no vmlinuz under .../usr/lib/modules".
-			# MEASURED, three attempts in a row. The marker file is what the caller reads.
+			# to poison every later run: the unpack is guarded by `[ ! -d "$ROOT/usr" ]`.
 			exit 1
 		fi
-		: # nothing to report on success
+		# WARNINGS ARE RECORDED, NOT IGNORED, because the next person should know which two
+		# hooks always fail in a chroot and which would be new.
+		grep -E "^(error|warning)" /tmp/pacman.log >&2 || true
 	' || {
 		rm -rf "$ROOT"
 		log "pacman failed; the tree is removed so the next run starts clean"
@@ -516,9 +559,24 @@ SWAYCFG
 			SESSION_CMD='exec phosh-session'
 		elif [ "$DESKTOP" = "weston" ]; then
 			SESSION_CMD='exec weston'
-		elif [ "$DESKTOP" = "qtile" ]; then
+		elif [ "$DESKTOP" = "xfce-wayland" ]; then
+			# THE SESSION FILE'S OWN LINE: `Exec=startxfce4 --wayland`. labwc is the compositor
+			# that `--wayland` drives, which is why it is in this variant's package list.
+			SESSION_CMD='exec startxfce4 --wayland'
+		elif [ "$DESKTOP" = "cinnamon-wayland" ]; then
+			# `Exec=cinnamon-session-cinnamon --wayland`, from the session file.
+			SESSION_CMD='exec cinnamon-session-cinnamon --wayland'
+		elif [ "$DESKTOP" = "lxqt-wayland" ]; then
+			# `Exec=startlxqtwayland`, provided by the separate `lxqt-wayland-session` package.
+			SESSION_CMD='exec startlxqtwayland'
+		elif [ "$DESKTOP" = "qtile-wayland" ]; then
+			# `qtile start` CHECKS WAYLAND_DISPLAY ITSELF and starts the Wayland backend when it
+			# is set - the session file for both is the same command.
 			SESSION_CMD='exec qtile start'
-		elif [ "$DESKTOP" = "enlightenment" ]; then
+		elif [ "$DESKTOP" = "enlightenment-wayland" ]; then
+			# E_WL_FORCE=drm IS THE WHOLE DIFFERENCE from the X11 entry: it tells enlightenment
+			# to drive the DRM device rather than run as a client of another display server.
+			SESSION_CMD='env E_WL_FORCE=drm E_COMP_ENGINE=gl exec /usr/bin/enlightenment_start' 
 			# THE SESSION FILE'S OWN LINE: `env E_WL_FORCE=drm E_COMP_ENGINE=gl`. E_WL_FORCE=drm
 			# is what tells it to use the DRM backend rather than nest in another compositor.
 			SESSION_CMD='env E_WL_FORCE=drm E_COMP_ENGINE=gl exec /usr/bin/enlightenment_start'
@@ -622,6 +680,12 @@ SESSION
 		mate)     SESSION_EXEC=/usr/bin/mate-session ;;
 		i3)       SESSION_EXEC=/usr/bin/i3 ;;
 		deepin)   SESSION_EXEC=/usr/bin/dde-session ;;
+		# THE X11 SESSION OF A DUAL-STACK DESKTOP. MEASURED from their own xsessions entries:
+		# qtile's is `Exec=qtile start` and enlightenment's is `enlightenment_start`. Without
+		# these two lines both names fall through to the Wayland branch and the X11 copy of a
+		# dual-stack desktop starts the wrong protocol.
+		qtile)         SESSION_EXEC=/usr/bin/qtile ;;
+		enlightenment) SESSION_EXEC=/usr/bin/enlightenment_start ;;
 		# THE SESSION FILE'S OWN Exec= LINE, not a guess: gnome-flashback ships
 		# `Exec=/usr/lib/gnome-flashback-metacity`, which is a wrapper that starts
 		# gnome-session with the flashback components in the right order.
