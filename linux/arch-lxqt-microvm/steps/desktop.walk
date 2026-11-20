@@ -34,7 +34,7 @@ walkthrough "lxqt microvm - LXQt on xvfb, captured over xshm"
 
   # THE SESSION MANAGER ITSELF. A desktop that could not start leaves the console quiet;
   # this line is the manager's own name, printed once it is running.
-  the console will say "startlxqt"
+  the console will say "ARCH-SESSION-STARTING: lxqt"
 
   wait 20s
 

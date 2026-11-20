@@ -34,7 +34,7 @@ walkthrough "i3 microvm - i3 on xvfb, captured over xshm"
 
   # THE SESSION MANAGER ITSELF. A desktop that could not start leaves the console quiet;
   # this line is the manager's own name, printed once it is running.
-  the console will say "i3-wm"
+  the console will say "ARCH-SESSION-STARTING: i3"
 
   wait 20s
 

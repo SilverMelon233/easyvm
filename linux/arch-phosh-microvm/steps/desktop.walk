@@ -24,7 +24,7 @@ walkthrough "phosh microvm - PHOSH captured from the console assertion"
   the console will say "vmuser"
 
   # THE SESSION'S OWN PROCESS NAME, which only appears once it is running.
-  the console will say "phosh"
+  the console will say "ARCH-SESSION-STARTING: phosh"
 
   wait 20s
 
