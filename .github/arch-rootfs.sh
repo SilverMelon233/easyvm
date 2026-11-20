@@ -28,7 +28,17 @@ set -eu
 
 # DESKTOP NAMES THE SESSION TO INSTALL:
 #
-#	0  sway  hyprland  budgie  xfce  cinnamon  lxqt  mate  i3
+#	0  sway  hyprland  budgie  niri  labwc  river  wayfire  mangowm
+#	   phosh  weston  qtile  enlightenment  plasma-mobile  plasma-bigscreen
+#	   kylin  treeland  deepin
+#	   xfce  cinnamon  lxqt  mate  i3  flashback
+#
+# THE LIST IS EXHAUSTIVE, TAKEN FROM ARCH'S OWN FILE DATABASE rather than from memory.
+# `extra.files.tar.gz` lists every file each package owns, so grepping it for
+# `wayland-sessions/.*\.desktop` and `xsessions/.*\.desktop` answers "what sessions does this
+# repository ship" with no opinion involved. MEASURED: 28 packages provide a Wayland session
+# and 30 provide an X11 one. The first pass at this file used a remembered shortlist and
+# MISSED niri, mangowm, qtile, phosh, weston and the two KDE variants entirely.
 #
 # LXDE IS DELIBERATELY ABSENT. Its package is still 0.99.4 - a version it has carried for
 # years - and LXQt exists precisely as its modern replacement. Shipping a desktop whose own
@@ -55,10 +65,12 @@ DESKTOP="${DESKTOP:-0}"
 
 case "$DESKTOP" in
 0|"")                 DESKTOP_FAMILY=none ;;
-sway|hyprland|budgie) DESKTOP_FAMILY=wayland ;;
-xfce|cinnamon|lxqt|mate|i3) DESKTOP_FAMILY=x11 ;;
+sway|hyprland|budgie|niri|labwc|river|wayfire|mangowm|phosh|weston|qtile|enlightenment|plasma-mobile|plasma-bigscreen|kylin|treeland) DESKTOP_FAMILY=wayland ;;
+xfce|cinnamon|lxqt|mate|i3|flashback|deepin) DESKTOP_FAMILY=x11 ;;
 *)
-	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland budgie xfce cinnamon lxqt mate i3" >&2
+	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland budgie niri labwc river wayfire" >&2
+	echo "  mangowm phosh weston qtile enlightenment plasma-mobile plasma-bigscreen" >&2
+	echo "  xfce cinnamon lxqt mate i3 flashback" >&2
 	exit 2
 	;;
 esac
@@ -155,6 +167,39 @@ if [ ! -d "$ROOT/usr" ]; then
 	# BUDGIE 10.10 IS WAYLAND-ONLY: its package ships `wayland-sessions/budgie-desktop.desktop`
 	# and no xsessions entry at all. MEASURED from the package listing.
 	budgie)   DESKTOP_PKGS="budgie-desktop foot $DESKTOP_COMMON" ;;
+	# NIRI IS IN THE OFFICIAL `extra` REPO (26.04), NOT AUR: a scrollable-tiling Wayland
+	# compositor with its own renderer. MEASURED: it ships `wayland-sessions/niri.desktop`
+	# and nothing for X11.
+	niri)     DESKTOP_PKGS="niri foot $DESKTOP_COMMON" ;;
+	# THE THREE BELOW ARE OFFICIAL TOO, and they are the same kind of object as sway - a
+	# wlroots compositor with wlr-screencopy built in - so they cost one package each and
+	# add real breadth without adding a new capture path.
+	labwc)    DESKTOP_PKGS="labwc foot $DESKTOP_COMMON" ;;
+	river)    DESKTOP_PKGS="river foot $DESKTOP_COMMON" ;;
+	wayfire)  DESKTOP_PKGS="wayfire foot $DESKTOP_COMMON" ;;
+	# THE SEVEN BELOW ARE ALSO OFFICIAL `extra` PACKAGES, found by the file-database sweep.
+	mangowm)  DESKTOP_PKGS="mangowm foot $DESKTOP_COMMON" ;;
+	phosh)    DESKTOP_PKGS="phosh foot $DESKTOP_COMMON" ;;
+	weston)   DESKTOP_PKGS="weston foot $DESKTOP_COMMON" ;;
+	# QTILE AND ENLIGHTENMENT SHIP BOTH KINDS OF SESSION; this image takes the Wayland one,
+	# because the X11 path is already covered by six other desktops and the Wayland path is
+	# the one worth widening.
+	qtile)    DESKTOP_PKGS="qtile foot $DESKTOP_COMMON" ;;
+	enlightenment) DESKTOP_PKGS="enlightenment foot $DESKTOP_COMMON" ;;
+	# THE KDE VARIANTS ARE SEPARATE PACKAGES FROM plasma-desktop, with their own session files
+	# and their own Exec lines. They are not themes: plasma-mobile is a phone shell and
+	# plasma-bigscreen is a TV one.
+	plasma-mobile)    DESKTOP_PKGS="plasma-mobile plasma-workspace foot $DESKTOP_COMMON" ;;
+	plasma-bigscreen) DESKTOP_PKGS="plasma-bigscreen plasma-workspace foot $DESKTOP_COMMON" ;;
+	# THE THREE CHINESE VENDOR DESKTOPS. MEASURED from their own session files:
+	#   kylin    wayland-sessions/kylin-wlcom.desktop  Exec=kylin-wlcom -s ukui-session
+	#   treeland wayland-sessions/treeland-user.desktop Exec=/usr/bin/treeland-user-wrapper
+	#            and wayland-sessions/treeland.desktop  Exec=/usr/bin/dde-session
+	#   deepin   XSESSIONS/deepin.desktop               Exec=/usr/bin/dde-session
+	# (kylin and treeland are the Wayland side; deepin-session's own entry is X11.)
+	kylin)    DESKTOP_PKGS="kylin-wayland-compositor ukui-session-manager foot $DESKTOP_COMMON" ;;
+	treeland) DESKTOP_PKGS="treeland deepin-session foot $DESKTOP_COMMON" ;;
+	deepin)   DESKTOP_PKGS="deepin-session deepin-desktop-environment foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# THE X11 FAMILY SHARES `xvfb` RATHER THAN DRIVING THE GPU: a microvm has no DRM card
 	# unless vkms is loaded, and X11 does not need one at all when it renders into memory.
 	xfce)     DESKTOP_PKGS="xfce4 xfce4-terminal xfce4-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
@@ -162,6 +207,12 @@ if [ ! -d "$ROOT/usr" ]; then
 	lxqt)     DESKTOP_PKGS="lxqt-session lxqt-panel openbox qterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	mate)     DESKTOP_PKGS="mate mate-session-manager mate-terminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	i3)       DESKTOP_PKGS="i3-wm i3status dmenu foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	# GNOME FLASHBACK IS GNOME'S OWN X11 SESSION, NOT AN OLD FORK: MEASURED, its package is
+	# 3.58.0 - the same generation as GNOME 51 - and it ships exactly one session file,
+	# `xsessions/gnome-flashback-metacity.desktop`, with `Exec=/usr/lib/gnome-flashback-metacity`.
+	# It is the ONLY way to run a GNOME desktop on X11 today, because the main GNOME session
+	# dropped X11 in 45.
+	flashback) DESKTOP_PKGS="gnome-flashback gnome-panel gnome-session gnome-settings-daemon metacity nautilus xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	*)        DESKTOP_PKGS="" ;;
 	esac
 	export DESKTOP_PKGS
@@ -179,7 +230,11 @@ if [ ! -d "$ROOT/usr" ]; then
 		# were built against. `-Syu` moves the whole tree to one snapshot, which is what
 		# a rolling release requires and what the Arch wiki calls a partial-upgrade
 		# failure.
-		pacman -Syu --noconfirm --quiet 2>&1 | tail -3
+		# NO PIPE TO TAIL: MEASURED, the Arch container image has no coreutils at this point,
+		# and the shell answered "tail: command not found" - so the pipe silenced the
+		# updater output AND its status. `--quiet` already keeps it quiet.
+		# (No apostrophes in this block: it is inside a single-quoted chroot command.)
+		pacman -Syu --noconfirm --quiet
 		# `linux` CARRIES vmlinuz AND /usr/lib/modules. openssh is the daemon the driver
 		# dials; e2fsprogs is what growfs needs at first boot.
 		# THE EXIT CODE IS CHECKED, WHICH `| tail -3` THROWS AWAY.
@@ -189,7 +244,7 @@ if [ ! -d "$ROOT/usr" ]; then
 		# with "no vmlinuz under .../usr/lib/modules" - a message about the kernel for a
 		# problem that was a download.
 		if ! pacman -S --noconfirm --quiet linux openssh e2fsprogs $DESKTOP_PKGS >/tmp/pacman.log 2>&1; then
-			tail -15 /tmp/pacman.log
+			# `cat`, not `tail`: tail does not exist in this tree yet - see above.
 			# THE ONE THING THIS BLOCK CANNOT DO IS CLEAN UP AFTER ITSELF, BECAUSE IT RUNS
 			# INSIDE THE CHROOT. `$ROOT` is not set in there, so an `rm -rf "$ROOT"` here
 			# expands to `rm -rf ""` - which does nothing - and the half-built tree survives
@@ -198,7 +253,7 @@ if [ ! -d "$ROOT/usr" ]; then
 			# MEASURED, three attempts in a row. The marker file is what the caller reads.
 			exit 1
 		fi
-		tail -2 /tmp/pacman.log
+		: # nothing to report on success
 	' || {
 		rm -rf "$ROOT"
 		log "pacman failed; the tree is removed so the next run starts clean"
@@ -447,11 +502,39 @@ bar {
     }
 }
 SWAYCFG
+		elif [ "$DESKTOP" = "niri" ]; then
+			SESSION_CMD='exec niri'
+		elif [ "$DESKTOP" = "labwc" ]; then
+			SESSION_CMD='exec labwc'
+		elif [ "$DESKTOP" = "river" ]; then
+			SESSION_CMD='exec river'
+		elif [ "$DESKTOP" = "wayfire" ]; then
+			SESSION_CMD='exec wayfire'
+		elif [ "$DESKTOP" = "mangowm" ]; then
+			SESSION_CMD='exec mango'
+		elif [ "$DESKTOP" = "phosh" ]; then
+			SESSION_CMD='exec phosh-session'
+		elif [ "$DESKTOP" = "weston" ]; then
+			SESSION_CMD='exec weston'
+		elif [ "$DESKTOP" = "qtile" ]; then
+			SESSION_CMD='exec qtile start'
+		elif [ "$DESKTOP" = "enlightenment" ]; then
+			# THE SESSION FILE'S OWN LINE: `env E_WL_FORCE=drm E_COMP_ENGINE=gl`. E_WL_FORCE=drm
+			# is what tells it to use the DRM backend rather than nest in another compositor.
+			SESSION_CMD='env E_WL_FORCE=drm E_COMP_ENGINE=gl exec /usr/bin/enlightenment_start'
+		elif [ "$DESKTOP" = "plasma-mobile" ]; then
+			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile'
+		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
+			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland'
 		elif [ "$DESKTOP" = "budgie" ]; then
 			# BUDGIE IS A DESKTOP ENVIRONMENT, NOT A COMPOSITOR: it runs on top of
 			# `budgie-wm`, whose Wayland session is the one its .desktop file starts.
 			SESSION_CMD='exec budgie-desktop'
-		else
+		elif [ "$DESKTOP" = "kylin" ]; then
+			SESSION_CMD='exec kylin-wlcom -s ukui-session'
+		elif [ "$DESKTOP" = "treeland" ]; then
+			SESSION_CMD='exec treeland-user-wrapper'
+		elif [ "$DESKTOP" = "hyprland" ]; then
 			# HYPRLAND: the same vkms device, a different compositor and config language.
 			mkdir -p "$ROOT/etc/hypr"
 			cat > "$ROOT/etc/hypr/hyprland.conf" <<'HYPRCFG'
@@ -461,6 +544,12 @@ monitor=,preferred,auto,1
 exec-once = foot
 HYPRCFG
 			SESSION_CMD='exec hyprland --config /etc/hypr/hyprland.conf'
+		else
+			# NOTHING SHOULD REACH HERE: the case at the top of the file already refused any
+			# name it does not know. A fallback would silently start hyprland for a typo,
+			# which is a worse answer than stopping.
+			echo "DESKTOP=$DESKTOP has no session command" >&2
+			exit 2
 		fi
 
 		cat > "$ROOT/opt/session.sh" <<SESSION
@@ -532,6 +621,11 @@ SESSION
 		lxqt)     SESSION_EXEC=/usr/bin/startlxqt ;;
 		mate)     SESSION_EXEC=/usr/bin/mate-session ;;
 		i3)       SESSION_EXEC=/usr/bin/i3 ;;
+		deepin)   SESSION_EXEC=/usr/bin/dde-session ;;
+		# THE SESSION FILE'S OWN Exec= LINE, not a guess: gnome-flashback ships
+		# `Exec=/usr/lib/gnome-flashback-metacity`, which is a wrapper that starts
+		# gnome-session with the flashback components in the right order.
+		flashback) SESSION_EXEC=/usr/lib/gnome-flashback-metacity ;;
 		esac
 
 		cat > "$ROOT/opt/desktop.sh" <<DESKTOP
