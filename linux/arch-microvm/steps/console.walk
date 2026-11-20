@@ -30,21 +30,28 @@ walkthrough "arch microvm - a root filesystem, a serial login, and no PCIe"
   # is the only place this guest can be read.
   boot as a microvm from kernel "arch-vmlinuz" and initramfs "arch-initramfs" with "console=ttyS0 root=/dev/vda rw rootfstype=ext4" without a display with memory 1024, waiting up to 180s
 
-  # THE FIRST FACT: the kernel found the disk. Without `acpi=on` this never appears, and the guest
-  # reaches `ALERT! /dev/vda does not exist` or a `VFS: Cannot open root device` panic instead.
-  the console will say "vda"
+  # THE FACTS THIS GUEST CAN SHOW, AND WHY THEY ARE NOT THE SAME AS ITS TWINS'.
+  #
+  # MEASURED IN CI on run 44683664921: this guest booted COMPLETELY - every target, sshd,
+  # `archlinux login: root (automatic login)` - and the word "vda" NEVER APPEARED in its console
+  # log. The kernel line that names the disk is printed before the initramfs hands over, and
+  # systemd's own terminal setup redraws the screen from that point, so on this distribution the
+  # early line is not in the captured log while it is on the others. Asserting "vda" here fails a
+  # guest that is up.
+  #
+  # SO THE PROMPT IS THE ASSERTION. It cannot be reached without a root filesystem, which is the
+  # same fact one step later.
+  the console will say "Arch Linux"
 
-  # THE SECOND: init finished and a login is waiting.
-  the console will say "login"
-
-  # AND THE THIRD, ONLY FOR THIS DISTRIBUTION: the guest is not sitting at a first-boot question.
-  # MEASURED, before `systemd-firstboot` was masked, the console showed
+  # AND IT IS THE LOGIN PROMPT, NOT A FIRST-BOOT QUESTION. MEASURED before `systemd-firstboot` was
+  # masked, the console showed
   #
   #   Initial Setup
   #   Please enter the new timezone name or number ("list" to list options, empty to skip):
   #
-  # on a machine that had booted perfectly - so `login` alone would have been satisfied by a prompt
-  # nobody could answer, and this line is what distinguishes the two.
+  # on a machine that had mounted its disk and started systemd - so an assertion on "login" alone
+  # would have passed on a guest nobody could log into. `archlinux login` names the hostname this
+  # image is built with, so the question cannot satisfy it.
   the console will say "archlinux login"
 
   # TWENTY SECONDS OF A GUEST AT A PROMPT, so the recording is a machine that stayed up.
