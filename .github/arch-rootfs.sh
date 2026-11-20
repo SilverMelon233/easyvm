@@ -711,6 +711,20 @@ STARTUP
 			# is what tells it to use the DRM backend rather than nest in another compositor.
 			SESSION_CMD='exec env E_WL_FORCE=drm E_COMP_ENGINE=gl enlightenment_start'
 		elif [ "$DESKTOP" = "plasma-mobile" ]; then
+			# THE SESSION RUNS - kwin_wayland, plasmashell and plasma-keyboard all come up - AND
+			# EASYSTREAM GETS NO FRAME FROM IT.
+			#
+			# MEASURED with a small probe over the est protocol: Hello was answered at the REAL
+			# 1024x768 rather than the default, so the daemon IS attached to kwin's socket, and
+			# then no frame ever arrived. MEASURED from the packages: `strings` over
+			# kwin_wayland finds ZERO occurrences of zwlr_screencopy and ZERO of
+			# ext_image_copy_capture - KWin implements neither, which is why nothing is copied.
+			#
+			# THE ROUTE THAT EXISTS IS THE PORTAL: kde-portals.conf ships and
+			# xdg-desktop-portal-kde is installed, and easystream falls back to the ScreenCast
+			# portal when wlr-screencopy is absent. That fallback needs the portal front end
+			# running plus a ScreenCast grant, neither of which is set up here. Recorded rather
+			# than papered over: the session is healthy, the capture protocol is missing.
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile'
 		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland'
@@ -785,7 +799,24 @@ if [ ! -e /dev/dri/card0 ]; then
 	exit 1
 fi
 
+# THE RUNTIME DIRECTORY BELONGS TO vmuser AND THIS SCRIPT MUST NOT MAKE IT.
+#
+# MEASURED on plasma-mobile: session.sh started before systemd-logind had created
+# /run/user/1000, exported it anyway, and dbus-daemon created the directory as ROOT. Every
+# later user child then refused it:
+#
+#	dbus: Unable to set up transient service directory: XDG_RUNTIME_DIR "/run/user/1000"
+#	       is owned by uid 0, not our uid 1000
+#
+# so the session came up with no bus, no socket discovery and no capture. The wait is for
+# logind's own mkdir, which is the only thing allowed to create it.
+i=0
+while [ \$i -lt 300 ] && [ ! -d /run/user/\$(id -u) ]; do i=\$((i+1)); sleep 0.1; done
 export XDG_RUNTIME_DIR=/run/user/\$(id -u)
+if [ ! -d "\$XDG_RUNTIME_DIR" ]; then
+	echo "session: /run/user/\$(id -u) never appeared; logind did not make it" >&2
+	exit 1
+fi
 export LIBSEAT_BACKEND=noop
 export LIBGL_ALWAYS_SOFTWARE=1
 
