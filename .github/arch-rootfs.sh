@@ -908,7 +908,21 @@ export LIBGL_ALWAYS_SOFTWARE=1
 # quickly" - because it did not know it was supposed to bring up a Wayland backend. wlroots
 # compositors assume it; the GNOME/Session-manager based ones read it.
 export XDG_SESSION_TYPE=wayland
-export XDG_CURRENT_DESKTOP="$DESKTOP"
+# THE VALUE IS THE DESKTOP'S OWN SPELLING, AND CASE MATTERS TO THE MENUS.
+#
+# MEASURED on budgie: labwc's own config sets `OnlyShowIn=Budgie` on BudgiePanel.desktop, and
+# that test is CASE-SENSITIVE. `startbudgielabwc` only forces `XDG_CURRENT_DESKTOP=Budgie` when
+# the variable is empty OR does not already mention budgie case-insensitively - so exporting
+# the lowercase name here made it keep `budgie`, and the panel was never autostarted. The
+# session stayed a bare labwc with its "Config errors detected" bar over an empty desktop.
+# Every desktop whose session files key off this name gets its own spelling.
+case "$DESKTOP" in
+	budgie) XDG_CURRENT_DESKTOP=Budgie ;;
+	xfce|xfce-wayland) XDG_CURRENT_DESKTOP=XFCE ;;
+	lxqt|lxqt-wayland) XDG_CURRENT_DESKTOP=LXQt ;;
+	*) XDG_CURRENT_DESKTOP="$DESKTOP" ;;
+esac
+export XDG_CURRENT_DESKTOP
 
 # THE WLR_* VARIABLES ARE wlroots', AND HYPRLAND IS NOT wlroots.
 #
