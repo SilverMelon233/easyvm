@@ -298,6 +298,13 @@ if [ ! -d "$ROOT/usr" ]; then
 		export http_proxy="http://mihomo.develop.svc.cluster.local:7890"
 		export https_proxy="$http_proxy"
 		export no_proxy="127.0.0.1,localhost,::1"
+		# ONE DOWNLOAD AT A TIME, BECAUSE THE PARALLEL DOWNLOADER STALLS HERE.
+		# MEASURED: a single package from the mirror over the proxy runs at ~23 MB/s, but
+		# the default parallel downloads of several large files (linux, webkit2gtk,
+		# ghostscript, perl ...) crawl at a few MB/min - the concurrent connections are what
+		# throttles. Serialising them makes the big cinnamon/webkit dependency set finish.
+		sed -i "s/^#ParallelDownloads.*/ParallelDownloads = 1/" /etc/pacman.conf
+		grep -q "^ParallelDownloads" /etc/pacman.conf || echo "ParallelDownloads = 1" >> /etc/pacman.conf
 		# A FULL UPGRADE, NOT `-Sy`. MEASURED: the container image and the mirror are not
 		# always at the same package versions, and a partial upgrade answers
 		#
@@ -693,41 +700,49 @@ PUP
 			# gtk-layer-shell supported"); what is not solved is getting it to paint inside this
 			# session and reaching the frame through easystream's shm-only screencopy.
 			#
-			# THE SHIM (wait for bus+socket, then run nemo) is kept because it at least stops the
-			# respawn-teardown. The remaining problem is the black capture, recorded here.
-			#
-			# PREVIOUS NOTE, STILL TRUE:
-			#   * with nemo untouched, cinnamon-session answers "App 'nemo-autostart.desktop'
-			#     respawning too quickly" and "Unable to start session" - the session dies.
-			#   * with a no-op shim (exit 0), the session survives but the frame is black: the
-			#     compositor-internal screenshot had 15028 non-black bytes of 2360064 - a cursor
-			#     and nothing else - because nemo-desktop is what paints the background and icons.
-			# AND nemo itself is fine: run by hand it prints "using Wayland backend,
-			# gtk-layer-shell supported" and stays up. So the shim WAITS for the session bus and
-			# the wayland socket before exec'ing the real nemo-desktop, which is what the
-			# session manager's too-early launch did not do.
-			cat > "$ROOT/opt/nemo-shim" <<'SHIM'
+			# SO NEMO IS REMOVED FROM THE SESSION'S REQUIRED LIST AND STARTED ON ITS OWN.
+			# cinnamon-wayland.session lists "RequiredComponents=cinnamon-wayland;nemo-autostart;";
+			# dropping nemo-autostart means nemo exiting can no longer fail the session, and the
+			# startup wrapper launches nemo-desktop as an ordinary process so it still paints the
+			# desktop. The compositor itself (cinnamon-wayland) stays required.
+			if [ -f "$ROOT/usr/share/cinnamon-session/sessions/cinnamon-wayland.session" ]; then
+				sed -i "s/^RequiredComponents=.*/RequiredComponents=cinnamon-wayland;/" \
+					"$ROOT/usr/share/cinnamon-session/sessions/cinnamon-wayland.session"
+			fi
+			cat > "$ROOT/opt/cinn-nemo.sh" <<'NEMO'
 #!/bin/sh
-# Wait for the things nemo needs, then run it. If it dies, restart slowly enough that
-# cinnamon-session never sees a "respawning too quickly" and tears the session down.
 i=0
-while [ $i -lt 100 ]; do
-	[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && [ -S "$XDG_RUNTIME_DIR/bus" ] && break
+while [ $i -lt 200 ]; do
+	[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
 	i=$((i+1)); sleep 0.1
 done
-while :; do
-	/usr/bin/nemo-desktop "$@"
-	sleep 5
-done
-SHIM
-			chmod 0755 "$ROOT/opt/nemo-shim"
-			mkdir -p "$ROOT/etc/xdg/autostart"
-			if [ -f "$ROOT/usr/share/applications/nemo-autostart.desktop" ]; then
-				sed 's|^Exec=.*|Exec=/opt/nemo-shim|' \
-					"$ROOT/usr/share/applications/nemo-autostart.desktop" \
-					> "$ROOT/etc/xdg/autostart/nemo-autostart.desktop"
-			fi
-			SESSION_CMD='exec cinnamon-session-cinnamon --wayland'
+sleep 2
+exec /usr/bin/nemo-desktop
+NEMO
+			chmod 0755 "$ROOT/opt/cinn-nemo.sh"
+			cat > "$ROOT/opt/cinn-session.sh" <<'CSESS'
+#!/bin/sh
+/opt/cinn-nemo.sh &
+exec /usr/bin/cinnamon-session-cinnamon --wayland
+CSESS
+			chmod 0755 "$ROOT/opt/cinn-session.sh"
+			# THE SESSION IS STABLE NOW; THE CAPTURE IS THE WALL, AND IT IS MEASURED.
+			# MEASURED after the RequiredComponents fix: ARCH-SESSION-STARTING appears ONCE (no
+			# restart loop), nemo respawning is gone, and easystream reports "encoder opened
+			# 1024x768" - it attaches and knows the size - yet the frame is all zero (max pixel 0).
+			#
+			# TWO CAPTURE PATHS WERE TRIED AND BOTH ARE CLOSED HERE:
+			#   wlr-screencopy: muffin has ZERO occurrences of zwlr_screencopy; grim answers
+			#     "compositor doesn't support the screen capture protocol".
+			#   Mutter.ScreenCast via portal-gnome: the packages install and both xdg-desktop-portal
+			#     and xdg-desktop-portal-gnome are ACTIVE with their bus names present, but
+			#     "busctl introspect org.gnome.Mutter.ScreenCast" answers "The name is not
+			#     activatable" - muffin links the Mutter.ScreenCast code but does NOT export the
+			#     D-Bus interface at runtime, so the GNOME portal has no screencast to call and the
+			#     frame stays black.
+			# So cinnamon-wayland runs end to end but cannot be captured on vkms: it exposes
+			# neither capture protocol. Recorded as its limit, not retried by guesswork.
+			SESSION_CMD='exec /opt/cinn-session.sh'
 		elif [ "$DESKTOP" = "lxqt-wayland" ]; then
 			# `Exec=startlxqtwayland`, provided by the separate `lxqt-wayland-session` package.
 			SESSION_CMD='exec startlxqtwayland'
