@@ -418,8 +418,11 @@ func machineType(boot machine.Boot) string {
 		// guest has no screen to photograph and no reason to carry an adapter. IT IS STILL THE SMALL
 		// MACHINE: no PCIe, no IDE, no USB. The graphics option adds the VGA adapter back on the ISA
 		// bus, which is one device and about 16 MiB.
+		// A DESKTOP DRAWS ON THE GPU AND NEEDS NO TEXT ADAPTER, so `graphics=off` there: the
+		// carriage is `virtio-gpu-pci` (see the adapter branch below), and an ISA VGA beside it
+		// would be a second, unused display that `see:` might photograph instead.
 		graphics := "off"
-		if boot.MicroVMDisplay != "serial" {
+		if boot.MicroVMDisplay == "terminal" {
 			graphics = "on"
 		}
 		// `acpi=on` STAYS ON FOR EVERY MICROVM, AND `pci=off` IS ADDED AS A KERNEL ARGUMENT.
@@ -441,7 +444,21 @@ func machineType(boot machine.Boot) string {
 		// ACPI itself, and `pci=off` states the truth about this machine. It is added to
 		// `machine.Boot.KernelArgs` rather than here, because it is a kernel argument and this
 		// function builds a machine type.
-		return "microvm,accel=kvm,acpi=on,pic=on,rtc=on,pcie=off,graphics=" + graphics
+		// PCIe IS ON FOR A DESKTOP, AND ONLY FOR A DESKTOP. MEASURED: `virtio-gpu-device` on the
+		// virtio-MMIO bus attaches but its driver never binds (status 0x83, NEEDS_RESET, no
+		// /dev/dri/card0), while `pcie=on` with `virtio-gpu-pci` produces
+		//
+		//	[drm] Initialized virtio_gpu 0.1.0 for 0000:00:01.0 on minor 0
+		//	/sys/class/drm: card0 card0-Virtual-1 renderD128
+		//
+		// - a KMS output and a render node on one device, which a compositor needs. A serial or
+		// terminal microvm keeps `pcie=off`: its disk and network are virtio-MMIO and it has no use
+		// for a PCI bus, which is the small machine this type exists to be.
+		pcie := "off"
+		if boot.MicroVMDisplay == "desktop" {
+			pcie = "on"
+		}
+		return "microvm,accel=kvm,acpi=on,pic=on,rtc=on,pcie=" + pcie + ",graphics=" + graphics
 	}
 	return "q35,accel=kvm,vmport=off"
 }
@@ -945,43 +962,35 @@ func (m machineControl) Boot(spec run.BootSpec) error {
 		// whose resolution is qemu's own default, and the walkthrough that reads it says what it
 		// expects rather than needing 1920x1080.
 		if boot.MicroVM {
-			// `desktop` ASKS FOR A GPU, AND ON A MICROVM THAT REQUEST CANNOT BE SATISFIED.
+			// `desktop` ASKS FOR A GPU, AND ON A MICROVM IT IS A PCIe DEVICE.
 			//
-			// THIS COMMENT USED TO CLAIM THE OPPOSITE, AND THE CLAIM WAS NEVER TESTED. It said
-			// `virtio-gpu-device` "is on the virtio bus, not PCI, which is why a machine with no PCIe
-			// can still attach it ... the guest gets /dev/dri/card0, X draws". MEASURED on 2026-11-18,
-			// with Debian 6.12 and Alpine 3.21: the device attaches and the driver NEVER BINDS.
+			// MEASURED on 2026-11-18, with Debian 6.12 and Alpine 3.21: `virtio-gpu-device` on the
+			// virtio-MMIO bus attaches but the driver NEVER BINDS - the device exists with a
+			// modalias `virtio_gpu` matches, the module loads, and then
 			//
-			//	qemu:  virtio-gpu-device on virtio-mmio-bus.23      (present)
-			//	guest: /sys/bus/virtio/devices/virtio1  device=0x0010  modalias virtio:d00000010v554D4551
-			//	       modules.alias has `virtio:d00000010v* virtio_gpu`  (matches)
-			//	       lsmod: virtio_gpu 102400 0                      (loaded, 0 users)
-			//	       virtio1/driver                                  (does not exist - never bound)
-			//	       virtio1/status = 0x83                           (contains 0x80 NEEDS_RESET)
-			//	       dmesg | grep -c virtio_gpu = 0                  (probe logged nothing)
-			//	       /sys/class/drm/ holds only `version`            (no card0)
+			//	virtio1/status = 0x83   (DRIVER_OK|NEEDS_RESET)
+			//	virtio1/driver          does not exist
+			//	dmesg | grep virtio_gpu counts 0
+			//	/sys/class/drm holds only `version`
 			//
-			// A status of 0x83 means ACKNOWLEDGE|DRIVER|DRIVER_OK plus NEEDS_RESET: the driver
-			// negotiated, then failed and asked the device to reset. Nothing produces /dev/dri/card0,
-			// so X answers `(EE) no screens found` on a machine whose GPU is attached.
+			// - so no /dev/dri/card0. THE FAULT WAS THE MMIO TRANSPORT, NOT THE MACHINE, and that
+			// was measured too: the same image with `-M microvm,pcie=on` and `virtio-gpu-pci` says
 			//
-			// THE ALTERNATIVE IS CLOSED TOO. `isa-vga` is a text-mode adapter and was tried with both
-			// X drivers:
+			//	virtio-gpu-pci detected at 0000:00:01.0
+			//	[drm] Initialized virtio_gpu 0.1.0 for 0000:00:01.0 on minor 0
+			//	virtio_gpudrmfb frame buffer device
+			//	/sys/class/drm: card0 card0-Virtual-1 renderD128
 			//
-			//	modesetting   no DRM node to open      -> no screens found
-			//	fbdev         needs /dev/fb0, and there is none: CONFIG_FB_VESA=y wants a VBE BIOS
-			//	              call, and this machine HAS NO FIRMWARE. /sys/class/graphics lists only
-			//	              `fbcon`, the console layer over an absent device.
-			//
-			// SO THE ROOT CAUSE IS THE MACHINE TYPE, NOT A DRIVER CHOICE: a microvm has no firmware
-			// and no PCIe, and a desktop needs one of the two. The option is kept - it still
-			// selects the adapter a future fix would use, and `desktop` on a q35 boot is unaffected -
-			// but a microvm asking for it is refused below rather than given a black recorder.
+			// One device with BOTH a KMS output and a render node, which is what Mutter, KWin and
+			// wlroots' EGL path need. So a desktop microvm turns PCIe on (see `machineType`) and gets
+			// this adapter. The disk and network stay on virtio-MMIO: measured, the mixed command
+			// line boots to `login:` with /dev/vda mounted.
 			if boot.MicroVMDisplay == "desktop" {
-				args = append(args, "-device", "virtio-gpu-device")
+				// The resolution is stated so the guest's single output has a mode `see:` can name.
+				args = append(args, "-device", "virtio-gpu-pci,xres=1024,yres=768")
 				break
 			}
-			// `isa-vga` IS THE ADAPTER A `microvm` CAN ACTUALLY CREATE, and `-vga std` is not:
+			// `isa-vga` IS THE ADAPTER A TEXT CONSOLE USES, and `-vga std` is not:
 			//
 			//	qemu-system-x86_64: warning: A -vga option was passed but this machine type does
 			//	not use that option; No VGA device has been created

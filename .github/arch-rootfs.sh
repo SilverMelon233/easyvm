@@ -58,7 +58,7 @@ set -eu
 #
 #	WAYLAND  sway, hyprland, budgie  `wlr-screencopy`, or for budgie the compositor's own
 #	                                 protocol. easystream reads it over the socket.
-#	X11      xfce, cinnamon,         an X server (Xvfb, in memory - a microvm has no GPU),
+#	X11      xfce, cinnamon,         an X server (Xvfb, in memory),
 #	         lxqt, mate, i3           and easystream reads it with XSHM.
 #
 # KDE AND GNOME ARE NOT HERE ON PURPOSE. Both capture through xdg-desktop-portal, which needs
@@ -261,8 +261,8 @@ if [ ! -d "$ROOT/usr" ]; then
 	# list - `deepin-kwin`, `deepin-shell`, `deepin-session-ui`, the dtk6 libraries - so the
 	# package is the whole install and adding a meta name that does not exist only breaks it.
 	deepin)   DESKTOP_PKGS="deepin-session foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
-	# THE X11 FAMILY SHARES `xvfb` RATHER THAN DRIVING THE GPU: a microvm has no DRM card
-	# unless vkms is loaded, and X11 does not need one at all when it renders into memory.
+	# THE X11 FAMILY SHARES `xvfb` RATHER THAN DRIVING THE GPU: X11 does not need a DRM card
+	# at all when it renders into memory, and this keeps every X11 variant on one code path.
 	xfce)     DESKTOP_PKGS="xfce4 xfce4-terminal xfce4-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# THE SAME DESKTOP ON ITS WAYLAND SESSION. No X server at all - the session file is
 	# `xfce-wayland.desktop` and it runs on `labwc` as its compositor, which is why labwc is
@@ -512,60 +512,63 @@ if [ "$DESKTOP_FAMILY" != "none" ]; then
 		log "easystream: all libraries resolve"
 	fi
 
-	# VKMS IS ONLY NEEDED BY THE WAYLAND FAMILY. The X11 family renders into Xvfb's memory
-	# and never opens a DRM node; loading vkms there would add a device nothing uses.
+	# --- 3b. THE GPU ------------------------------------------------------------------
+	#
+	# VIRTIO-GPU, NOT VKMS. The display device is the one QEMU attaches as virtio-gpu-pci,
+	# and it is BOTH the KMS output (card0-Virtual-1) and the render node (renderD128).
+	#
+	# MEASURED: vkms never had a render node - its driver_features leaves out DRIVER_RENDER,
+	# so the kernel makes card0 but no renderD* - and Mutter needs an EGL device that carries
+	# EGL_EXT_device_drm_render_node. vgem supplied renderD128 but no KMS output, and Mutter
+	# ignores a non-primary GPU, so GDM answered "No GPUs found" and Xorg answered "No devices
+	# detected". virtio-gpu is a real driver with DRIVER_MODESET|DRIVER_GEM|DRIVER_RENDER, so
+	# one device satisfies both halves.
+	#
+	# MEASURED: the device only binds over PCIe. On microvm's virtio-mmio bus the Linux guest
+	# claims virtio-blk but leaves virtio-gpu unprobed; `-M microvm,pcie=on` with
+	# `-device virtio-gpu-pci` produces
+	#   [drm] Initialized virtio_gpu 0.1.0 for 0000:00:02.0 on minor 0
+	# and /sys/class/drm lists card0, card0-Virtual-1 and renderD128.
 	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
-		VKMS_SRC="$ROOT/usr/lib/modules/$KVER/kernel/drivers/gpu/drm/vkms/vkms.ko.zst"
-		if [ -f "$VKMS_SRC" ]; then
-			command -v zstd >/dev/null || { log "zstd is required to ship vkms.ko"; exit 1; }
-			zstd -dc "$VKMS_SRC" > "$ROOT/etc/vkms.ko"
-			log "shipping vkms.ko ($(stat -c %s "$ROOT/etc/vkms.ko") bytes)"
-		else
-			log "ERROR: no vkms.ko in the kernel package; the desktop could never start"
+		VG_SRC="$ROOT/usr/lib/modules/$KVER/kernel/drivers/gpu/drm/virtio/virtio-gpu.ko.zst"
+		if [ ! -f "$VG_SRC" ]; then
+			log "ERROR: no virtio-gpu module in the kernel package; the desktop could never start"
 			exit 1
 		fi
 
-		# THE DRM NODE IS root:video 0660, so vmuser must be in `video`. MEASURED: without
-		# it the compositor answers "Permission denied" with the same words it uses for a
-		# missing device, which sends you looking for the wrong fault.
+		# THE DRM NODE IS root:video 0660, so vmuser must be in `video` to open card0, and in
+		# `render` to open renderD128. MEASURED: without `video` the compositor answers
+		# "Permission denied" with the same words it uses for a missing device.
 		chroot "$ROOT" /bin/sh -c '
 			groupadd -f video
+			groupadd -f render
 			id -nG vmuser | grep -qw video || usermod -aG video vmuser
+			id -nG vmuser | grep -qw render || usermod -aG render vmuser
 		' 2>&1 | tail -2 || true
 
-		# A ROOT ONESHOT, BECAUSE `insmod` NEEDS CAP_SYS_MODULE AND THE COMPOSITOR IS vmuser.
-		# MEASURED: loading it from the session script answered "Operation not permitted" and
-		# the only visible symptom was the compositor's "Found 0 GPUs".
-		cat > "$ROOT/etc/systemd/system/vkms.service" <<'UNIT'
+		# A ROOT ONESHOT: the compositor is vmuser and has no CAP_SYS_MODULE, and udev may not
+		# have made the nodes yet when the session starts. The mknod fallback removes that race.
+		cat > "$ROOT/etc/systemd/system/gpu.service" <<'UNIT'
 [Unit]
-Description=load vkms, the software DRM device
+Description=load virtio-gpu, the KMS output and render node
 After=systemd-modules-load.service
-
+Before=display-manager.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# VGEM GIVES THE RENDER NODE vkms LACKS. MEASURED: /sys/class/drm has card0 (vkms, Virtual-1
-# connected) but NO renderD*, and Mutter's MetaRenderDeviceGbm needs an EGL render node - so
-# gnome-shell on the DRM path answered "No GPUs found". Loading vgem adds renderD128 (226:128)
-# while vkms keeps card0 for KMS output: card0=vkms, card1=vgem, renderD128=vgem's. After this,
-# /dev/dri carries all three.
-ExecStart=/sbin/modprobe vgem
-ExecStart=/sbin/modprobe vkms
-# THE NODE IS WHAT THE COMPOSITOR OPENS. udev creates it when it notices the device; the
-# mknod fallback keeps the compositor from racing the device manager.
-ExecStart=/bin/sh -c 'i=0; while [ $i -lt 50 ] && [ ! -e /dev/dri/card0 ]; do i=$((i+1)); sleep 0.1; done; if [ ! -e /dev/dri/card0 ]; then mkdir -p /dev/dri; M=$(cat /sys/class/drm/card0/dev 2>/dev/null); [ -n "$M" ] && mknod /dev/dri/card0 c ${M%:*} ${M#*:}; fi; if [ ! -e /dev/dri/renderD128 ]; then M=$(cat /sys/class/drm/renderD128/dev 2>/dev/null); [ -n "$M" ] && mknod /dev/dri/renderD128 c ${M%:*} ${M#*:}; chmod 666 /dev/dri/renderD128 2>/dev/null; fi'
+ExecStart=/sbin/modprobe virtio-gpu
+ExecStart=/bin/sh -c 'i=0; while [ $i -lt 100 ] && [ ! -e /sys/class/drm/renderD128 ]; do i=$((i+1)); sleep 0.1; done; for n in card0 renderD128; do [ -e /dev/dri/$n ] && continue; M=$(cat /sys/class/drm/$n/dev 2>/dev/null); [ -n "$M" ] && { mkdir -p /dev/dri; mknod /dev/dri/$n c ${M%:*} ${M#*:}; }; done; chgrp video /dev/dri/card0 2>/dev/null; chmod 660 /dev/dri/card0 2>/dev/null; chgrp render /dev/dri/renderD128 2>/dev/null; chmod 660 /dev/dri/renderD128 2>/dev/null; echo "virtio-gpu: $(ls /dev/dri 2>/dev/null | tr "\n" " ")"; true'
 StandardOutput=journal+console
 StandardError=journal+console
-
 [Install]
 WantedBy=multi-user.target
 UNIT
-		ln -sf /etc/systemd/system/vkms.service \
-			"$ROOT/etc/systemd/system/multi-user.target.wants/vkms.service"
+		ln -sf /etc/systemd/system/gpu.service \
+			"$ROOT/etc/systemd/system/multi-user.target.wants/gpu.service"
 
-		mkdir -p "$ROOT/lib/modules/$KVER/extra"
-		cp "$ROOT/etc/vkms.ko" "$ROOT/lib/modules/$KVER/extra/vkms.ko"
-		chroot "$ROOT" /sbin/depmod -a "$KVER" 2>&1 | tail -2 || true
+		# udev alone is not enough on this kernel: MEASURED, /dev/dri stayed empty until the
+		# unit created the nodes by hand from /sys/class/drm/*/dev.
+		log "virtio-gpu: shipped for a real render node + output"
 	fi
 
 	# --- 3c. THE SESSION ------------------------------------------------------------------
@@ -701,24 +704,14 @@ PUP
 			# black. MEASURED. GDM starts the greeter and then the real gnome-session, which registers
 			# org.gnome.Shell with the session manager - the condition the portal needs.
 			#
-			# GDM'S GL NEEDS A RENDER NODE, WHICH vkms DOES NOT HAVE, AND vgem SUPPLIES IT. MEASURED:
-			# /sys/class/drm has card0 (vkms, Virtual-1 connected) but no renderD*; Mutter's
-			# MetaRenderDeviceGbm needs EGL on a render node, so gnome-shell answered "No GPUs found".
-			# vkms.service now loads vgem too, giving renderD128 while vkms keeps card0: the exact pair
-			# a full GNOME stack needs. (See vkms.service above.)
-			#
-			# MEASURED RESULT OF THE FULL GDM STACK ON vkms: GDM STARTS but its greeter cannot find a
-			# GPU. GDM's own journal:
-			#	Ignoring DRM device '/dev/dri/card1'
-			#	No GPUs found
-			#	No suitable mode setting backend found
-			#	maximum number of display failures reached. Giving up.
-			# card1 is vgem; Mutter IGNORES it (it wants the PRIMARY GPU, card0, to carry a render
-			# node), and vkms's card0 has NO render node (MEASURED: /sys/class/drm has card0 and no
-			# renderD*). So the render node vgem brings does not help Mutter, and GDM gives up before
-			# any user session. That is the vkms ceiling for a full GDM/Mutter stack - a property of
-			# the software DRM device, not of this configuration. The GDM wiring is correct and stays
-			# for a host whose card0 is a real GPU (or a vkms that grows a render node).
+			# GDM'S GL NEEDS A RENDER NODE AND A KMS OUTPUT ON THE SAME GPU, AND virtio-gpu IS
+			# THAT GPU. MEASURED on the PCIe transport:
+			#	[drm] Initialized virtio_gpu 0.1.0 for 0000:00:02.0 on minor 0
+			#	/sys/class/drm: card0 card0-Virtual-1 renderD128
+			# so Mutter's MetaRenderDeviceGbm finds an EGL device carrying
+			# EGL_EXT_device_drm_render_node while the same card0 drives the scanout. (vkms had
+			# card0 with no render node at all; vgem added renderD128 but no output, and Mutter
+			# ignores a non-primary GPU - that was the old "No GPUs found" ceiling.)
 			#
 			# AUTOLOGIN, so the machine reaches the desktop with no one to type - the same appliance
 			# shape the console session already uses.
@@ -793,7 +786,7 @@ GENV
 			#     so even a seeded table would not survive the reboot the test starts with;
 			#   * there is no kiosk/auto-approve switch in the KDE backend (searched: no
 			#     "auto", "kiosk", or "skip dialog" strings in xdg-desktop-portal-kde);
-			#   * the dialog is a KWin surface, so the one screenshot protocol that works on vkms
+			#   * the dialog is a KWin surface, so the one screenshot protocol that works here
 			#     (wlr-screencopy) cannot capture it to script a click, and no input-injection
 			#     tool (wtype/ydotool/kdotool) is in the image to press it blind.
 			#
@@ -839,7 +832,7 @@ GENV
 			# environment file and menu copied into place - all of which the script does for us.
 			SESSION_CMD='exec startbudgielabwc'
 		elif [ "$DESKTOP" = "hyprland" ]; then
-			# HYPRLAND: the same vkms device, a different compositor and config language.
+			# HYPRLAND: the same virtio-gpu device, a different compositor and config language.
 			# HYPRLAND 0.57 READS LUA, NOT THE KEY=VALUE FORMAT. MEASURED from the package:
 			# /usr/share/hypr/hyprland.lua is its example, and the header says so - there is no
 			# hyprland.conf.example any more. MEASURED from the binary: `hyprland --version`
@@ -877,15 +870,15 @@ HYPRCFG
 
 		cat > "$ROOT/opt/session.sh" <<SESSION
 #!/bin/sh
-# THE COMPOSITOR ON vkms, AND NOTHING ELSE. easystream is its own unit.
+# THE COMPOSITOR ON virtio-gpu, AND NOTHING ELSE. easystream is its own unit.
 #
-# THE DEVICE IS DISCOVERED, NOT NAMED. MEASURED with vgem also loaded: vgem took card0 and
-# vkms took card1, so \WLR_DRM_DEVICES=/dev/dri/card0\ pointed the compositor at a
-# dumb-buffer device that cannot drive an output and it answered "Found 0 GPUs".
+# THE DEVICE IS DISCOVERED, NOT NAMED. card0 is the one device virtio-gpu exposes, and it
+# carries both the KMS output and the render node. Waiting for it here keeps the session from
+# racing gpu.service, which creates the node.
 i=0
 while [ \$i -lt 100 ]; do [ -e /dev/dri/card0 ] && break; i=\$((i+1)); sleep 0.1; done
 if [ ! -e /dev/dri/card0 ]; then
-	echo "session: /dev/dri/card0 never appeared; vkms.service failed" >&2
+	echo "session: /dev/dri/card0 never appeared; gpu.service failed" >&2
 	exit 1
 fi
 
@@ -1268,24 +1261,6 @@ PSH
 	esac
 
 
-	if [ -n "${DRMDUMP:-}" ]; then
-		cat > "$ROOT/etc/systemd/system/drmdump.service" <<'UNIT'
-[Unit]
-Description=dump /dev/dri and vkms sysfs
-After=vkms.service
-
-[Service]
-Type=oneshot
-ExecStart=/bin/sh -c 'modprobe vgem 2>&1; echo ===DRMDUMP===; ls -l /dev/dri/ 2>&1; ls /sys/class/drm/ 2>&1; echo --- sys ---; for d in /sys/class/drm/*; do echo "$d: $(cat $d/status 2>/dev/null)"; done; echo --- render ---; ls /sys/class/drm/renderD* 2>&1; for r in /sys/class/drm/renderD*/dev; do echo "$r: $(cat $r 2>/dev/null)"; done; echo --- card dev ---; for r in /sys/class/drm/card*/dev; do echo "$r: $(cat $r 2>/dev/null)"; done; echo ===END==='
-StandardOutput=journal+console
-StandardError=journal+console
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-		ln -sf /etc/systemd/system/drmdump.service "$ROOT/etc/systemd/system/multi-user.target.wants/drmdump.service"
-	fi
-
 	# --- 3d. THE UNITS --------------------------------------------------------------------
 	# A DESKTOP THAT OWNS ITS OWN DISPLAY MANAGER (GDM for gnome) MUST NOT ALSO GET
 	# session.service: GDM starts the session on tty1 itself, and a second compositor on the same
@@ -1383,6 +1358,23 @@ if [ -z "$WL" ]; then echo "gdm-capture: no wayland socket in 60s" >&2; exit 1; 
 echo "gdm-capture: socket=$WL" >&2
 # push into the user manager and start the portal + capture, as vmuser
 su -s /bin/sh "$U" -c "export XDG_RUNTIME_DIR=$RUNTIME; export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus; systemctl --user set-environment WAYLAND_DISPLAY=$WL XDG_RUNTIME_DIR=$RUNTIME; systemctl --user start pipewire pipewire-pulse wireplumber 2>/dev/null; systemctl --user start xdg-desktop-portal xdg-desktop-portal-gnome 2>/dev/null; sleep 5; systemctl --user restart easystream 2>/dev/null"
+
+# THE CAPTURE IS THE HARNESS'S `see:`, NOT EASYSTREAM, AND THAT WAS MEASURED RATHER THAN CHOSEN.
+#
+# xdg-desktop-portal-gnome NOW exposes ScreenCast on this backend (on vkms it answered
+# "Non-compatible display server, exposing settings only"), but `Start` answers
+#
+#	SelectDevices has NO restore token ... Start will ask for consent
+#	no Response for /org/freedesktop/portal/desktop/request/1_84/est1
+#
+# - a consent dialog nobody can click on a headless boot, the same wall KWin has. The two
+# shortcuts were tried and both are closed: org.freedesktop.portal.Screenshot also waits for its
+# own dialog (measured: GDBus timeout), and calling org.gnome.Shell.Screenshot directly is refused
+# by gnome-shell's allowlist ("Screenshot is not allowed"), which only the portal backend holds.
+#
+# WHAT DOES WORK is the scanout itself: virtio-gpu drives a real framebuffer, so the walkthrough's
+# `see:` photographs the desktop the shell actually drew. easystream is still started here so the
+# image is complete for an interactive user; it is simply not the evidence.
 echo "gdm-capture: done" >&2
 GCAP
 		chmod 0755 "$ROOT/opt/gdm-capture.sh"

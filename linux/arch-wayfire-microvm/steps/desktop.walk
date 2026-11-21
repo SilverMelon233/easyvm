@@ -1,8 +1,10 @@
 # AN ARCH LINUX MICROVM RUNNING WAYFIRE ON A SOFTWARE DRM DEVICE.
 #
-# WAYLAND FAMILY: `vkms.ko` is the software DRM device (no PCI, no firmware, no GPU), the
-# compositor drives it through wlroots' `drm` backend with `pixman`, and easystream reads the
-# frames over wlr-screencopy. MEASURED: reaching a real desktop and capturing it at 1024x768.
+# WAYLAND FAMILY: `virtio-gpu` is the display device, attached by qemu as `virtio-gpu-pci` on
+# a microvm whose PCIe bus is on for that reason. MEASURED: the guest gets card0 with a
+# Virtual-1 output AND renderD128 - a KMS output and a render node on one device - and the
+# compositor drives it through wlroots' `drm` backend. easystream reads the frames over
+# wlr-screencopy.
 #
 # THE CAPTURE SOCKET IS DISCOVERED, NOT NAMED. libwayland hands out the first free name, so
 # the session finds whichever wayland-* appeared and pushes it into the user manager before
@@ -15,7 +17,7 @@ walkthrough "wayfire microvm - WAYFIRE captured from the console assertion"
   needs arch-vmlinuz arch-initramfs arch.qcow2
   disk arch.qcow2
 
-  boot as a microvm from kernel "arch-vmlinuz" and initramfs "arch-initramfs" with "console=ttyS0 root=/dev/vda rw rootfstype=ext4" without a display with memory 1536, waiting up to 240s
+  boot as a microvm from kernel "arch-vmlinuz" and initramfs "arch-initramfs" with "console=ttyS0 root=/dev/vda rw rootfstype=ext4" with a desktop with memory 1536, waiting up to 240s
 
   # THE KERNEL FOUND THE DISK AND USERSPACE STARTED.
   the console will say "login"
@@ -27,5 +29,21 @@ walkthrough "wayfire microvm - WAYFIRE captured from the console assertion"
   the console will say "ARCH-SESSION-STARTING: wayfire"
 
   wait 20s
+
+  # AND THE PIXELS, FROM THE GUEST'S OWN SCANOUT. `see:` is qemu's screendump of the framebuffer
+  # virtio-gpu put on the PCIe bus, so a compositor that started but drew nothing is a black,
+  # uniform frame and fails the check below. MEASURED on this image: a full desktop at 1024x768.
+  see the whole screen as "screen"
+
+  # TWO QUESTIONS ABOUT ONE FRAME, BECAUSE "NOT BLACK" HAS TWO FAILURE SHAPES. A machine with no
+  # GPU records a uniformly BLACK frame; a compositor that never drew records a uniformly COLOURED
+  # one, which is not black but is equally empty. MEASURED: a dead frame is mean 0.0 with a mean
+  # absolute deviation of 0.03, while real desktops here measure mean 2.6..86 and deviation
+  # 5.0..96 - sway's is the darkest (a black wallpaper with a blue bar, mean 2.6, deviation 5.0).
+  # So the floors are 1 on both, which is above a dead frame and below every working one.
+  step "the screen is not black"
+    check == {name: screen_is_not_black, from: screen, mode: mean_between, rect: [0, 0, 1024, 768], rect_at: [1024, 768], range: [1, 255]}
+  step "the screen is not one flat colour"
+    check == {name: screen_has_content, from: screen, mode: spread_between, rect: [0, 0, 1024, 768], rect_at: [1024, 768], range: [1, 128]}
 
   stop the machine by killing it, waiting up to 60s

@@ -185,28 +185,38 @@ func (b Boot) Validate() error {
 		return err
 	}
 
-	// A MICROVM CANNOT HAVE A DESKTOP, AND SAYING SO HERE IS BETTER THAN A BLACK RECORDING.
+	// A MICROVM'S DESKTOP RUNS ON virtio-gpu OVER PCIe, AND THAT IS A MEASURED MECHANISM RATHER
+	// THAN AN ASSUMPTION.
 	//
-	// MEASURED, on both adapters a `microvm` machine can create, with Debian 6.12 and Alpine 3.21:
+	// THE OLD REFUSAL HERE WAS RIGHT ABOUT THE TRANSPORT AND WRONG ABOUT THE CONCLUSION. MEASURED
+	// on 2026-11-18, with Debian 6.12 and Alpine 3.21, `virtio-gpu-device` on the virtio-MMIO bus
+	// attaches but the driver NEVER BINDS: the virtio device exists with modalias
+	// virtio:d00000010v... that `virtio_gpu` matches, the module loads, and then
 	//
-	//	virtio-gpu-device   the device attaches, `virtio_gpu` loads, and its probe FAILS with
-	//	                    `status = 0x83` (NEEDS_RESET) - no /dev/dri/card0 ever appears, so X
-	//	                    answers `(EE) no screens found`
-	//	isa-vga             a TEXT adapter: no DRM node, and no /dev/fb0 either, because
-	//	                    CONFIG_FB_VESA needs a VBE BIOS call and a microvm HAS NO FIRMWARE
+	//	virtio1/status = 0x83   (DRIVER_OK|NEEDS_RESET)
+	//	virtio1/driver          does not exist
+	//	dmesg | grep virtio_gpu counts 0
+	//	/sys/class/drm holds only `version`
 	//
-	// The root cause is the machine type: no firmware and no PCIe, and a desktop needs one of them.
-	// A file that asks anyway would run for two minutes and produce a video of nothing, so it is
-	// refused by name instead. `desktop` on a q35 boot is unaffected and still works.
-	if b.MicroVM && b.MicroVMDisplay == "desktop" {
-		return fmt.Errorf("a microvm cannot have a desktop: `microvm_display: desktop` asks for a " +
-			"GPU, and a microvm has neither firmware nor PCIe. MEASURED on both adapters this " +
-			"machine type can create - `virtio-gpu-device` attaches but its driver never binds " +
-			"(virtio status 0x83, NEEDS_RESET, no /dev/dri/card0), and `isa-vga` is a text adapter " +
-			"with no /dev/fb0 because CONFIG_FB_VESA needs a VBE BIOS call and there is no firmware. " +
-			"Use `microvm_display: serial` (no adapter) or `terminal` (a text console, which is what " +
-			"`see:` can read); a desktop needs a q35 boot")
-	}
+	// - so no /dev/dri/card0 and X answers `(EE) no screens found`. The fault is the MMIO transport
+	// for this device class, not microvm as a machine: with `pcie=on` and `virtio-gpu-pci`, MEASURED
+	// on the same image,
+	//
+	//	virtio-gpu-pci detected at 0000:00:01.0
+	//	[drm] Initialized virtio_gpu 0.1.0 for 0000:00:01.0 on minor 0
+	//	virtio_gpudrmfb frame buffer device
+	//	/sys/class/drm: card0 card0-Virtual-1 renderD128
+	//
+	// One device now carries BOTH the KMS output (card0-Virtual-1) and the render node
+	// (renderD128), which is exactly the pair Mutter, KWin and wlroots' EGL path need. That is why
+	// the machine type turns PCIe on for a desktop microvm and why the adapter is `virtio-gpu-pci`.
+	//
+	// The disk and the network stay on virtio-MMIO: MEASURED, the same command line with
+	// `pcie=on`, `virtio-gpu-pci`, `virtio-blk-device` and `virtio-net-device` boots to `login:`
+	// with /dev/vda mounted, so the PCIe bus is added for the GPU only.
+	//
+	// `microvm_display: terminal` IS STILL THE TEXT CONSOLE, and its adapter is unchanged; only
+	// `desktop` adds a GPU bus.
 	if b.ISO != "" {
 		if b.OS.IsMacOS() {
 			return fmt.Errorf("macOS has no install ISO; it installs from its recovery image. " +
@@ -1003,7 +1013,7 @@ func (b Boot) KernelArgs() []string {
 	if cmdline == "" {
 		cmdline = "console=ttyS0 modules=loop,squashfs,sd-mod modloop=/dev/vda"
 	}
-	// `pci=off` IS ADDED TO EVERY MICROVM'S LINE, INCLUDING ONE THAT WROTE ITS OWN.
+	// `pci=off` IS ADDED TO A MICROVM'S LINE THAT HAS NO PCI BUS, INCLUDING ONE THAT WROTE ITS OWN.
 	//
 	// A microvm with `pcie=off` has no PCI bus, and a kernel that finds an ACPI root - which every
 	// microvm now gets, because Debian needs it to see its MMIO disk - assumes a PCI host bridge
@@ -1021,7 +1031,9 @@ func (b Boot) KernelArgs() []string {
 	// The statement is TRUE of this machine in every case, so it is prepended rather than left to
 	// each walkthrough: a file that adds its own `console=` should not also have to know that the
 	// absence of a PCI bus has to be declared.
-	if !strings.Contains(cmdline, "pci=off") {
+	// A DESKTOP MICROVM HAS A PCIe BUS ON PURPOSE (see `machineType`), so it must NOT carry
+	// `pci=off`: that would hide the bus the virtio-gpu is attached to and the GPU would vanish.
+	if !(b.MicroVM && b.MicroVMDisplay == "desktop") && !strings.Contains(cmdline, "pci=off") {
 		cmdline = "pci=off " + cmdline
 	}
 	args = append(args, "-append", cmdline)
