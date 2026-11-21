@@ -5,53 +5,34 @@ import (
 	"testing"
 )
 
-// A MICROVM CANNOT HAVE A DESKTOP, AND THE REFUSAL IS THE FEATURE.
+// A MICROVM'S DESKTOP RUNS ON virtio-gpu OVER PCIe. THE TRANSPORT IS THE WHOLE STORY.
 //
-// MEASURED on 2026-11-18 against qemu 11.1.2 with Debian 6.12 and Alpine 3.21, on both adapters a
-// `microvm` machine can create:
+// MEASURED on 2026-11-18 against qemu 11.1.2 with Debian 6.12 and Alpine 3.21, on the two adapters
+// a microvm could then create:
 //
-//	virtio-gpu-device   the device attaches to virtio-mmio-bus.23 and `virtio_gpu` loads, but the
-//	                    probe fails: the virtio status comes back 0x83 (NEEDS_RESET), the driver
-//	                    never binds (virtio1/driver does not exist), dmesg logs nothing about it,
-//	                    and /sys/class/drm holds only `version` - no card0. X answers
+//	virtio-gpu-device   on virtio-mmio-bus.23 the device attaches and `virtio_gpu` loads, but the
+//	                    probe fails: virtio status 0x83 (NEEDS_RESET), virtio1/driver does not
+//	                    exist, dmesg logs nothing, /sys/class/drm holds only `version`. X answers
 //	                    `(EE) no screens found`.
-//	isa-vga             a TEXT adapter. `modesetting` has no DRM node to open; `fbdev` needs
-//	                    /dev/fb0 and there is none, because CONFIG_FB_VESA wants a VBE BIOS call
-//	                    and a microvm HAS NO FIRMWARE. /sys/class/graphics lists only `fbcon`.
+//	isa-vga             a TEXT adapter, and no /dev/fb0 either, because CONFIG_FB_VESA wants a
+//	                    VBE BIOS call and a microvm HAS NO FIRMWARE.
 //
-// Before this test the vocabulary told a reader the opposite: `keys.go` described `desktop` as
-// "VGA with a window manager", and a walkthrough named `desktop.walk` recorded a text login prompt
-// for weeks without anyone noticing, because a recording of a console is not obviously wrong until
-// somebody plays it.
+// THE FAULT WAS THE MMIO TRANSPORT, NOT THE MACHINE, AND THAT WAS MEASURED TOO. The same image
+// booted with `-M microvm,pcie=on` and `-device virtio-gpu-pci` reports
 //
-// SO THE ASSERTION IS A REFUSAL: a file that asks for a desktop on a microvm must FAIL BY NAME
-// rather than spend two minutes producing a black video. The q35 case is checked beside it, because
-// a desktop there is real and must keep working.
-func TestAMicroVMCannotAskForADesktop(t *testing.T) {
+//	virtio-gpu-pci detected at 0000:00:01.0
+//	[drm] Initialized virtio_gpu 0.1.0 for 0000:00:01.0 on minor 0
+//	virtio_gpudrmfb frame buffer device
+//	/sys/class/drm: card0 card0-Virtual-1 renderD128
+//
+// - one device carrying BOTH the KMS output and the render node, which is what Mutter, KWin and
+// wlroots' EGL path need. So `desktop` is ACCEPTED on a microvm, and this test holds the three
+// facts that make it work: the boot is accepted, the kernel line keeps the PCI bus, and the
+// machine type asks for PCIe only for a desktop.
+func TestAMicroVMDesktopIsAccepted(t *testing.T) {
 	disk, _, _, _, _, _, _, _ := fixture(t)
 
-	b := Boot{OS: Linux, Disk: disk, MicroVM: true, MicroVMDisplay: "desktop"}
-	err := b.Validate()
-	if err == nil {
-		t.Fatal("a microvm with `microvm_display: desktop` was accepted. It cannot draw: measured, " +
-			"`virtio-gpu-device` never binds (status 0x83) and `isa-vga` has no /dev/fb0 without " +
-			"firmware. The run would record a black field and report success")
-	}
-	// THE MESSAGE HAS TO NAME THE TWO SHAPES THAT DO WORK, or a reader is left with a refusal and
-	// no next step.
-	for _, want := range []string{"serial", "terminal", "q35"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal does not mention %q, so it says what is wrong but not what to do: %v",
-				want, err)
-		}
-	}
-}
-
-// AND THE TWO SHAPES A MICROVM CAN HAVE ARE ACCEPTED, so the check above is narrow rather than a
-// blanket ban on the key.
-func TestTheTwoAdapterShapesAMicroVMAccepts(t *testing.T) {
-	disk, _, _, _, _, _, _, _ := fixture(t)
-	for _, shape := range []string{"serial", "terminal", ""} {
+	for _, shape := range []string{"desktop", "serial", "terminal", ""} {
 		b := Boot{OS: Linux, Disk: disk, MicroVM: true, MicroVMDisplay: shape}
 		if err := b.Validate(); err != nil {
 			t.Errorf("a microvm with microvm_display=%q was refused: %v", shape, err)
@@ -59,8 +40,39 @@ func TestTheTwoAdapterShapesAMicroVMAccepts(t *testing.T) {
 	}
 }
 
+// THE PCI BUS MUST SURVIVE TO THE KERNEL. `pci=off` is prepended to every microvm line that has no
+// PCI bus, because some guests stop at `PCI: Fatal: No config space access function found` without
+// it. A desktop microvm has the bus ON PURPOSE, and hiding it would hide the GPU with it.
+func TestADesktopMicroVMKeepsItsPCIBus(t *testing.T) {
+	disk, _, _, _, _, _, _, _ := fixture(t)
+
+	desktop := Boot{
+		OS: Linux, Disk: disk, MicroVM: true, MicroVMDisplay: "desktop",
+		Kernel: "/vmlinuz", KernelAppend: "console=ttyS0 root=/dev/vda rw",
+	}
+	for _, arg := range desktop.KernelArgs() {
+		if strings.Contains(arg, "pci=off") {
+			t.Fatalf("a desktop microvm's kernel line carries pci=off, which hides the PCIe bus "+
+				"virtio-gpu-pci is attached to: %q", arg)
+		}
+	}
+
+	// AND A GUEST WITH NO PCI BUS STILL GETS THE STATEMENT, including one that wrote its own line.
+	for _, shape := range []string{"serial", "terminal"} {
+		b := Boot{
+			OS: Linux, Disk: disk, MicroVM: true, MicroVMDisplay: shape,
+			Kernel: "/vmlinuz", KernelAppend: "console=ttyS0 root=/dev/vda rw",
+		}
+		joined := strings.Join(b.KernelArgs(), " ")
+		if !strings.Contains(joined, "pci=off") {
+			t.Errorf("a %q microvm lost pci=off, which is what keeps a guest with no PCI bus from "+
+				"stopping on a fatal PCI probe: %v", shape, b.KernelArgs())
+		}
+	}
+}
+
 // A FULL MACHINE KEEPS ITS DESKTOP. `desktop` on a q35 boot is the shape every GUI installer here
-// uses, so the refusal must not leak out of the microvm branch.
+// uses, so the microvm branch must not change it.
 func TestAQ35BootStillTakesADesktop(t *testing.T) {
 	disk, _, _, _, _, _, _, _ := fixture(t)
 	b := Boot{OS: Linux, Disk: disk, MicroVM: false, MicroVMDisplay: "desktop"}

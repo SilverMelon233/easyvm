@@ -3,10 +3,10 @@
 # THE SAME SHAPE AS THE SWAY VARIANT, WITH ONE STRUCTURAL DIFFERENCE: THIS IS X11, SO THE
 # DISPLAY SERVER IS `Xvfb` AND THE CAPTURE PATH IS XSHM RATHER THAN wlr-screencopy.
 #
-# WHY AN X SERVER AT ALL, AND WHY THAT ONE. A microvm has no GPU and, without vkms, no DRM
-# node; Xorg's `modesetting` driver has nothing to open. `Xvfb` needs neither - it renders
-# into its own process memory - which is why the whole X11 family works on a machine that
-# cannot run Xorg. MEASURED: i3 draws its bar along the bottom with a clock and the network address.
+# WHY AN X SERVER AT ALL, AND WHY THAT ONE. Xorg's `modesetting` driver wants the DRM node,
+# and X11's capture path here is XSHM, which reads the server's own framebuffer. `Xvfb` renders
+# into its own process memory and needs no DRM at all, which keeps every X11 variant on one
+# code path regardless of what the GPU is doing. MEASURED: i3 draws its bar along the bottom with a clock and the network address.
 #
 # EVERY X11 DESKTOP NEEDS A SESSION BUS, and this image gives it one: `dbus-run-session`
 # wraps the session manager. MEASURED on XFCE before that line existed, the desktop started

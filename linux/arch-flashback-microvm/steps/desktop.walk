@@ -1,8 +1,8 @@
 # AN ARCH LINUX MICROVM RUNNING GNOME FLASHBACK ON AN X SERVER IN MEMORY.
 #
 # X11 FAMILY: the display server is `Xvfb` and the capture path is XSHM rather than
-# wlr-screencopy. A microvm has no GPU; Xorg's modesetting driver has nothing to open, while
-# Xvfb renders into its own process memory. MEASURED: this session reaches a real desktop and
+# wlr-screencopy. This variant takes no GPU at all; Xorg's modesetting driver would need a DRM
+# node, so `Xvfb` renders into its own process memory instead. MEASURED: this session reaches a real desktop and
 # easystream captures it at 1024x768.
 #
 # THE SESSION BUS IS EXPLICIT. `dbus-daemon --session` with a named socket in the runtime

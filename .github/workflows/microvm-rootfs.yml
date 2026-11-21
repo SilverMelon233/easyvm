@@ -230,6 +230,15 @@ jobs:
             script: .github/arch-rootfs.sh
             desktop: "qtile-wayland"
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          # THE FULL GNOME STACK: GDM AS THE DISPLAY MANAGER, THEN gnome-shell ON WAYLAND, ON A
+          # virtio-gpu DISPLAY OVER PCIe. Verified locally: GDM started, autologin ran, the shell
+          # painted its desktop at 1024x768, and qemu's screendump of that scanout was a full
+          # non-black frame. The portal's ScreenCast needs a consent click that a headless boot
+          # cannot give, so the walkthrough's evidence is `see:`, not easystream - see the walk.
+          - tag: rootfs-arch-gnome
+            script: .github/arch-rootfs.sh
+            desktop: "gnome"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
           - tag: rootfs-leap-minimal
             script: .github/leap-rootfs.sh
             files: "leap-vmlinuz leap-initramfs leap.qcow2"
