@@ -33,7 +33,7 @@ walkthrough "qtile-wayland microvm - QTILE ON WAYLAND captured from the console 
   # AND THE PIXELS, FROM THE GUEST'S OWN SCANOUT. `see:` is qemu's screendump of the framebuffer
   # virtio-gpu put on the PCIe bus, so a compositor that started but drew nothing is a black,
   # uniform frame and fails the check below. MEASURED on this image: a full desktop at 1024x768.
-  see the whole screen as "screen"
+  read the whole screen as "screen"
 
   # THE QUESTION IS ASKED ABOUT THE BAR, NOT THE WHOLE SCREEN, AND THAT IS MEASURED.
   #
