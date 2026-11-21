@@ -720,6 +720,15 @@ GENV
 			# wants gbm on a render node). Mutter also ships META_BACKEND_NATIVE_MODE_HEADLESS and
 			# gnome-shell exposes `--headless`; that backend runs a Wayland display server with no
 			# physical GPU, so the shell comes up and clients (and the portal) can connect.
+			# THE EXACT REASON THE PORTAL IS NOT USED, MEASURED: xdg-desktop-portal-gnome answers
+			# "Non-compatible display server, exposing settings only." It refuses to provide the
+			# ScreenCast interface unless it sees a FULL GNOME session (org.gnome.Shell registered by
+			# gnome-session-manager, not a bare gnome-shell process). So the portal front-end has no
+			# ScreenCast, easystream's startup probe ("portal ScreenCast") finds no such interface,
+			# and it never takes the portal path. That is the chain - easystream's portal code is
+			# fine (KWin/plasma reaches "SelectDevices ok"); GNOME's backend declines to offer it
+			# outside a manager-owned session.
+			#
 			# MEASURED RESULT: THE SESSION IS STABLE AND HAS A 1024x768 OUTPUT, BUT THE CAPTURE
 			# IS BLACK. With --headless --virtual-monitor 1024x768 the session stays up
 			# (ARCH-SESSION-STARTING once, wayland-0 present), easystream answers at the REAL
