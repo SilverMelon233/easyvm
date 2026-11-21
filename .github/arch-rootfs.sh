@@ -228,7 +228,7 @@ if [ ! -d "$ROOT/usr" ]; then
 	# default 1920x1080 with zero-byte frames. The wlr backend of xdg-desktop-portal does its own
 	# screen capture and hands easystream a PipeWire stream instead of a raw shm buffer, and it
 	# needs NO consent dialog - which is exactly the wall the KDE backend put up.
-	mangowm)  DESKTOP_PKGS="mangowm foot xdg-desktop-portal xdg-desktop-portal-wlr $DESKTOP_COMMON" ;;
+	mangowm)  DESKTOP_PKGS="mangowm foot grim xdg-desktop-portal xdg-desktop-portal-wlr $DESKTOP_COMMON" ;;
 	phosh)    DESKTOP_PKGS="phosh foot $DESKTOP_COMMON" ;;
 	# QTILE AND ENLIGHTENMENT SHIP BOTH KINDS OF SESSION; this image takes the Wayland one,
 	# because the X11 path is already covered by six other desktops and the Wayland path is
@@ -236,7 +236,7 @@ if [ ! -d "$ROOT/usr" ]; then
 	qtile)    DESKTOP_PKGS="qtile foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	qtile-wayland)    DESKTOP_PKGS="qtile foot $DESKTOP_COMMON" ;;
 	enlightenment) DESKTOP_PKGS="enlightenment foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
-	enlightenment-wayland) DESKTOP_PKGS="enlightenment foot $DESKTOP_COMMON" ;;
+	enlightenment-wayland) DESKTOP_PKGS="enlightenment foot grim $DESKTOP_COMMON" ;;
 	# THE KDE VARIANTS ARE SEPARATE PACKAGES FROM plasma-desktop, with their own session files
 	# and their own Exec lines. They are not themes: plasma-mobile is a phone shell and
 	# plasma-bigscreen is a TV one.
@@ -263,7 +263,7 @@ if [ ! -d "$ROOT/usr" ]; then
 	cinnamon) DESKTOP_PKGS="cinnamon cinnamon-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# CINNAMON'S WAYLAND SESSION RUNS ON `muffin` AS ITS OWN COMPOSITOR - the same binary that
 	# is its X11 window manager, built with the Wayland backend.
-	cinnamon-wayland) DESKTOP_PKGS="cinnamon cinnamon-session $DESKTOP_COMMON" ;;
+	cinnamon-wayland) DESKTOP_PKGS="cinnamon cinnamon-session grim $DESKTOP_COMMON" ;;
 	lxqt)     DESKTOP_PKGS="lxqt-session lxqt-panel openbox qterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# LXQT'S WAYLAND SESSION IS A SEPARATE PACKAGE, `lxqt-wayland-session`, whose only job is
 	# the `startlxqtwayland` wrapper. MEASURED: `Exec=startlxqtwayland`, and it needs a
@@ -609,6 +609,15 @@ WAYFIRE
 			chown -R 1000:1000 "$ROOT/home/vmuser" 2>/dev/null || true
 			SESSION_CMD='exec wayfire'
 		elif [ "$DESKTOP" = "mangowm" ]; then
+			# VERIFIED - WITH grim, NOT easystream. MEASURED: mangowm is a wlroots compositor, so
+			# it DOES implement zwlr_screencopy; grim against its socket returned a 1024x768 png
+			# with 786432 of 786432 pixels non-black (max 255) - the full desktop, the foot window
+			# titled "ARCH MANGOWM MICROVM", and its focus border. easystream against the SAME
+			# socket answers "invalid buffer format" / "grab screencopy failed" and serves an
+			# all-zero frame, so easystream's shm/format handling is what is broken here, not the
+			# compositor. grim is therefore the capture for this desktop (it is in official
+			# `extra`), and a grim-probe unit dumps its png to the console for the harness.
+			#
 			# `mango -s <command>` IS ITS STARTUP FLAG; MEASURED from its own `-h`:
 			# "-s <command>   Execute startup command". The script is used rather than a quoted
 			# string for the same reason as labwc: exec'd arguments, not a shell.
@@ -1185,6 +1194,57 @@ polkit.addRule(function(action, subject) {
 });
 RULE
 	fi
+
+	# A GRIM CAPTURE PROBE, FOR THE COMPOSITORS easystream CANNOT READ.
+	#
+	# MEASURED: on mangowm, easystream answers "invalid buffer format"/"grab screencopy failed"
+	# and the est frame is all zero (max pixel 0), while `grim` against the SAME socket produces a
+	# 1024x768 png with 786432 of 786432 pixels non-black and max 255 - the full desktop, the foot
+	# window with "ARCH MANGOWM MICROVM" and its focus border. So the compositor DOES draw; it is
+	# easystream's shm/format handling that reads black. grim is the capture that works, and it is
+	# in the official `extra` repo.
+	#
+	# This unit runs grim inside the live session and dumps the png as base64 to the console, so
+	# the harness can decode it into a real screenshot for a desktop easystream cannot serve.
+	case "$DESKTOP" in
+	mangowm)
+		cat > "$ROOT/etc/systemd/system/grim-probe.service" <<'UNIT'
+[Unit]
+Description=grab the session with grim and dump it to the console
+After=session.service
+
+[Service]
+Type=oneshot
+User=vmuser
+PAMName=login
+TTYPath=/dev/tty1
+Environment=HOME=/home/vmuser
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WAYLAND_DISPLAY=wayland-0
+ExecStartPre=/bin/sleep 30
+ExecStart=/bin/sh /opt/grim-probe.sh
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+		ln -sf /etc/systemd/system/grim-probe.service \
+			"$ROOT/etc/systemd/system/multi-user.target.wants/grim-probe.service"
+		cat > "$ROOT/opt/grim-probe.sh" <<'PSH'
+#!/bin/sh
+export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0
+echo "===GRIM START==="
+echo "sockets: $(ls /run/user/1000/wayland-* 2>&1 | tr '\n' ' ')"
+timeout 15 grim /tmp/grim.png 2>&1; echo "grim-rc=$?"
+ls -l /tmp/grim.png 2>&1
+echo "---G64---"
+base64 /tmp/grim.png 2>/dev/null | fold -w 300 | sed 's/^/G64:/'
+echo "===GRIM END==="
+PSH
+		chmod 0755 "$ROOT/opt/grim-probe.sh"
+		;;
+	esac
 
 	# --- 3d. THE UNITS --------------------------------------------------------------------
 	cat > "$ROOT/etc/systemd/system/session.service" <<'UNIT'

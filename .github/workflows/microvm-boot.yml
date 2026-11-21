@@ -177,6 +177,9 @@ jobs:
           - tag: rootfs-arch-deepin
             walk: linux/arch-deepin-microvm/steps/desktop.walk
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-mangowm
+            walk: linux/arch-mangowm-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
           - tag: rootfs-arch-labwc
             walk: linux/arch-labwc-microvm/steps/desktop.walk
             files: "arch-vmlinuz arch-initramfs arch.qcow2"

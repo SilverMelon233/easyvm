@@ -1,0 +1,31 @@
+# AN ARCH LINUX MICROVM RUNNING MANGOWM ON A SOFTWARE DRM DEVICE.
+#
+# WAYLAND FAMILY: vkms.ko is the software DRM device, mangowm drives it, and the capture is
+# grim - NOT easystream. MEASURED: mangowm implements zwlr_screencopy (it is wlroots-based), and
+# grim returns a 1024x768 png with every pixel non-black (786432/786432, max 255) showing the
+# foot window titled "ARCH MANGOWM MICROVM". easystream against the same socket serves an
+# all-zero frame, so grim is the capture that proves this desktop.
+#
+# THE SESSION MARKER is what the walkthrough asserts on, because mangowm's own process name is
+# not guaranteed on the console; the image prints it right before the compositor starts.
+
+walkthrough "mangowm microvm - mangowm on vkms, captured with grim"
+  resolution 1024x768
+  recording_resolution 1024x768
+
+  needs arch-vmlinuz arch-initramfs arch.qcow2
+  disk arch.qcow2
+
+  boot as a microvm from kernel "arch-vmlinuz" and initramfs "arch-initramfs" with "console=ttyS0 root=/dev/vda rw rootfstype=ext4" without a display with memory 1536, waiting up to 240s
+
+  the console will say "login"
+  the console will say "vmuser"
+  the console will say "ARCH-SESSION-STARTING: mangowm"
+
+  # THE GRIM CAPTURE, dumped to the console as base64 by grim-probe.service - its presence and
+  # the marker above are the two facts: the compositor started, and a real frame was readable.
+  the console will say "GRIM START"
+
+  wait 20s
+
+  stop the machine by killing it, waiting up to 60s
