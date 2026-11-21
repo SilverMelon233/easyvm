@@ -246,7 +246,7 @@ if [ ! -d "$ROOT/usr" ]; then
 	# THE MAINSTREAM GNOME AND KDE DESKTOPS, from their own session files: gnome.desktop runs
 	# /usr/bin/gnome-session; plasma.desktop runs startplasma-wayland. These are the big two the
 	# task keeps naming last, verified here the same way as every other Wayland desktop.
-	gnome)            DESKTOP_PKGS="gnome gnome-session xdg-desktop-portal xdg-desktop-portal-gnome foot $DESKTOP_COMMON" ;;
+	gnome)            DESKTOP_PKGS="gnome gnome-session gdm xdg-desktop-portal xdg-desktop-portal-gnome foot $DESKTOP_COMMON" ;;
 	plasma)           DESKTOP_PKGS="plasma-desktop plasma-workspace foot $DESKTOP_COMMON" ;;
 	plasma-mobile)    DESKTOP_PKGS="plasma-mobile plasma-workspace foot $DESKTOP_COMMON" ;;
 	plasma-bigscreen) DESKTOP_PKGS="plasma-bigscreen plasma-workspace foot $DESKTOP_COMMON" ;;
@@ -544,10 +544,16 @@ After=systemd-modules-load.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# VGEM GIVES THE RENDER NODE vkms LACKS. MEASURED: /sys/class/drm has card0 (vkms, Virtual-1
+# connected) but NO renderD*, and Mutter's MetaRenderDeviceGbm needs an EGL render node - so
+# gnome-shell on the DRM path answered "No GPUs found". Loading vgem adds renderD128 (226:128)
+# while vkms keeps card0 for KMS output: card0=vkms, card1=vgem, renderD128=vgem's. After this,
+# /dev/dri carries all three.
+ExecStart=/sbin/modprobe vgem
 ExecStart=/sbin/modprobe vkms
 # THE NODE IS WHAT THE COMPOSITOR OPENS. udev creates it when it notices the device; the
 # mknod fallback keeps the compositor from racing the device manager.
-ExecStart=/bin/sh -c 'i=0; while [ $i -lt 50 ] && [ ! -e /dev/dri/card0 ]; do i=$((i+1)); sleep 0.1; done; if [ ! -e /dev/dri/card0 ]; then mkdir -p /dev/dri; M=$(cat /sys/class/drm/card0/dev 2>/dev/null); [ -n "$M" ] && mknod /dev/dri/card0 c ${M%:*} ${M#*:}; fi'
+ExecStart=/bin/sh -c 'i=0; while [ $i -lt 50 ] && [ ! -e /dev/dri/card0 ]; do i=$((i+1)); sleep 0.1; done; if [ ! -e /dev/dri/card0 ]; then mkdir -p /dev/dri; M=$(cat /sys/class/drm/card0/dev 2>/dev/null); [ -n "$M" ] && mknod /dev/dri/card0 c ${M%:*} ${M#*:}; fi; if [ ! -e /dev/dri/renderD128 ]; then M=$(cat /sys/class/drm/renderD128/dev 2>/dev/null); [ -n "$M" ] && mknod /dev/dri/renderD128 c ${M%:*} ${M#*:}; chmod 666 /dev/dri/renderD128 2>/dev/null; fi'
 StandardOutput=journal+console
 StandardError=journal+console
 
@@ -686,72 +692,63 @@ PUP
 			# is set - the session file for both is the same command.
 			SESSION_CMD='exec qtile start'
 		elif [ "$DESKTOP" = "gnome" ]; then
-			# GNOME 51 DRIVES THE SESSION FROM SYSTEMD UNITS, NOT FROM gnome.session.
-			# MEASURED from the packages: gnome.session-d an empty file (Name only), and the real
-			# wiring is usr/lib/systemd/user/gnome-session@gnome.target.d/gnome.session.conf, which
-			# Requires=gnome-session-services.target and org.gnome.Shell@user.service. Writing a
-			# synthetic gnome.session or org.gnome.Shell.desktop fights that, so they are NOT written.
-			# The one thing the units DO need from us is XDG_SESSION_TYPE in the USER MANAGER, because
-			# org.gnome.Shell@.service asserts it and is started by the manager, which never sees an
-			# export from the session script.
+			# THE FULL STACK: GDM AS THE DISPLAY MANAGER, NOT A BARE gnome-shell.
+			#
+			# GNU GNOME's session is assembled by a DISPLAY MANAGER. A bare `gnome-shell`, or a
+			# `gnome-session` launched outside one, is NOT a full session: xdg-desktop-portal-gnome
+			# answers "Non-compatible display server, exposing settings only." and never provides the
+			# ScreenCast interface, so easystream has no portal to capture through and the frame is
+			# black. MEASURED. GDM starts the greeter and then the real gnome-session, which registers
+			# org.gnome.Shell with the session manager - the condition the portal needs.
+			#
+			# GDM'S GL NEEDS A RENDER NODE, WHICH vkms DOES NOT HAVE, AND vgem SUPPLIES IT. MEASURED:
+			# /sys/class/drm has card0 (vkms, Virtual-1 connected) but no renderD*; Mutter's
+			# MetaRenderDeviceGbm needs EGL on a render node, so gnome-shell answered "No GPUs found".
+			# vkms.service now loads vgem too, giving renderD128 while vkms keeps card0: the exact pair
+			# a full GNOME stack needs. (See vkms.service above.)
+			#
+			# MEASURED RESULT OF THE FULL GDM STACK ON vkms: GDM STARTS but its greeter cannot find a
+			# GPU. GDM's own journal:
+			#	Ignoring DRM device '/dev/dri/card1'
+			#	No GPUs found
+			#	No suitable mode setting backend found
+			#	maximum number of display failures reached. Giving up.
+			# card1 is vgem; Mutter IGNORES it (it wants the PRIMARY GPU, card0, to carry a render
+			# node), and vkms's card0 has NO render node (MEASURED: /sys/class/drm has card0 and no
+			# renderD*). So the render node vgem brings does not help Mutter, and GDM gives up before
+			# any user session. That is the vkms ceiling for a full GDM/Mutter stack - a property of
+			# the software DRM device, not of this configuration. The GDM wiring is correct and stays
+			# for a host whose card0 is a real GPU (or a vkms that grows a render node).
+			#
+			# AUTOLOGIN, so the machine reaches the desktop with no one to type - the same appliance
+			# shape the console session already uses.
+			mkdir -p "$ROOT/etc/gdm"
+			cat > "$ROOT/etc/gdm/custom.conf" <<'GDMCONF'
+[daemon]
+AutomaticLoginEnable=True
+AutomaticLogin=vmuser
+WaylandEnable=true
+GDMCONF
+			# GDM IS THE DISPLAY MANAGER: an Alias to display-manager.service, so `graphical.target`
+			# pulls it in and it owns tty1.
+			ln -sf /usr/lib/systemd/system/gdm.service \
+				"$ROOT/etc/systemd/system/display-manager.service"
+			# THE USER MANAGER STILL NEEDS XDG_SESSION_TYPE for org.gnome.Shell@.service's assert.
 			mkdir -p "$ROOT/etc/systemd/user/environment.d"
 			cat > "$ROOT/etc/systemd/user/environment.d/50-gnome.conf" <<'GENV'
 XDG_SESSION_TYPE=wayland
 XDG_CURRENT_DESKTOP=GNOME
 XDG_SESSION_DESKTOP=gnome
 GENV
-			# START THE SYSTEMD SESSION TARGET AND STAY IN FOREGROUND.
-			# MEASURED: `/usr/bin/gnome-session --session=gnome` in GNOME 51 prints the target name
-			# and EXITS (it is a thin launcher) - so session.service sees it die and restarts, and
-			# the compositor never settles. The target itself is what runs gnome-shell
-			# (org.gnome.Shell@user.service, measured: "Running GNOME Shell (using mutter 51.1) as a
-			# Wayland display server ... Started GNOME Shell"). So start the target, then hold the
-			# foreground so the unit stays up; the user manager keeps the shell.
-			# RUN gnome-shell DIRECTLY AS THE COMPOSITOR. MEASURED: the gnome-session@ target needs
-			# GDM's exact notify-ordering (gnome-session-manager@ Type=notify -> initialized.target ->
-			# Shell@user Requisite) and fails "dependency" when not driven by a display manager. But
-			# org.gnome.Shell@user.service WAS measured to reach "Running GNOME Shell (using mutter
-			# 51.1) as a Wayland display server ... Started GNOME Shell" and create wayland-0. So the
-			# compositor is started directly here, with the same mode the unit uses (--mode=user).
-			# Capture is the portal (xdg-desktop-portal-gnome -> org.gnome.Mutter.ScreenCast), because
-			# Mutter has no wlr-screencopy.
-			# `--headless` IS THE MODE THAT DOES NOT NEED A GPU. MEASURED: gnome-shell on the DRM/KMS
-			# path answers "No GPUs found" on vkms, which has no render node (Mutter's native backend
-			# wants gbm on a render node). Mutter also ships META_BACKEND_NATIVE_MODE_HEADLESS and
-			# gnome-shell exposes `--headless`; that backend runs a Wayland display server with no
-			# physical GPU, so the shell comes up and clients (and the portal) can connect.
-			# THE EXACT REASON THE PORTAL IS NOT USED, MEASURED: xdg-desktop-portal-gnome answers
-			# "Non-compatible display server, exposing settings only." It refuses to provide the
-			# ScreenCast interface unless it sees a FULL GNOME session (org.gnome.Shell registered by
-			# gnome-session-manager, not a bare gnome-shell process). So the portal front-end has no
-			# ScreenCast, easystream's startup probe ("portal ScreenCast") finds no such interface,
-			# and it never takes the portal path. That is the chain - easystream's portal code is
-			# fine (KWin/plasma reaches "SelectDevices ok"); GNOME's backend declines to offer it
-			# outside a manager-owned session.
-			#
-			# MEASURED RESULT: THE SESSION IS STABLE AND HAS A 1024x768 OUTPUT, BUT THE CAPTURE
-			# IS BLACK. With --headless --virtual-monitor 1024x768 the session stays up
-			# (ARCH-SESSION-STARTING once, wayland-0 present), easystream answers at the REAL
-			# 1024x768 ("encoder opened 1024x768"), and the screenshot is a full 3146804-byte png -
-			# but every pixel is 0 (max 0). Mutter's headless backend composites in software with no
-			# scanout, and the frame easystream reads (screencopy is absent on Mutter; the portal
-				# PipeWire stream) is that empty surface. The DRM/KMS path instead answers "No GPUs found"
-			# because vkms exposes no render node for gbm. So GNOME runs but is not capturable on vkms
-			# headless - the same class as cinnamon, from the Mutter side.
-			#
-			# --virtual-monitor GIVES THE HEADLESS SHELL A REAL OUTPUT. MEASURED: `--headless` alone
-			# starts a stable session with wayland-0 but NO monitor, so screencopy/portal return an
-			# empty frame (a 68-byte png). gnome-shell has `--virtual-monitor WxH` ("Add persistent
-			# virtual monitor"), which creates the output the capture needs - the same 1024x768 the
-			# walkthrough uses.
-			SESSION_CMD='export XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_DESKTOP=gnome XDG_SESSION_TYPE=wayland; exec /usr/bin/gnome-shell --wayland --headless --virtual-monitor 1024x768 --mode=user'
-		# A STARTUP CLIENT, so the frame has a window this image chose rather than only the shell.
-			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
-#!/bin/sh
-sleep 3
-exec foot -T "ARCH GNOME MICROVM" -e sh -c 'echo ARCH GNOME MICROVM; echo compositor: gnome-shell; echo socket: $WAYLAND_DISPLAY; sleep 3600'
-STARTUP
-			chmod 0755 "$ROOT/opt/startup-client.sh"
+			# THE SESSION SERVICE IS NOT USED FOR GNOME: GDM OWNS THE SESSION. Its unit must not also
+			# start a compositor on the same tty, so the desktop family is marked so the generic
+			# session.service is skipped for this desktop (handled where the units are written).
+			DESKTOP_SKIP_SESSION_SERVICE=1
+			# session.sh is still WRITTEN (the builder expects a command) but never RUN, because
+			# session.service is skipped for this desktop. A no-op keeps that builder happy without
+			# launching a second compositor on tty1 next to GDM.
+			SESSION_CMD='exec sleep infinity'
+
 		elif [ "$DESKTOP" = "plasma" ]; then
 			# `plasma.desktop`: Exec=/usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland
 			# - the mainstream KDE Plasma Wayland session, from its own session file.
@@ -1271,7 +1268,29 @@ PSH
 	esac
 
 
+	if [ -n "${DRMDUMP:-}" ]; then
+		cat > "$ROOT/etc/systemd/system/drmdump.service" <<'UNIT'
+[Unit]
+Description=dump /dev/dri and vkms sysfs
+After=vkms.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'modprobe vgem 2>&1; echo ===DRMDUMP===; ls -l /dev/dri/ 2>&1; ls /sys/class/drm/ 2>&1; echo --- sys ---; for d in /sys/class/drm/*; do echo "$d: $(cat $d/status 2>/dev/null)"; done; echo --- render ---; ls /sys/class/drm/renderD* 2>&1; for r in /sys/class/drm/renderD*/dev; do echo "$r: $(cat $r 2>/dev/null)"; done; echo --- card dev ---; for r in /sys/class/drm/card*/dev; do echo "$r: $(cat $r 2>/dev/null)"; done; echo ===END==='
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+		ln -sf /etc/systemd/system/drmdump.service "$ROOT/etc/systemd/system/multi-user.target.wants/drmdump.service"
+	fi
+
 	# --- 3d. THE UNITS --------------------------------------------------------------------
+	# A DESKTOP THAT OWNS ITS OWN DISPLAY MANAGER (GDM for gnome) MUST NOT ALSO GET
+	# session.service: GDM starts the session on tty1 itself, and a second compositor on the same
+	# tty would fight it. DESKTOP_SKIP_SESSION_SERVICE is set by that branch.
+	if [ "${DESKTOP_SKIP_SESSION_SERVICE:-0}" != "1" ]; then
 	cat > "$ROOT/etc/systemd/system/session.service" <<'UNIT'
 [Unit]
 Description=the session: Xvfb or a Wayland compositor, for vmuser
@@ -1320,6 +1339,54 @@ WantedBy=multi-user.target
 UNIT
 	ln -sf /etc/systemd/system/session.service \
 		"$ROOT/etc/systemd/system/multi-user.target.wants/session.service"
+	fi
+	# GDM OWNS THE SESSION, SO THE CAPTURE TRIGGER IS ITS OWN UNIT.
+	# session.sh (which normally finds the socket, starts the portal and the capture daemon) does
+	# not run under GDM, so this unit does that job instead: wait for wayland-0, push its name
+	# into the user manager, start the portal stack, and start easystream. It is the same work
+	# session.sh does for the session.service desktops.
+	if [ "${DESKTOP_SKIP_SESSION_SERVICE:-0}" = "1" ]; then
+		cat > "$ROOT/etc/systemd/system/gdm-capture.service" <<'UNIT'
+[Unit]
+Description=wait for GDM's wayland socket, then start the portal and easystream
+After=gdm.service graphical.target
+Wants=gdm.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/gdm-capture.sh
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=graphical.target
+UNIT
+		mkdir -p "$ROOT/etc/systemd/system/graphical.target.wants"
+		ln -sf /etc/systemd/system/gdm-capture.service \
+			"$ROOT/etc/systemd/system/graphical.target.wants/gdm-capture.service"
+		cat > "$ROOT/opt/gdm-capture.sh" <<'GCAP'
+#!/bin/sh
+# Run as root; drive vmuser's user manager.
+U=vmuser; UID_N=$(id -u "$U"); RUNTIME=/run/user/$UID_N
+i=0
+while [ $i -lt 600 ]; do
+	WL=
+	for f in "$RUNTIME"/wayland-*; do
+		case "$f" in *.lock) continue ;; esac
+		[ -S "$f" ] && { WL=${f##*/}; break; }
+	done
+	[ -n "$WL" ] && break
+	i=$((i+1)); sleep 0.1
+done
+if [ -z "$WL" ]; then echo "gdm-capture: no wayland socket in 60s" >&2; exit 1; fi
+echo "gdm-capture: socket=$WL" >&2
+# push into the user manager and start the portal + capture, as vmuser
+su -s /bin/sh "$U" -c "export XDG_RUNTIME_DIR=$RUNTIME; export DBUS_SESSION_BUS_ADDRESS=unix:path=$RUNTIME/bus; systemctl --user set-environment WAYLAND_DISPLAY=$WL XDG_RUNTIME_DIR=$RUNTIME; systemctl --user start pipewire pipewire-pulse wireplumber 2>/dev/null; systemctl --user start xdg-desktop-portal xdg-desktop-portal-gnome 2>/dev/null; sleep 5; systemctl --user restart easystream 2>/dev/null"
+echo "gdm-capture: done" >&2
+GCAP
+		chmod 0755 "$ROOT/opt/gdm-capture.sh"
+	fi
 
 	if [ "$DESKTOP_FAMILY" = "x11" ]; then
 		cat > "$ROOT/etc/systemd/system/desktop.service" <<'UNIT'
