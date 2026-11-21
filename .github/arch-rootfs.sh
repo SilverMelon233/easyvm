@@ -77,7 +77,7 @@ case "$DESKTOP" in
 0|"")                 DESKTOP_FAMILY=none ;;
 
 # WAYLAND ONLY.
-sway|hyprland|budgie|niri|labwc|river|wayfire|mangowm|phosh|weston|plasma-mobile|plasma-bigscreen|kylin|treeland) DESKTOP_FAMILY=wayland ;;
+sway|hyprland|budgie|labwc|wayfire|mangowm|phosh|plasma-mobile|plasma-bigscreen) DESKTOP_FAMILY=wayland ;;
 
 # X11 ONLY.
 mate|i3|flashback) DESKTOP_FAMILY=x11 ;;
@@ -99,14 +99,13 @@ mate|i3|flashback) DESKTOP_FAMILY=x11 ;;
 # other. The `treeland.desktop` that also ships is `Hidden=true` and carries
 # `X-DDE-SINGLE-WAYLAND=true` - it is the no-greeter variant, not a second desktop.
 xfce|cinnamon|lxqt|qtile|enlightenment|deepin) DESKTOP_FAMILY=x11 ;;
-xfce-wayland|cinnamon-wayland|lxqt-wayland|qtile-wayland|enlightenment-wayland|deepin-wayland) DESKTOP_FAMILY=wayland ;;
+xfce-wayland|cinnamon-wayland|lxqt-wayland|qtile-wayland|enlightenment-wayland) DESKTOP_FAMILY=wayland ;;
 *)
-	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland budgie niri labwc river wayfire" >&2
-	echo "  mangowm phosh weston plasma-mobile plasma-bigscreen kylin treeland" >&2
+	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland budgie labwc wayfire" >&2
+	echo "  mangowm phosh plasma-mobile plasma-bigscreen" >&2
 	echo "  mate i3 flashback deepin" >&2
 	echo "  dual-stack: xfce xfce-wayland  cinnamon cinnamon-wayland  lxqt lxqt-wayland" >&2
 	echo "              qtile qtile-wayland  enlightenment enlightenment-wayland" >&2
-	echo "  xfce cinnamon lxqt mate i3 flashback" >&2
 	exit 2
 	;;
 esac
@@ -217,20 +216,20 @@ if [ ! -d "$ROOT/usr" ]; then
 	# BUDGIE 10.10 IS WAYLAND-ONLY: its package ships `wayland-sessions/budgie-desktop.desktop`
 	# and no xsessions entry at all. MEASURED from the package listing.
 	budgie)   DESKTOP_PKGS="budgie-desktop foot $DESKTOP_COMMON" ;;
-	# NIRI IS IN THE OFFICIAL `extra` REPO (26.04), NOT AUR: a scrollable-tiling Wayland
-	# compositor with its own renderer. MEASURED: it ships `wayland-sessions/niri.desktop`
-	# and nothing for X11.
-	niri)     DESKTOP_PKGS="niri foot $DESKTOP_COMMON" ;;
 	# THE THREE BELOW ARE OFFICIAL TOO, and they are the same kind of object as sway - a
 	# wlroots compositor with wlr-screencopy built in - so they cost one package each and
 	# add real breadth without adding a new capture path.
 	labwc)    DESKTOP_PKGS="labwc foot $DESKTOP_COMMON" ;;
-	river)    DESKTOP_PKGS="river foot $DESKTOP_COMMON" ;;
 	wayfire)  DESKTOP_PKGS="wayfire foot $DESKTOP_COMMON" ;;
 	# THE SEVEN BELOW ARE ALSO OFFICIAL `extra` PACKAGES, found by the file-database sweep.
-	mangowm)  DESKTOP_PKGS="mangowm foot $DESKTOP_COMMON" ;;
+	# xdg-desktop-portal AND ITS wlr BACKEND, BECAUSE MANGO'S SCREENCOPY FORMAT IS NOT READABLE.
+	# MEASURED: mango's software-EGL renderer produces AR24/AB24 buffers, easystream answered
+	# "invalid buffer format" and "grab screencopy failed", and the est server stayed at the
+	# default 1920x1080 with zero-byte frames. The wlr backend of xdg-desktop-portal does its own
+	# screen capture and hands easystream a PipeWire stream instead of a raw shm buffer, and it
+	# needs NO consent dialog - which is exactly the wall the KDE backend put up.
+	mangowm)  DESKTOP_PKGS="mangowm foot xdg-desktop-portal xdg-desktop-portal-wlr $DESKTOP_COMMON" ;;
 	phosh)    DESKTOP_PKGS="phosh foot $DESKTOP_COMMON" ;;
-	weston)   DESKTOP_PKGS="weston foot $DESKTOP_COMMON" ;;
 	# QTILE AND ENLIGHTENMENT SHIP BOTH KINDS OF SESSION; this image takes the Wayland one,
 	# because the X11 path is already covered by six other desktops and the Wayland path is
 	# the one worth widening.
@@ -249,23 +248,6 @@ if [ ! -d "$ROOT/usr" ]; then
 	#            and wayland-sessions/treeland.desktop  Exec=/usr/bin/dde-session
 	#   deepin   XSESSIONS/deepin.desktop               Exec=/usr/bin/dde-session
 	# (kylin and treeland are the Wayland side; deepin-session's own entry is X11.)
-	# THE UKUI SESSION IS NOT IN THE OFFICIAL REPOS. MEASURED: `ukui-session-manager` answers
-	# "target not found", the package search API returns zero results for it, and the
-	# ukui family that IS published is components only - ukui-quick, ukui-sni,
-	# ukui-window-switch, ukui-search, none of which is a session. kylin-wayland-compositor's
-	# own session file says `Exec=kylin-wlcom -s ukui-session`, so that Exec points at a
-	# binary this repository does not carry.
-	#
-	# THE COMPOSITOR IS STILL WORTH BUILDING AND STARTING: it is wlroots-0.20 based, it exposes
-	# wlr-screencopy through wlroots, and it can be started bare. The session command below
-	# runs it without `-s ukui-session`, because that argument can only fail.
-	kylin)    DESKTOP_PKGS="kylin-wayland-compositor foot $DESKTOP_COMMON" ;;
-	# TREELAND IS DEEPIN'S WAYLAND COMPOSITOR, not a separate desktop: it runs
-	# `treeland-user-wrapper`, which starts dde on the treeland compositor. The bare `treeland`
-	# name is kept as an alias because that is the package, and the `-wayland` name exists for
-	# symmetry with the other dual-stack desktops.
-	treeland) DESKTOP_PKGS="treeland deepin-session foot $DESKTOP_COMMON" ;;
-	deepin-wayland) DESKTOP_PKGS="treeland deepin-session foot $DESKTOP_COMMON" ;;
 	# `deepin-desktop-environment` IS NOT IN THE OFFICIAL REPOS. MEASURED: pacman answered
 	# "target not found" for it. What `deepin-session` needs is already in its own dependency
 	# list - `deepin-kwin`, `deepin-shell`, `deepin-session-ui`, the dtk6 libraries - so the
@@ -596,8 +578,6 @@ bar {
     }
 }
 SWAYCFG
-		elif [ "$DESKTOP" = "niri" ]; then
-			SESSION_CMD='exec niri'
 		elif [ "$DESKTOP" = "labwc" ]; then
 			# LABWC HAS NO WALLPAPER AND NO BAR OF ITS OWN, so a bare session captures a BLACK
 			# FRAME WITH A CURSOR - a real render, but nothing in it proves which compositor
@@ -612,28 +592,6 @@ SWAYCFG
 			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
 #!/bin/sh
 exec foot -T "ARCH LABWC MICROVM" -e sh -c 'echo ARCH LABWC MICROVM; echo compositor: labwc; echo socket: $WAYLAND_DISPLAY; sleep 3600'
-STARTUP
-			chmod 0755 "$ROOT/opt/startup-client.sh"
-		elif [ "$DESKTOP" = "river" ]; then
-			# RIVER MAPS NOTHING WITHOUT A LAYOUT GENERATOR, AND THE OFFICIAL REPOS HAVE NONE.
-			#
-			# MEASURED: with `river -c /opt/startup-client.sh` the client ran - `ps` showed
-			# `vmuser foot -T ARCH RIVER MICROVM ...` - and the capture was still pure black with
-			# a cursor. river implements river-window-management-v1 and leaves placement to an
-			# external client; the Arch package ships /usr/bin/river ONLY. `rivertile` is
-			# upstream's reference generator and lives in the AUR (pacman -Ss river-tile found
-			# nothing; the package search API returned zero results), which this image does not
-			# use.
-			#
-			# SO THE CLIENT IS STILL STARTED - it proves the compositor accepts a Wayland
-			# connection and a surface - and the walkthrough asserts on what can actually be
-			# seen: the session is up and the capture dimension is the real mode. This is a
-			# limit of the repository, not of the image, and it is written here so the next
-			# person does not spend an afternoon on it.
-			SESSION_CMD='exec river -c /opt/startup-client.sh'
-			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
-#!/bin/sh
-exec foot -T "ARCH RIVER MICROVM" -e sh -c 'echo ARCH RIVER MICROVM; echo compositor: river; echo socket: $WAYLAND_DISPLAY; sleep 3600'
 STARTUP
 			chmod 0755 "$ROOT/opt/startup-client.sh"
 		elif [ "$DESKTOP" = "wayfire" ]; then
@@ -660,46 +618,17 @@ WAYFIRE
 exec foot -T "ARCH MANGOWM MICROVM" -e sh -c 'echo ARCH MANGOWM MICROVM; echo compositor: mangowm; echo socket: $WAYLAND_DISPLAY; sleep 3600'
 STARTUP
 			chmod 0755 "$ROOT/opt/startup-client.sh"
+			# THE WLR PORTAL BACKEND IS STARTED EXPLICITLY, because easystream asks the portal only
+			# once per process and systemd's on-demand start races that first ask.
+			cat > "$ROOT/opt/portal-up.sh" <<'PUP'
+#!/bin/sh
+systemctl --user start pipewire pipewire-pulse wireplumber 2>/dev/null || true
+systemctl --user start xdg-desktop-portal 2>/dev/null || true
+systemctl --user start xdg-desktop-portal-wlr 2>/dev/null || true
+PUP
+			chmod 0755 "$ROOT/opt/portal-up.sh"
 		elif [ "$DESKTOP" = "phosh" ]; then
 			SESSION_CMD='exec phosh-session'
-		elif [ "$DESKTOP" = "weston" ]; then
-			# WESTON ABORTS WHEN IT CANNOT OPEN AN INPUT DEVICE, AND A MICROVM HAS NO
-			# /dev/input AT ALL. MEASURED: the image ships only console/null/ptmx/random/tty/
-			# urandom/zero, and weston answered
-			#
-			#	event0: opening input device '/dev/input/event0' failed (Operation not permitted)
-			#	failed to create input devices
-			#	fatal: failed to create compositor backend
-			#
-			# and restarted forever. Its own binary carries the way out - the string
-			# "no input devices found, but none required as per configuration" - and the key is
-			# `require-input` in the `[core]` section, MEASURED from libexec_weston.so.
-			mkdir -p "$ROOT/etc/xdg/weston"
-			cat > "$ROOT/etc/xdg/weston/weston.ini" <<'WESTON'
-[core]
-# A HEADLESS APPLIANCE HAS NO KEYBOARD AND THAT IS NOT A FAULT.
-require-input=false
-
-# THE CLIENT IS THE EVIDENCE: weston's own desktop shell draws a panel, and this window's
-# title and text are the image's own.
-[autostart]
-path=/opt/startup-client.sh
-WESTON
-			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
-#!/bin/sh
-exec foot -T "ARCH WESTON MICROVM" -e sh -c 'echo ARCH WESTON MICROVM; echo compositor: weston; echo socket: $WAYLAND_DISPLAY; sleep 3600'
-STARTUP
-			chmod 0755 "$ROOT/opt/startup-client.sh"
-			# AND EASYSTREAM CANNOT CAPTURE WESTON AT ALL, WHICH IS NOT A CONFIGURATION PROBLEM.
-			# MEASURED: `strings` over weston's binary and every module finds ZERO occurrences of
-			# zwlr_screencopy - weston implements its own weston-screenshooter protocol instead,
-			# and ships no xdg-desktop-portal backend either. easystream reads wlr-screencopy
-			# (it links wlr-screencopy-protocol.c) and falls back to the ScreenCast portal; with
-			# neither present the est server answers at the DEFAULT 1920x1080 and every frame is
-			# ZERO BYTES. The session itself is healthy - weston logs its output at 1024x768,
-			# loads desktop-shell and launches the client. Recording the limit so it is not
-			# mistaken for a broken image.
-			SESSION_CMD='exec weston --config=/etc/xdg/weston/weston.ini'
 		elif [ "$DESKTOP" = "xfce-wayland" ]; then
 			# THE SESSION FILE'S OWN LINE: `Exec=startxfce4 --wayland`. labwc is the compositor
 			# that `--wayland` drives, which is why it is in this variant's package list.
@@ -808,41 +737,6 @@ STARTUP
 			# THE SESSION FILE'S OWN COMMAND IS USED, which also gets its config directory,
 			# environment file and menu copied into place - all of which the script does for us.
 			SESSION_CMD='exec startbudgielabwc'
-		elif [ "$DESKTOP" = "kylin" ]; then
-			# NO `-s ukui-session`: MEASURED, that binary is not in the official repos (see the
-			# package list). `-s <process>` IS the compositor's own startup flag - MEASURED from
-			# its help: "-s, --session <process>  Run session on startup" - so a script takes
-			# the place of the session manager.
-			# `-d` WAS TRIED AND IS NOT ENOUGH: MEASURED, `kylin-wlcom -d` still writes nothing to
-			# stdout - no socket line, no output line, not even with debug on, and the journal
-			# for the session holds only systemd's own socket chatter. So a silent log cannot be
-			# told apart from a compositor that never drew, and the capture is 0 bytes.
-			#
-			# WHAT IS KNOWN: the binary links libwlroots-0.20 and carries zwlr_screencopy
-			# references, so the protocol should be there; the est server answers Hello at the
-			# default 1920x1080, which means it never attached to a real output. Left at `-d` so
-			# any later attempt starts from the most it will say.
-			SESSION_CMD='exec kylin-wlcom -d -s /opt/startup-client.sh'
-			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
-#!/bin/sh
-exec foot -T "ARCH KYLIN MICROVM" -e sh -c 'echo ARCH KYLIN MICROVM; echo compositor: kylin-wlcom; echo socket: $WAYLAND_DISPLAY; sleep 3600'
-STARTUP
-			chmod 0755 "$ROOT/opt/startup-client.sh"
-		elif [ "$DESKTOP" = "treeland" ] || [ "$DESKTOP" = "deepin-wayland" ]; then
-			# `treeland-user.desktop`, which is the VISIBLE one: the sibling `treeland.desktop`
-			# is `Hidden=true` and is the no-greeter variant.
-			#
-			# TREELAND HANGS THE BOOT, IT DOES NOT MERELY FAIL TO DRAW. MEASURED: after the
-			# session command starts, the serial console sits forever on
-			#	(2 of 2) A start job is running for ... v gracefully (1min 48s / no limit)
-			# - the machine never reaches a login prompt, so a walkthrough cannot even assert
-			# "login", and there is no window to capture. deepin-service-manager and
-			# dde-dconfig-daemon DO start; it is the compositor that does not settle.
-			#
-			# Its capture protocol is its own too - libtreeland-protocol-capture-v1 is shipped -
-			# so even a friendly easystream would not have wlr-screencopy to read. Both facts
-			# together put treeland out of reach on vkms; recorded rather than retried.
-			SESSION_CMD='exec treeland-user-wrapper'
 		elif [ "$DESKTOP" = "hyprland" ]; then
 			# HYPRLAND: the same vkms device, a different compositor and config language.
 			# HYPRLAND 0.57 READS LUA, NOT THE KEY=VALUE FORMAT. MEASURED from the package:
@@ -1030,6 +924,13 @@ fi
 	printf 'WAYLAND_DISPLAY=%s\nXDG_RUNTIME_DIR=%s\n' "\$WL" "\$XDG_RUNTIME_DIR" \
 		> "\$XDG_RUNTIME_DIR/wl-session.env"
 	chmod 0644 "\$XDG_RUNTIME_DIR/wl-session.env"
+	echo "session: socket=\$WL runtime=\$XDG_RUNTIME_DIR" >&2
+	if [ -f "\$XDG_RUNTIME_DIR/wl-session.env" ]; then
+		echo "session: env-file present" >&2
+		cat "\$XDG_RUNTIME_DIR/wl-session.env" >&2
+	else
+		echo "session: env-file MISSING" >&2
+	fi
 	# THE SESSION BUS REACHES THE UNIT TOO. A compositor that exposes no wlr-screencopy - KWin,
 	# weston - leaves easystream to fall back to the ScreenCast portal, and that needs a bus.
 	# MEASURED: the unit's environment is the manager's environment, and without this the
@@ -1043,6 +944,9 @@ fi
 	systemctl --user start pipewire pipewire-pulse wireplumber 2>/dev/null || true
 	systemctl --user start xdg-desktop-portal 2>/dev/null || true
 	systemctl --user start plasma-xdg-desktop-portal-kde 2>/dev/null || true
+	# THE WLR BACKEND, WHICH NEEDS NO CONSENT DIALOG. Only mangowm ships it; the unit is absent
+	# elsewhere, and the trailing true keeps that from being an error.
+	systemctl --user start xdg-desktop-portal-wlr 2>/dev/null || true
 	# RESTARTED, NOT STARTED. The unit can already be active by the time this runs, because
 	# `default.target.wants` puts a link in and a manager that does reach that target starts it
 	# with the OLD environment. `start` on an active unit is a no-op, so the environment set
@@ -1061,7 +965,6 @@ fi
 # walkthrough that waited for the compositor's own name in console.log timed out even though
 # the compositor was running and rendering - none of these write to ttyS0. This line is the
 # image's own promise that the session got this far.
-echo "ARCH-SESSION-STARTING: $DESKTOP"
 echo "ARCH-SESSION-STARTING: $DESKTOP"
 $SESSION_CMD
 SESSION
