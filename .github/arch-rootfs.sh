@@ -238,7 +238,11 @@ if [ ! -d "$ROOT/usr" ]; then
 	# because the X11 path is already covered by six other desktops and the Wayland path is
 	# the one worth widening.
 	qtile)    DESKTOP_PKGS="qtile foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
-	qtile-wayland)    DESKTOP_PKGS="qtile foot $DESKTOP_COMMON" ;;
+	# BUBBLEWRAP IS WHAT GLYCIN WOULD RUN ITS IMAGE LOADERS IN, and qtile 0.37 loads images
+	# through glycin for both its wallpaper and its bar widgets. It is shipped so the loader has
+	# somewhere to run; the session ALSO sets GLYCIN_DISABLE_SANDBOX=1, because bwrap cannot set
+	# its namespace up in this guest - see that export in the qtile-wayland session branch.
+	qtile-wayland)    DESKTOP_PKGS="qtile bubblewrap foot $DESKTOP_COMMON" ;;
 	enlightenment) DESKTOP_PKGS="enlightenment foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# THE KDE VARIANTS ARE SEPARATE PACKAGES FROM plasma-desktop, with their own session files
 	# and their own Exec lines. They are not themes: plasma-mobile is a phone shell and
@@ -693,6 +697,66 @@ PUP
 		elif [ "$DESKTOP" = "qtile-wayland" ]; then
 			# `qtile start` CHECKS WAYLAND_DISPLAY ITSELF and starts the Wayland backend when it
 			# is set - the session file for both is the same command.
+			#
+			# GLYCIN GETS ITS SANDBOX TURNED OFF, BECAUSE BUBBLEWRAP CANNOT WORK IN THIS GUEST.
+			#
+			# MEASURED on virtio-gpu: a bare `qtile start` writes its own default config, that
+			# config sets `wallpaper=logo` and the CurrentLayout widget icon, and loading EITHER
+			# goes through glycin, which spawns its loader inside `bwrap --unshare-all`. bwrap
+			# there fails, and qtile answers
+			#
+			#	cairocffi.pixbuf.ImageLoadingError: Pixbuf error: Loader process exited early
+			#	with status '1' Command: "bwrap" "--unshare-all" ... "--seccomp" "35" ...
+			#
+			# then exits 1 about four seconds after the session marker - forever, with nothing
+			# else on the console. Installing bubblewrap is not enough: the loader still fails
+			# inside the namespace on this guest (MEASURED, bwrap present and the loader still
+			# exiting 1), because the seccomp/unshare setup needs privileges a microvm guest
+			# without a real seat does not have.
+			#
+			# GLYCIN DOCUMENTS ITS OWN ESCAPE HATCH FOR EXACTLY THIS, and this image is a
+			# single-user appliance whose images all come from its own root filesystem:
+			#
+			#	GLYCIN_DISABLE_SANDBOX=1   ("Bubblewrap (bwrap) doesn't work in the environment")
+			#
+			# MEASURED with it: no ImageLoadingError, no crash, and the session stayed up for the
+			# whole observation window. The sandbox protects against a MALICIOUS image file; the
+			# only files here are the ones this build installed. The export itself lives in
+			# session.sh, because THIS block only chooses the command - its environment does not
+			# reach the session (MEASURED: put here first, and the emitted script had no export).
+			#
+			# AND THE CONFIG IS WRITTEN, BECAUSE THE DEFAULT ONE STILL CRASHES EVEN WITHOUT THE
+			# SANDBOX. MEASURED: with the sandbox off and qtile's own generated config, the
+			# CurrentLayout widget reads PNG arrows out of the package and STILL raises
+			# "AttributeError: Img has no attribute _default_size" on this Pillow/cairocffi
+			# combination - a bug in the widget, not in this image. That is a crash at bar
+			# creation, so the whole session dies. A config that names only widgets which draw
+			# from text - GroupBox, the title, the clock - starts and stays up; MEASURED, that
+			# bar renders "ARCH QTILE-WAYLAND MICROVM" at the bottom right.
+			mkdir -p "$ROOT/home/vmuser/.config/qtile"
+			cat > "$ROOT/home/vmuser/.config/qtile/config.py" <<'QTILECFG'
+# THE CONTENT OF THE BAR IS THE PROOF: the title text is drawn by qtile itself, so a capture
+# that shows it means the compositor started, found the output and rendered. CurrentLayout is
+# deliberately absent - it loads PNG arrows and crashes on this image's Pillow/cairocffi.
+from libqtile import bar, layout, widget
+from libqtile.config import Screen
+
+screens = [
+    Screen(
+        bottom=bar.Bar(
+            [
+                widget.GroupBox(),
+                widget.WindowName(),
+                widget.TextBox("ARCH QTILE-WAYLAND MICROVM"),
+                widget.Clock(format="%Y-%m-%d %H:%M"),
+            ],
+            24,
+        ),
+    ),
+]
+layouts = [layout.Columns(border_focus="#d75f5f"), layout.Max()]
+QTILECFG
+			chown -R 1000:1000 "$ROOT/home/vmuser" 2>/dev/null || true
 			SESSION_CMD='exec qtile start'
 		elif [ "$DESKTOP" = "gnome" ]; then
 			# THE FULL STACK: GDM AS THE DISPLAY MANAGER, NOT A BARE gnome-shell.
@@ -910,11 +974,17 @@ export LIBGL_ALWAYS_SOFTWARE=1
 export XDG_SESSION_TYPE=wayland
 # THE VALUE IS THE DESKTOP'S OWN SPELLING, AND CASE MATTERS TO THE MENUS.
 #
-# MEASURED on budgie: labwc's own config sets `OnlyShowIn=Budgie` on BudgiePanel.desktop, and
-# that test is CASE-SENSITIVE. `startbudgielabwc` only forces `XDG_CURRENT_DESKTOP=Budgie` when
+# MEASURED on budgie: labwc's own config sets OnlyShowIn=Budgie on BudgiePanel.desktop, and
+# that test is CASE-SENSITIVE. startbudgielabwc only forces XDG_CURRENT_DESKTOP=Budgie when
 # the variable is empty OR does not already mention budgie case-insensitively - so exporting
-# the lowercase name here made it keep `budgie`, and the panel was never autostarted. The
+# the lowercase name here made it keep "budgie", and the panel was never autostarted. The
 # session stayed a bare labwc with its "Config errors detected" bar over an empty desktop.
+#
+# NO BACKTICKS IN THIS COMMENT. This block is inside an UNQUOTED heredoc (it has to expand
+# $DESKTOP), so a backtick would be COMMAND SUBSTITUTED while the image is built - the words
+# between them vanished from the emitted script. MEASURED: the first version of this very
+# comment did that.
+#
 # Every desktop whose session files key off this name gets its own spelling.
 case "$DESKTOP" in
 	budgie) XDG_CURRENT_DESKTOP=Budgie ;;
@@ -958,6 +1028,15 @@ else
 	export WLR_LIBINPUT_NO_DEVICES=1
 	# NO XWAYLAND: easystream reads Wayland through wlr-screencopy, not the X protocol.
 	export WLR_XWAYLAND=
+fi
+
+# QTILE'S IMAGE LOADING NEEDS GLYCIN'S SANDBOX OFF. See the long note in the qtile-wayland
+# branch above: glycin spawns its loader under bwrap, bwrap cannot set its namespace up in this
+# guest, and the failure crashes qtile about four seconds after the session marker - forever.
+# MEASURED with this set: no crash. It is exported HERE because this is the script the session
+# actually runs, not the build-time block that only chose the command.
+if [ "$DESKTOP" = "qtile-wayland" ]; then
+	export GLYCIN_DISABLE_SANDBOX=1
 fi
 unset DISPLAY
 
@@ -1280,7 +1359,18 @@ PSH
 	# session.service: GDM starts the session on tty1 itself, and a second compositor on the same
 	# tty would fight it. DESKTOP_SKIP_SESSION_SERVICE is set by that branch.
 	if [ "${DESKTOP_SKIP_SESSION_SERVICE:-0}" != "1" ]; then
-	cat > "$ROOT/etc/systemd/system/session.service" <<'UNIT'
+	# GLYCIN'S SANDBOX IS OFF FOR QTILE, IN THE UNIT AS WELL AS THE SCRIPT.
+	#
+	# MEASURED, and it took a second place to make it stick: exporting it in session.sh was NOT
+	# enough for the service - qtile still died with the same ImageLoadingError - while the SAME
+	# export in an interactive shell ran it fine. The session.sh export stays (it is the honest
+	# description of what the desktop needs); this line is what the unit actually honours.
+	if [ "$DESKTOP" = "qtile-wayland" ]; then
+		SESSION_ENV_EXTRA='Environment=GLYCIN_DISABLE_SANDBOX=1'
+	else
+		SESSION_ENV_EXTRA=''
+	fi
+	cat > "$ROOT/etc/systemd/system/session.service" <<UNIT
 [Unit]
 Description=the session: Xvfb or a Wayland compositor, for vmuser
 After=systemd-logind.service
@@ -1290,13 +1380,14 @@ Wants=systemd-logind.service
 Type=simple
 User=vmuser
 Environment=HOME=/home/vmuser
+$SESSION_ENV_EXTRA
 # A LOGIND SESSION, BECAUSE SOME SESSION MANAGERS REQUIRE ONE.
 #
 # MEASURED on cinnamon-wayland: cinnamon-session answered
 #	Could not get session id for session. Check that logind is properly installed and
 #	pam_systemd is getting used at login.
 # and then "App 'cinnamon-wayland.desktop' respawning too quickly" - it refused to carry on
-# because there was no logind session behind it. A plain `User=` service has none; `PAMName=`
+# because there was no logind session behind it. A plain \`User=\` service has none; \`PAMName=\`
 # makes systemd open a PAM session for the unit, which is where pam_systemd registers it and
 # where XDG_SESSION_ID and friends come from. Harmless for the desktops that do not need it.
 PAMName=login
@@ -1314,7 +1405,7 @@ TTYPath=/dev/tty1
 TTYReset=no
 TTYVHangup=no
 # THE NODE MAY NOT EXIST: the image's /dev is a static directory and systemd sets /dev up as a
-# tmpfs, so /dev/tty1 is not there until something makes it. MEASURED: `ls /dev/tty1` in the
+# tmpfs, so /dev/tty1 is not there until something makes it. MEASURED: \`ls /dev/tty1\` in the
 # built tree answered "No such file or directory". mknod it first, or TTYPath points at nothing.
 ExecStartPre=/bin/sh -c 'mkdir -p /dev; [ -e /dev/tty1 ] || mknod /dev/tty1 c 4 1; chmod 620 /dev/tty1; chown root:tty /dev/tty1 2>/dev/null || true'
 ExecStart=/opt/session.sh
