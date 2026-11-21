@@ -762,6 +762,11 @@ STARTUP
 			# that a headless boot cannot give. Recorded so the next attempt starts here.
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile'
 		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
+			# THE SAME KWIN AS plasma-mobile, AND THE SAME ONE-HUMAN-CLICK LIMIT. It runs KWin
+			# Wayland, which implements neither wlr-screencopy nor ext-image-copy-capture, so
+			# the only capture path is the ScreenCast portal - and the portal's Start needs a
+			# consent dialog. See the long note under plasma-mobile for the measurements that
+			# rule out seeding the grant ahead of time. Not captured for the same reason.
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland'
 		elif [ "$DESKTOP" = "budgie" ]; then
 			# BUDGIE'S WAYLAND SESSION IS labwc, AND `budgie-desktop` IS NOT ITS ENTRY POINT.
@@ -801,6 +806,17 @@ STARTUP
 		elif [ "$DESKTOP" = "treeland" ] || [ "$DESKTOP" = "deepin-wayland" ]; then
 			# `treeland-user.desktop`, which is the VISIBLE one: the sibling `treeland.desktop`
 			# is `Hidden=true` and is the no-greeter variant.
+			#
+			# TREELAND HANGS THE BOOT, IT DOES NOT MERELY FAIL TO DRAW. MEASURED: after the
+			# session command starts, the serial console sits forever on
+			#	(2 of 2) A start job is running for ... v gracefully (1min 48s / no limit)
+			# - the machine never reaches a login prompt, so a walkthrough cannot even assert
+			# "login", and there is no window to capture. deepin-service-manager and
+			# dde-dconfig-daemon DO start; it is the compositor that does not settle.
+			#
+			# Its capture protocol is its own too - libtreeland-protocol-capture-v1 is shipped -
+			# so even a friendly easystream would not have wlr-screencopy to read. Both facts
+			# together put treeland out of reach on vkms; recorded rather than retried.
 			SESSION_CMD='exec treeland-user-wrapper'
 		elif [ "$DESKTOP" = "hyprland" ]; then
 			# HYPRLAND: the same vkms device, a different compositor and config language.
