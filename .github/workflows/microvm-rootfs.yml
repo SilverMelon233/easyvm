@@ -166,12 +166,14 @@ jobs:
           #	lxqt-wayland   the LXQt Session Settings dialog with its Wayland page
           #	qtile-wayland  qtile's bar on the Wayland backend
           #
-          # THE ONES WITH A MEASURED LIMIT ARE NOT HERE. river has no layout generator in the
-          # official repos, mangowm and weston and the KWin sessions (plasma-mobile,
-          # plasma-bigscreen) expose no protocol easystream can read, kylin's compositor is
-          # silent and its ukui session is not published, and cinnamon-wayland and
-          # enlightenment-wayland fail inside their own session managers. Each is described
-          # where its session command is defined in arch-rootfs.sh.
+          # THE ONES WITH A MEASURED LIMIT ARE NOT HERE. river, niri, weston, kylin and
+          # treeland are gone entirely. plasma-mobile and plasma-bigscreen run but their KWin +
+          # KDE-portal capture needs one human consent click. cinnamon-wayland and
+          # enlightenment-wayland were DROPPED: their Wayland compositors expose no capture
+          # protocol - muffin has no zwlr_screencopy and does not export org.gnome.Mutter.ScreenCast,
+          # and E's wl_drm exports no screencopy - so those two are supported on X11 only, which
+          # is the bare `cinnamon` and `enlightenment` rows that ARE here. mangowm was verified
+          # with grim and IS included. Each remaining note lives in arch-rootfs.sh.
           - tag: rootfs-arch-flashback
             script: .github/arch-rootfs.sh
             desktop: "flashback"

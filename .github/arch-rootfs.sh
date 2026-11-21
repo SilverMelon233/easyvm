@@ -28,11 +28,16 @@ set -eu
 
 # DESKTOP NAMES THE SESSION TO INSTALL:
 #
-#	0  sway  hyprland  budgie  niri  labwc  river  wayfire  mangowm
-#	   phosh  weston  plasma-mobile  plasma-bigscreen  kylin  treeland
+#	0  sway  hyprland  budgie  labwc  wayfire  mangowm
+#	   phosh  plasma-mobile  plasma-bigscreen
 #	   mate  i3  flashback  deepin
-#	   xfce  xfce-wayland  cinnamon  cinnamon-wayland  lxqt  lxqt-wayland
-#	   qtile  qtile-wayland  enlightenment  enlightenment-wayland
+#	   xfce  xfce-wayland  cinnamon  lxqt  lxqt-wayland
+#	   qtile  qtile-wayland  enlightenment
+#
+# cinnamon AND enlightenment ARE X11-ONLY HERE: their `-wayland` variants were dropped because
+# their compositors expose no capture protocol this image can read (muffin: no zwlr_screencopy,
+# no Mutter.ScreenCast D-Bus; E: no screencopy in wl_drm). niri, river, weston, kylin, treeland
+# and deepin-wayland were dropped earlier for their own measured reasons.
 #
 # THE LIST IS EXHAUSTIVE, TAKEN FROM ARCH'S OWN FILE DATABASE rather than from memory.
 # `extra.files.tar.gz` lists every file each package owns, so grepping it for
@@ -99,13 +104,12 @@ mate|i3|flashback) DESKTOP_FAMILY=x11 ;;
 # other. The `treeland.desktop` that also ships is `Hidden=true` and carries
 # `X-DDE-SINGLE-WAYLAND=true` - it is the no-greeter variant, not a second desktop.
 xfce|cinnamon|lxqt|qtile|enlightenment|deepin) DESKTOP_FAMILY=x11 ;;
-xfce-wayland|cinnamon-wayland|lxqt-wayland|qtile-wayland|enlightenment-wayland) DESKTOP_FAMILY=wayland ;;
+xfce-wayland|lxqt-wayland|qtile-wayland) DESKTOP_FAMILY=wayland ;;
 *)
 	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland budgie labwc wayfire" >&2
 	echo "  mangowm phosh plasma-mobile plasma-bigscreen" >&2
 	echo "  mate i3 flashback deepin" >&2
-	echo "  dual-stack: xfce xfce-wayland  cinnamon cinnamon-wayland  lxqt lxqt-wayland" >&2
-	echo "              qtile qtile-wayland  enlightenment enlightenment-wayland" >&2
+	echo "  dual-stack: xfce xfce-wayland  lxqt lxqt-wayland  qtile qtile-wayland" >&2
 	exit 2
 	;;
 esac
@@ -236,7 +240,6 @@ if [ ! -d "$ROOT/usr" ]; then
 	qtile)    DESKTOP_PKGS="qtile foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	qtile-wayland)    DESKTOP_PKGS="qtile foot $DESKTOP_COMMON" ;;
 	enlightenment) DESKTOP_PKGS="enlightenment foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
-	enlightenment-wayland) DESKTOP_PKGS="enlightenment foot grim $DESKTOP_COMMON" ;;
 	# THE KDE VARIANTS ARE SEPARATE PACKAGES FROM plasma-desktop, with their own session files
 	# and their own Exec lines. They are not themes: plasma-mobile is a phone shell and
 	# plasma-bigscreen is a TV one.
@@ -268,7 +271,6 @@ if [ ! -d "$ROOT/usr" ]; then
 	# GNOME portal backend can screencast muffin WITHOUT a consent dialog - the wlr backend cannot
 	# (muffin has no wlr-screencopy) and grim answered "compositor doesn't support the screen
 	# capture protocol". easystream already falls back to the ScreenCast portal.
-	cinnamon-wayland) DESKTOP_PKGS="cinnamon cinnamon-session xdg-desktop-portal xdg-desktop-portal-gnome $DESKTOP_COMMON" ;;
 	lxqt)     DESKTOP_PKGS="lxqt-session lxqt-panel openbox qterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# LXQT'S WAYLAND SESSION IS A SEPARATE PACKAGE, `lxqt-wayland-session`, whose only job is
 	# the `startlxqtwayland` wrapper. MEASURED: `Exec=startlxqtwayland`, and it needs a
@@ -663,86 +665,6 @@ PUP
 			# THE SESSION FILE'S OWN LINE: `Exec=startxfce4 --wayland`. labwc is the compositor
 			# that `--wayland` drives, which is why it is in this variant's package list.
 			SESSION_CMD='exec startxfce4 --wayland'
-		elif [ "$DESKTOP" = "cinnamon-wayland" ]; then
-			# `Exec=cinnamon-session-cinnamon --wayland`, from the session file.
-			#
-			# TWO BLOCKERS WERE REMOVED AND A THIRD REMAINS. MEASURED, in order:
-			#  1. cinnamon-session answered "Could not get session id for session ... pam_systemd
-			#     is getting used at login" - fixed by `PAMName=login` on session.service, which
-			#     is where that id comes from.
-			#  2. `cinnamon --replace` restarted every few hundred milliseconds with
-			#     "respawning too quickly" - fixed by XDG_SESSION_TYPE=wayland and
-			#     XDG_CURRENT_DESKTOP in session.sh, which this Mutter-based shell reads before
-			#     it will bring up a Wayland backend (wlroots compositors assume it; it does not).
-			#  3. AFTER BOTH, the error is now the honest one:
-			#	"Cinnamon ('cinnamon-wayland.desktop') exited unexpectedly. Terminating the session."
-			#     - cinnamon's compositor (muffin, a Mutter fork) exits with no message on the
-			#     console. It is the same class as niri and mangowm: a Mutter-style GL/EGL
-			#     composer that does not settle on vkms' software device. The session manager
-			#     itself is now happy; the compositor it launches is not.
-			# STATUS: THE SESSION STARTS, THE FRAME IS BLACK - A CAPTURE-LIMIT, MEASURED END TO END.
-			#
-			# All of cinnamon now runs: cinnamon, cinnamon-background, cinnamon-calendar,
-			# cinnamon-session and the whole csd-* family, on vkms' connected Virtual-1, with NO
-			# restart loop. That part is solved below (TTY, polkit, nemo).
-			#
-			# BUT THE CAPTURE IS BLACK, AND IT IS NOT A MISSING DESKTOP. MEASURED with
-			# cinnamon-screenshot (the compositor's OWN capture, bypassing wlr-screencopy): a
-			# 1024x768 png whose content is 14930 non-black bytes of 2360064 - a cursor, no
-			# desktop. The same black frame comes out of easystream. So cinnamon is not painting
-			# the panel/background here, while its compositor runs.
-			#
-			# nemo is the background painter and cinnamon-session treats it as a RequiredComponent,
-			# so two things are both true and in tension: MEASURED without a shim, cinnamon-session
-			# answers "nemo-autostart respawning too quickly" and tears the session down; with the
-			# shim below, the session survives but non-black stays ~15000, i.e. nothing draws the
-			# desktop. nemo DESKTOP itself is fine when run alone ("using Wayland backend,
-			# gtk-layer-shell supported"); what is not solved is getting it to paint inside this
-			# session and reaching the frame through easystream's shm-only screencopy.
-			#
-			# SO NEMO IS REMOVED FROM THE SESSION'S REQUIRED LIST AND STARTED ON ITS OWN.
-			# cinnamon-wayland.session lists "RequiredComponents=cinnamon-wayland;nemo-autostart;";
-			# dropping nemo-autostart means nemo exiting can no longer fail the session, and the
-			# startup wrapper launches nemo-desktop as an ordinary process so it still paints the
-			# desktop. The compositor itself (cinnamon-wayland) stays required.
-			if [ -f "$ROOT/usr/share/cinnamon-session/sessions/cinnamon-wayland.session" ]; then
-				sed -i "s/^RequiredComponents=.*/RequiredComponents=cinnamon-wayland;/" \
-					"$ROOT/usr/share/cinnamon-session/sessions/cinnamon-wayland.session"
-			fi
-			cat > "$ROOT/opt/cinn-nemo.sh" <<'NEMO'
-#!/bin/sh
-i=0
-while [ $i -lt 200 ]; do
-	[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
-	i=$((i+1)); sleep 0.1
-done
-sleep 2
-exec /usr/bin/nemo-desktop
-NEMO
-			chmod 0755 "$ROOT/opt/cinn-nemo.sh"
-			cat > "$ROOT/opt/cinn-session.sh" <<'CSESS'
-#!/bin/sh
-/opt/cinn-nemo.sh &
-exec /usr/bin/cinnamon-session-cinnamon --wayland
-CSESS
-			chmod 0755 "$ROOT/opt/cinn-session.sh"
-			# THE SESSION IS STABLE NOW; THE CAPTURE IS THE WALL, AND IT IS MEASURED.
-			# MEASURED after the RequiredComponents fix: ARCH-SESSION-STARTING appears ONCE (no
-			# restart loop), nemo respawning is gone, and easystream reports "encoder opened
-			# 1024x768" - it attaches and knows the size - yet the frame is all zero (max pixel 0).
-			#
-			# TWO CAPTURE PATHS WERE TRIED AND BOTH ARE CLOSED HERE:
-			#   wlr-screencopy: muffin has ZERO occurrences of zwlr_screencopy; grim answers
-			#     "compositor doesn't support the screen capture protocol".
-			#   Mutter.ScreenCast via portal-gnome: the packages install and both xdg-desktop-portal
-			#     and xdg-desktop-portal-gnome are ACTIVE with their bus names present, but
-			#     "busctl introspect org.gnome.Mutter.ScreenCast" answers "The name is not
-			#     activatable" - muffin links the Mutter.ScreenCast code but does NOT export the
-			#     D-Bus interface at runtime, so the GNOME portal has no screencast to call and the
-			#     frame stays black.
-			# So cinnamon-wayland runs end to end but cannot be captured on vkms: it exposes
-			# neither capture protocol. Recorded as its limit, not retried by guesswork.
-			SESSION_CMD='exec /opt/cinn-session.sh'
 		elif [ "$DESKTOP" = "lxqt-wayland" ]; then
 			# `Exec=startlxqtwayland`, provided by the separate `lxqt-wayland-session` package.
 			SESSION_CMD='exec startlxqtwayland'
@@ -750,40 +672,6 @@ CSESS
 			# `qtile start` CHECKS WAYLAND_DISPLAY ITSELF and starts the Wayland backend when it
 			# is set - the session file for both is the same command.
 			SESSION_CMD='exec qtile start'
-		elif [ "$DESKTOP" = "enlightenment-wayland" ]; then
-			# E_WL_FORCE=drm IS THE WHOLE DIFFERENCE from the X11 entry: it tells enlightenment
-			# to drive the DRM device rather than run as a client of another display server.
-			# THE SESSION FILE'S OWN LINE: `env E_WL_FORCE=drm E_COMP_ENGINE=gl`. E_WL_FORCE=drm
-			# is what tells it to use the DRM backend rather than nest in another compositor.
-			#
-			# IT RUNS NOW. MEASURED after session.service got a TTY (TTYPath=/dev/tty1), which E
-			# needs for the same logind reason cinnamon-wayland does: instead of the old
-			# "Explicit error exit from enlightenment", the session logs "Enlightenment_start",
-			# creates /run/user/1000/wayland-0, and easystream captures a REAL frame at
-			# 4096x2160 (easystream's own encoder line: "encoder opened 4096x2160"), not the
-			# 1920x1080 default and not a zero-byte png. So E's Wayland DRM backend DOES come up.
-			#
-			# WHAT REMAINS: THE FRAME IS BLACK AT 4096x2160. MEASURED further: E reaches its
-			# FIRST-RUN WIZARD - the log ends "LOAD XWAYLAND MODULE / XWayland Listening on
-			# display: :0 / WIZARD PAGE: page_010.so" - so it is drawing, and it picked vkms'
-			# LARGEST mode (4096x2160, easystream's own "encoder opened 4096x2160") instead of the
-			# preferred 1024x768. The scanned-out buffer at that un-set mode is black. Setting
-			# E's output mode needs its binary e.cfg; a first-run wizard means E has no config
-			# yet, which is why it defaults to the largest mode. Recorded as the remaining step
-			# for this desktop: pin the mode, and confirm the wizard page reaches the frame - the
-			# session itself is now up (no crash, wayland socket, wizard), unlike before.
-			mkdir -p "$ROOT/home/vmuser/.e/e/config/standard"
-			cat > "$ROOT/opt/e-startup.sh" <<'ESTART'
-#!/bin/sh
-# Give E a client so a window is a region of non-background pixels, and a matching mode.
-E_WL_FORCE=drm E_COMP_ENGINE=gl /usr/bin/enlightenment_start &
-sleep 8
-foot -T "ARCH ENLIGHTENMENT MICROVM" -e sh -c 'echo ARCH ENLIGHTENMENT MICROVM; echo compositor: enlightenment; echo socket: $WAYLAND_DISPLAY; sleep 3600' &
-wait
-ESTART
-			chmod 0755 "$ROOT/opt/e-startup.sh"
-			chown -R 1000:1000 "$ROOT/home/vmuser" 2>/dev/null || true
-			SESSION_CMD='exec /opt/e-startup.sh'
 		elif [ "$DESKTOP" = "plasma-mobile" ]; then
 			# THE SESSION RUNS - kwin_wayland, plasmashell and plasma-keyboard all come up - AND
 			# EASYSTREAM GETS NO FRAME FROM IT.
@@ -1253,7 +1141,7 @@ RULE
 	# This unit runs grim inside the live session and dumps the png as base64 to the console, so
 	# the harness can decode it into a real screenshot for a desktop easystream cannot serve.
 	case "$DESKTOP" in
-	mangowm|enlightenment-wayland)
+	mangowm)
 		cat > "$ROOT/etc/systemd/system/grim-probe.service" <<'UNIT'
 [Unit]
 Description=grab the session with grim and dump it to the console
@@ -1291,6 +1179,7 @@ PSH
 		chmod 0755 "$ROOT/opt/grim-probe.sh"
 		;;
 	esac
+
 
 	# --- 3d. THE UNITS --------------------------------------------------------------------
 	cat > "$ROOT/etc/systemd/system/session.service" <<'UNIT'
