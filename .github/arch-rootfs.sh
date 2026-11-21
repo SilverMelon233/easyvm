@@ -82,7 +82,7 @@ case "$DESKTOP" in
 0|"")                 DESKTOP_FAMILY=none ;;
 
 # WAYLAND ONLY.
-sway|hyprland|budgie|labwc|wayfire|mangowm|phosh|plasma-mobile|plasma-bigscreen) DESKTOP_FAMILY=wayland ;;
+sway|hyprland|budgie|labwc|wayfire|mangowm|phosh|gnome|plasma|plasma-mobile|plasma-bigscreen) DESKTOP_FAMILY=wayland ;;
 
 # X11 ONLY.
 mate|i3|flashback) DESKTOP_FAMILY=x11 ;;
@@ -243,6 +243,11 @@ if [ ! -d "$ROOT/usr" ]; then
 	# THE KDE VARIANTS ARE SEPARATE PACKAGES FROM plasma-desktop, with their own session files
 	# and their own Exec lines. They are not themes: plasma-mobile is a phone shell and
 	# plasma-bigscreen is a TV one.
+	# THE MAINSTREAM GNOME AND KDE DESKTOPS, from their own session files: gnome.desktop runs
+	# /usr/bin/gnome-session; plasma.desktop runs startplasma-wayland. These are the big two the
+	# task keeps naming last, verified here the same way as every other Wayland desktop.
+	gnome)            DESKTOP_PKGS="gnome gnome-session xdg-desktop-portal xdg-desktop-portal-gnome foot $DESKTOP_COMMON" ;;
+	plasma)           DESKTOP_PKGS="plasma-desktop plasma-workspace foot $DESKTOP_COMMON" ;;
 	plasma-mobile)    DESKTOP_PKGS="plasma-mobile plasma-workspace foot $DESKTOP_COMMON" ;;
 	plasma-bigscreen) DESKTOP_PKGS="plasma-bigscreen plasma-workspace foot $DESKTOP_COMMON" ;;
 	# THE THREE CHINESE VENDOR DESKTOPS. MEASURED from their own session files:
@@ -313,7 +318,7 @@ if [ ! -d "$ROOT/usr" ]; then
 		# the default parallel downloads of several large files (linux, webkit2gtk,
 		# ghostscript, perl ...) crawl at a few MB/min - the concurrent connections are what
 		# throttles. Serialising them makes the big cinnamon/webkit dependency set finish.
-		sed -i "s/^#ParallelDownloads.*/ParallelDownloads = 1/" /etc/pacman.conf
+		sed -i "s/^#\? *ParallelDownloads.*/ParallelDownloads = 1/" /etc/pacman.conf
 		grep -q "^ParallelDownloads" /etc/pacman.conf || echo "ParallelDownloads = 1" >> /etc/pacman.conf
 		# A FULL UPGRADE, NOT `-Sy`. MEASURED: the container image and the mirror are not
 		# always at the same package versions, and a partial upgrade answers
@@ -680,6 +685,74 @@ PUP
 			# `qtile start` CHECKS WAYLAND_DISPLAY ITSELF and starts the Wayland backend when it
 			# is set - the session file for both is the same command.
 			SESSION_CMD='exec qtile start'
+		elif [ "$DESKTOP" = "gnome" ]; then
+			# GNOME 51 DRIVES THE SESSION FROM SYSTEMD UNITS, NOT FROM gnome.session.
+			# MEASURED from the packages: gnome.session-d an empty file (Name only), and the real
+			# wiring is usr/lib/systemd/user/gnome-session@gnome.target.d/gnome.session.conf, which
+			# Requires=gnome-session-services.target and org.gnome.Shell@user.service. Writing a
+			# synthetic gnome.session or org.gnome.Shell.desktop fights that, so they are NOT written.
+			# The one thing the units DO need from us is XDG_SESSION_TYPE in the USER MANAGER, because
+			# org.gnome.Shell@.service asserts it and is started by the manager, which never sees an
+			# export from the session script.
+			mkdir -p "$ROOT/etc/systemd/user/environment.d"
+			cat > "$ROOT/etc/systemd/user/environment.d/50-gnome.conf" <<'GENV'
+XDG_SESSION_TYPE=wayland
+XDG_CURRENT_DESKTOP=GNOME
+XDG_SESSION_DESKTOP=gnome
+GENV
+			# START THE SYSTEMD SESSION TARGET AND STAY IN FOREGROUND.
+			# MEASURED: `/usr/bin/gnome-session --session=gnome` in GNOME 51 prints the target name
+			# and EXITS (it is a thin launcher) - so session.service sees it die and restarts, and
+			# the compositor never settles. The target itself is what runs gnome-shell
+			# (org.gnome.Shell@user.service, measured: "Running GNOME Shell (using mutter 51.1) as a
+			# Wayland display server ... Started GNOME Shell"). So start the target, then hold the
+			# foreground so the unit stays up; the user manager keeps the shell.
+			# RUN gnome-shell DIRECTLY AS THE COMPOSITOR. MEASURED: the gnome-session@ target needs
+			# GDM's exact notify-ordering (gnome-session-manager@ Type=notify -> initialized.target ->
+			# Shell@user Requisite) and fails "dependency" when not driven by a display manager. But
+			# org.gnome.Shell@user.service WAS measured to reach "Running GNOME Shell (using mutter
+			# 51.1) as a Wayland display server ... Started GNOME Shell" and create wayland-0. So the
+			# compositor is started directly here, with the same mode the unit uses (--mode=user).
+			# Capture is the portal (xdg-desktop-portal-gnome -> org.gnome.Mutter.ScreenCast), because
+			# Mutter has no wlr-screencopy.
+			# `--headless` IS THE MODE THAT DOES NOT NEED A GPU. MEASURED: gnome-shell on the DRM/KMS
+			# path answers "No GPUs found" on vkms, which has no render node (Mutter's native backend
+			# wants gbm on a render node). Mutter also ships META_BACKEND_NATIVE_MODE_HEADLESS and
+			# gnome-shell exposes `--headless`; that backend runs a Wayland display server with no
+			# physical GPU, so the shell comes up and clients (and the portal) can connect.
+			# MEASURED RESULT: THE SESSION IS STABLE AND HAS A 1024x768 OUTPUT, BUT THE CAPTURE
+			# IS BLACK. With --headless --virtual-monitor 1024x768 the session stays up
+			# (ARCH-SESSION-STARTING once, wayland-0 present), easystream answers at the REAL
+			# 1024x768 ("encoder opened 1024x768"), and the screenshot is a full 3146804-byte png -
+			# but every pixel is 0 (max 0). Mutter's headless backend composites in software with no
+			# scanout, and the frame easystream reads (screencopy is absent on Mutter; the portal
+				# PipeWire stream) is that empty surface. The DRM/KMS path instead answers "No GPUs found"
+			# because vkms exposes no render node for gbm. So GNOME runs but is not capturable on vkms
+			# headless - the same class as cinnamon, from the Mutter side.
+			#
+			# --virtual-monitor GIVES THE HEADLESS SHELL A REAL OUTPUT. MEASURED: `--headless` alone
+			# starts a stable session with wayland-0 but NO monitor, so screencopy/portal return an
+			# empty frame (a 68-byte png). gnome-shell has `--virtual-monitor WxH` ("Add persistent
+			# virtual monitor"), which creates the output the capture needs - the same 1024x768 the
+			# walkthrough uses.
+			SESSION_CMD='export XDG_CURRENT_DESKTOP=GNOME XDG_SESSION_DESKTOP=gnome XDG_SESSION_TYPE=wayland; exec /usr/bin/gnome-shell --wayland --headless --virtual-monitor 1024x768 --mode=user'
+		# A STARTUP CLIENT, so the frame has a window this image chose rather than only the shell.
+			cat > "$ROOT/opt/startup-client.sh" <<'STARTUP'
+#!/bin/sh
+sleep 3
+exec foot -T "ARCH GNOME MICROVM" -e sh -c 'echo ARCH GNOME MICROVM; echo compositor: gnome-shell; echo socket: $WAYLAND_DISPLAY; sleep 3600'
+STARTUP
+			chmod 0755 "$ROOT/opt/startup-client.sh"
+		elif [ "$DESKTOP" = "plasma" ]; then
+			# `plasma.desktop`: Exec=/usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland
+			# - the mainstream KDE Plasma Wayland session, from its own session file.
+			#
+			# THE SESSION IS STABLE (ARCH-SESSION-STARTING once, kwin_wayland on wayland-1) and the
+			# capture reaches the SAME KWin/portal wall as plasma-mobile: easystream logs
+			# "SelectDevices ok" then "Start will ask for consent" and the frame is black. KWin has
+			# no wlr-screencopy; the KDE portal wants one human click to mint a restore token, which
+			# a headless boot cannot give (see the long plasma-mobile note on the permission store).
+			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland'
 		elif [ "$DESKTOP" = "plasma-mobile" ]; then
 			# THE SESSION RUNS - kwin_wayland, plasmashell and plasma-keyboard all come up - AND
 			# EASYSTREAM GETS NO FRAME FROM IT.
