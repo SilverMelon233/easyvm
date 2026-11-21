@@ -824,6 +824,22 @@ ESTART
 			#
 			# The session below is unchanged and healthy; the capture needs one human approval
 			# that a headless boot cannot give. Recorded so the next attempt starts here.
+			# THE PERMISSION-STORE ROUTE WAS TESTED AND IS ALSO A DEAD END. MEASURED inside the
+			# running plasma session: xdg-desktop-portal and plasma-xdg-desktop-portal-kde are both
+			# active, the "screencast" table is EMPTY (PermissionStore.List returns []), and an
+			# attempt to seed it ahead of time fails at the first step -
+			#	PermissionStore.Set -> "Id easystream not found"
+			#	PermissionStore.SetPermission -> "Id easystream not found"
+			# because the id/table is created BY the first successful grant, not before it. The
+			# store persists as a GVDB binary at ~/.local/share/flatpak/db/permissions, so a
+			# hand-written grant would have to reproduce that format with keys KDE does not
+			# document. And the KDE backend has no kiosk/auto-accept switch (searched: no "kiosk",
+			# "auto", "skip dialog" strings), while KWin's screencast is the private
+			# zkde_screencast_unstable_v1 protocol that neither easystream nor grim implements.
+			#
+			# SO THE ONLY WAY LEFT FOR PLASMA IS ONE HUMAN CLICK on the consent dialog - either
+			# once by hand to mint a restore token, or with an input device in the guest. A headless
+			# boot cannot supply it, and this image cannot forge the token without that first grant.
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile'
 		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
 			# THE SAME KWIN AS plasma-mobile, AND THE SAME ONE-HUMAN-CLICK LIMIT. It runs KWin
