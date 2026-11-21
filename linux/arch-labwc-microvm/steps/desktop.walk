@@ -33,7 +33,7 @@ walkthrough "labwc microvm - LABWC captured from the console assertion"
   # AND THE PIXELS, FROM THE GUEST'S OWN SCANOUT. `see:` is qemu's screendump of the framebuffer
   # virtio-gpu put on the PCIe bus, so a compositor that started but drew nothing is a black,
   # uniform frame and fails the check below. MEASURED on this image: a full desktop at 1024x768.
-  see the whole screen as "screen"
+  read the whole screen as "screen"
 
   # TWO QUESTIONS ABOUT ONE FRAME, BECAUSE "NOT BLACK" HAS TWO FAILURE SHAPES. A machine with no
   # GPU records a uniformly BLACK frame; a compositor that never drew records a uniformly COLOURED

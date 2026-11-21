@@ -54,7 +54,7 @@ walkthrough "gnome microvm - the full GDM + gnome-shell stack on virtio-gpu"
   # THE PIXELS. A GDM that started with no GPU, or a shell that never got a session, leaves a
   # black or uniform frame and fails this check. MEASURED on this image: the full desktop,
   # wallpaper and top bar, at 1024x768.
-  see the whole screen as "screen"
+  read the whole screen as "screen"
 
   # TWO QUESTIONS ABOUT ONE FRAME, BECAUSE "NOT BLACK" HAS TWO FAILURE SHAPES. A machine with no
   # GPU records a uniformly BLACK frame; a shell that started but never painted a desktop records a
