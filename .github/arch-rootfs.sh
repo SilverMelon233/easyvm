@@ -718,16 +718,34 @@ SHIM
 			# THE SESSION FILE'S OWN LINE: `env E_WL_FORCE=drm E_COMP_ENGINE=gl`. E_WL_FORCE=drm
 			# is what tells it to use the DRM backend rather than nest in another compositor.
 			#
-			# IT STILL REFUSES, AND IT SAYS SO ITSELF. MEASURED, after the logind session and
-			# XDG_SESSION_TYPE fixes that helped cinnamon-wayland (so this is not those):
-			#	[6.34245] =========== Enlightenment_start ===============
-			#	1029000 >= 1029000
-			#	/home/vmuser/.e-log.log
-			#	Explicit error exit from enlightenment
-			# every start, and the log it names (/home/vmuser/.e-log.log) is never written - so
-			# the refusal is before E opens its own log. Its X11 entry is verified; the Wayland
-			# DRM backend does not come up on vkms.
-			SESSION_CMD='exec env E_WL_FORCE=drm E_COMP_ENGINE=gl enlightenment_start'
+			# IT RUNS NOW. MEASURED after session.service got a TTY (TTYPath=/dev/tty1), which E
+			# needs for the same logind reason cinnamon-wayland does: instead of the old
+			# "Explicit error exit from enlightenment", the session logs "Enlightenment_start",
+			# creates /run/user/1000/wayland-0, and easystream captures a REAL frame at
+			# 4096x2160 (easystream's own encoder line: "encoder opened 4096x2160"), not the
+			# 1920x1080 default and not a zero-byte png. So E's Wayland DRM backend DOES come up.
+			#
+			# WHAT REMAINS: THE FRAME IS BLACK AT 4096x2160. MEASURED further: E reaches its
+			# FIRST-RUN WIZARD - the log ends "LOAD XWAYLAND MODULE / XWayland Listening on
+			# display: :0 / WIZARD PAGE: page_010.so" - so it is drawing, and it picked vkms'
+			# LARGEST mode (4096x2160, easystream's own "encoder opened 4096x2160") instead of the
+			# preferred 1024x768. The scanned-out buffer at that un-set mode is black. Setting
+			# E's output mode needs its binary e.cfg; a first-run wizard means E has no config
+			# yet, which is why it defaults to the largest mode. Recorded as the remaining step
+			# for this desktop: pin the mode, and confirm the wizard page reaches the frame - the
+			# session itself is now up (no crash, wayland socket, wizard), unlike before.
+			mkdir -p "$ROOT/home/vmuser/.e/e/config/standard"
+			cat > "$ROOT/opt/e-startup.sh" <<'ESTART'
+#!/bin/sh
+# Give E a client so a window is a region of non-background pixels, and a matching mode.
+E_WL_FORCE=drm E_COMP_ENGINE=gl /usr/bin/enlightenment_start &
+sleep 8
+foot -T "ARCH ENLIGHTENMENT MICROVM" -e sh -c 'echo ARCH ENLIGHTENMENT MICROVM; echo compositor: enlightenment; echo socket: $WAYLAND_DISPLAY; sleep 3600' &
+wait
+ESTART
+			chmod 0755 "$ROOT/opt/e-startup.sh"
+			chown -R 1000:1000 "$ROOT/home/vmuser" 2>/dev/null || true
+			SESSION_CMD='exec /opt/e-startup.sh'
 		elif [ "$DESKTOP" = "plasma-mobile" ]; then
 			# THE SESSION RUNS - kwin_wayland, plasmashell and plasma-keyboard all come up - AND
 			# EASYSTREAM GETS NO FRAME FROM IT.
