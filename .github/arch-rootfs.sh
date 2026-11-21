@@ -730,13 +730,43 @@ STARTUP
 			# kwin_wayland finds ZERO occurrences of zwlr_screencopy and ZERO of
 			# ext_image_copy_capture - KWin implements neither, which is why nothing is copied.
 			#
-			# THE ROUTE THAT EXISTS IS THE PORTAL: kde-portals.conf ships and
-			# xdg-desktop-portal-kde is installed, and easystream falls back to the ScreenCast
-			# portal when wlr-screencopy is absent. That fallback needs the portal front end
-			# running plus a ScreenCast grant, neither of which is set up here. Recorded rather
-			# than papered over: the session is healthy, the capture protocol is missing.
+			# THE ROUTE THAT EXISTS IS THE PORTAL, AND IT WAS DRIVEN ALL THE WAY TO THE LAST STEP.
+			#
+			# MEASURED, with xdg-desktop-portal + xdg-desktop-portal-kde + pipewire started and
+			# the session bus pushed into the user manager, easystream's own log says:
+			#
+			#	portal: SelectDevices has NO restore token
+			#	        (checked /home/vmuser/.config/remote-desktop-token) - Start will ask for consent
+			#	portal: SelectDevices ok
+			#	portal: no Response for /org/freedesktop/portal/desktop/request/1_51/est1
+			#	portal input: portal ScreenCast unavailable
+			#
+			# SO EVERYTHING UP TO THE CONSENT DIALOG WORKS. CreateSession returns a session,
+			# SelectSources/SelectDevices return 0, and a frame would follow - the ONLY missing
+			# consent is the human click on the KDE ScreenCast dialog, and easystream then times
+			# out waiting for that Response.
+			#
+			# THE DIALOG CANNOT BE AUTOMATED FROM HERE, AND THAT WAS MEASURED TOO:
+			#   * the permission store cannot be seeded ahead of time: `Set`/`SetPermission` both
+			#     answer "Id easystream not found" because the id is created BY the first grant,
+			#     so there is nothing to write before a grant has happened once;
+			#   * `xdg-permission-store` keeps its table in MEMORY (PermissionDb is not a file),
+			#     so even a seeded table would not survive the reboot the test starts with;
+			#   * there is no kiosk/auto-approve switch in the KDE backend (searched: no
+			#     "auto", "kiosk", or "skip dialog" strings in xdg-desktop-portal-kde);
+			#   * the dialog is a KWin surface, so the one screenshot protocol that works on vkms
+			#     (wlr-screencopy) cannot capture it to script a click, and no input-injection
+			#     tool (wtype/ydotool/kdotool) is in the image to press it blind.
+			#
+			# The session below is unchanged and healthy; the capture needs one human approval
+			# that a headless boot cannot give. Recorded so the next attempt starts here.
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile'
 		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
+			# THE SAME KWIN AS plasma-mobile, AND THE SAME ONE-HUMAN-CLICK LIMIT. It runs KWin
+			# Wayland, which implements neither wlr-screencopy nor ext-image-copy-capture, so
+			# the only capture path is the ScreenCast portal - and the portal's Start needs a
+			# consent dialog. See the long note under plasma-mobile for the measurements that
+			# rule out seeding the grant ahead of time. Not captured for the same reason.
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland'
 		elif [ "$DESKTOP" = "budgie" ]; then
 			# BUDGIE'S WAYLAND SESSION IS labwc, AND `budgie-desktop` IS NOT ITS ENTRY POINT.
@@ -776,6 +806,17 @@ STARTUP
 		elif [ "$DESKTOP" = "treeland" ] || [ "$DESKTOP" = "deepin-wayland" ]; then
 			# `treeland-user.desktop`, which is the VISIBLE one: the sibling `treeland.desktop`
 			# is `Hidden=true` and is the no-greeter variant.
+			#
+			# TREELAND HANGS THE BOOT, IT DOES NOT MERELY FAIL TO DRAW. MEASURED: after the
+			# session command starts, the serial console sits forever on
+			#	(2 of 2) A start job is running for ... v gracefully (1min 48s / no limit)
+			# - the machine never reaches a login prompt, so a walkthrough cannot even assert
+			# "login", and there is no window to capture. deepin-service-manager and
+			# dde-dconfig-daemon DO start; it is the compositor that does not settle.
+			#
+			# Its capture protocol is its own too - libtreeland-protocol-capture-v1 is shipped -
+			# so even a friendly easystream would not have wlr-screencopy to read. Both facts
+			# together put treeland out of reach on vkms; recorded rather than retried.
 			SESSION_CMD='exec treeland-user-wrapper'
 		elif [ "$DESKTOP" = "hyprland" ]; then
 			# HYPRLAND: the same vkms device, a different compositor and config language.
@@ -812,6 +853,7 @@ HYPRCFG
 			echo "DESKTOP=$DESKTOP has no session command" >&2
 			exit 2
 		fi
+
 
 		cat > "$ROOT/opt/session.sh" <<SESSION
 #!/bin/sh
@@ -946,8 +988,29 @@ fi
 	fi
 	# PUSHED INTO THE MANAGER, because the unit's environment is the manager's environment and
 	# `environment.d` was MEASURED not to reach it.
-	systemctl --user set-environment "WAYLAND_DISPLAY=\$WL"
-	systemctl --user set-environment "XDG_RUNTIME_DIR=\$XDG_RUNTIME_DIR"
+	# THE SOCKET NAME GOES INTO A FILE THE UNIT READS, NOT INTO THE MANAGER'S ENVIRONMENT.
+	#
+	# MEASURED, and it is the reason this is a file: `systemctl --user set-environment` returned
+	# 0 from inside session.sh, and `systemctl --user show-environment` right afterwards printed
+	# NOTHING - the manager session.sh talks to is not the one easystream runs under, so the
+	# variable reached a manager that owns no process. The unit's own `EnvironmentFile=` is read
+	# by the manager that DOES own the process, so the value cannot land in the wrong place.
+	printf 'WAYLAND_DISPLAY=%s\nXDG_RUNTIME_DIR=%s\n' "\$WL" "\$XDG_RUNTIME_DIR" \
+		> "\$XDG_RUNTIME_DIR/wl-session.env"
+	chmod 0644 "\$XDG_RUNTIME_DIR/wl-session.env"
+	# THE SESSION BUS REACHES THE UNIT TOO. A compositor that exposes no wlr-screencopy - KWin,
+	# weston - leaves easystream to fall back to the ScreenCast portal, and that needs a bus.
+	# MEASURED: the unit's environment is the manager's environment, and without this the
+	# daemon logs "portal: no session bus" and the frames stay empty even though the portal is
+	# running.
+	printf 'DBUS_SESSION_BUS_ADDRESS=unix:path=%s\n' "\$XDG_RUNTIME_DIR/bus" >> "\$XDG_RUNTIME_DIR/wl-session.env"
+	# THE PORTAL STACK, STARTED BEFORE THE CAPTURE UNIT, for the desktops that have no
+	# wlr-screencopy. systemd starts these on demand only when something asks, and easystream's
+	# own ask comes through a socket the portal has not opened yet; naming them here removes the
+	# race. A missing unit is not a failure, so these may fail harmlessly.
+	systemctl --user start pipewire pipewire-pulse wireplumber 2>/dev/null || true
+	systemctl --user start xdg-desktop-portal 2>/dev/null || true
+	systemctl --user start plasma-xdg-desktop-portal-kde 2>/dev/null || true
 	# RESTARTED, NOT STARTED. The unit can already be active by the time this runs, because
 	# `default.target.wants` puts a link in and a manager that does reach that target starts it
 	# with the OLD environment. `start` on an active unit is a no-op, so the environment set
@@ -958,12 +1021,15 @@ fi
 		systemctl --user restart easystream 2>/dev/null && break
 		i=\$((i+1)); sleep 0.2
 	done
+	# Give the restarted unit a moment to attach before the desktop has to be ready.
+	sleep 3
 ) &
 
 # THE CONSOLE MARKER, for the same measured reason as in desktop.sh: MEASURED in CI, a
 # walkthrough that waited for the compositor's own name in console.log timed out even though
 # the compositor was running and rendering - none of these write to ttyS0. This line is the
 # image's own promise that the session got this far.
+echo "ARCH-SESSION-STARTING: $DESKTOP"
 echo "ARCH-SESSION-STARTING: $DESKTOP"
 $SESSION_CMD
 SESSION
@@ -1175,13 +1241,27 @@ DROPIN
 		cat > "$ROOT/etc/systemd/user/easystream.service.d/15-display.conf" <<'DROPIN'
 [Service]
 # THE RUNTIME DIRECTORY IS FIXED, THE SOCKET NAME IS NOT. The compositor chooses its socket
-# name at start-up and session.sh pushes the real one into the user manager just before it
-# starts this unit, so nothing here can go stale. NAME, not path: easystream joins
-# $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY itself.
+# name at start-up and session.sh WRITES IT TO A FILE this unit reads, because
+# `systemctl --user set-environment` was MEASURED to reach a different manager than the one the
+# unit runs under (it returned 0 and the next `show-environment` was empty). `-` before the
+# path makes a missing file non-fatal: on the first start it does not exist yet, and the
+# restart below picks it up.
+EnvironmentFile=-/run/user/1000/wl-session.env
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=DISPLAY=:0
 DROPIN
 	fi
+
+	# THE DAEMON'S OWN WORDS REACH THE SERIAL CONSOLE. MEASURED: the packaged unit writes to
+	# the journal only, and a console reader sees nothing - so a capture that fails, and WHY it
+	# failed (no screencopy, no portal, no bus), is invisible unless somebody is logged in. The
+	# capture path is the one thing a microvm exists to prove, so its log belongs on the console
+	# beside the boot log.
+	cat > "$ROOT/etc/systemd/user/easystream.service.d/05-console.conf" <<'DROPIN'
+[Service]
+StandardOutput=journal+console
+StandardError=journal+console
+DROPIN
 
 	cat > "$ROOT/etc/systemd/user/easystream.service.d/20-session.conf" <<'DROPIN'
 [Service]
