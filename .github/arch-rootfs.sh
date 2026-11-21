@@ -650,21 +650,52 @@ PUP
 			#     console. It is the same class as niri and mangowm: a Mutter-style GL/EGL
 			#     composer that does not settle on vkms' software device. The session manager
 			#     itself is now happy; the compositor it launches is not.
-			# NEMO'S DESKTOP WINDOW IS AN X11 PROGRAM AND CRASHES UNDER WAYLAND.
+			# STATUS: THE SESSION STARTS, THE FRAME IS BLACK - A CAPTURE-LIMIT, MEASURED END TO END.
 			#
-			# MEASURED: the compositor starts (it creates wayland-0 and easystream captures 1024x768),
-			# but cinnamon-session then answers "App 'nemo-autostart.desktop' respawning too quickly"
-			# and "Unable to start session", because nemo-desktop is a RequiredComponent of
-			# cinnamon-wayland.session and it dereferences X11 atoms (gdk_x11_window_get_xid) on a
-			# Wayland display. A crash in a required component tears the whole session down.
+			# All of cinnamon now runs: cinnamon, cinnamon-background, cinnamon-calendar,
+			# cinnamon-session and the whole csd-* family, on vkms' connected Virtual-1, with NO
+			# restart loop. That part is solved below (TTY, polkit, nemo).
 			#
-			# THE SHIM MAKES IT A CLEAN EXIT UNDER WAYLAND, so the session survives and the panel
-			# and window manager (which DO work) are the desktop that gets drawn and captured.
+			# BUT THE CAPTURE IS BLACK, AND IT IS NOT A MISSING DESKTOP. MEASURED with
+			# cinnamon-screenshot (the compositor's OWN capture, bypassing wlr-screencopy): a
+			# 1024x768 png whose content is 14930 non-black bytes of 2360064 - a cursor, no
+			# desktop. The same black frame comes out of easystream. So cinnamon is not painting
+			# the panel/background here, while its compositor runs.
+			#
+			# nemo is the background painter and cinnamon-session treats it as a RequiredComponent,
+			# so two things are both true and in tension: MEASURED without a shim, cinnamon-session
+			# answers "nemo-autostart respawning too quickly" and tears the session down; with the
+			# shim below, the session survives but non-black stays ~15000, i.e. nothing draws the
+			# desktop. nemo DESKTOP itself is fine when run alone ("using Wayland backend,
+			# gtk-layer-shell supported"); what is not solved is getting it to paint inside this
+			# session and reaching the frame through easystream's shm-only screencopy.
+			#
+			# THE SHIM (wait for bus+socket, then run nemo) is kept because it at least stops the
+			# respawn-teardown. The remaining problem is the black capture, recorded here.
+			#
+			# PREVIOUS NOTE, STILL TRUE:
+			#   * with nemo untouched, cinnamon-session answers "App 'nemo-autostart.desktop'
+			#     respawning too quickly" and "Unable to start session" - the session dies.
+			#   * with a no-op shim (exit 0), the session survives but the frame is black: the
+			#     compositor-internal screenshot had 15028 non-black bytes of 2360064 - a cursor
+			#     and nothing else - because nemo-desktop is what paints the background and icons.
+			# AND nemo itself is fine: run by hand it prints "using Wayland backend,
+			# gtk-layer-shell supported" and stays up. So the shim WAITS for the session bus and
+			# the wayland socket before exec'ing the real nemo-desktop, which is what the
+			# session manager's too-early launch did not do.
 			cat > "$ROOT/opt/nemo-shim" <<'SHIM'
 #!/bin/sh
-# nemo-desktop is X11-only; under Wayland it crashes and takes the session with it. Exit 0.
-[ -n "$WAYLAND_DISPLAY" ] && exit 0
-exec /usr/bin/nemo-desktop "$@"
+# Wait for the things nemo needs, then run it. If it dies, restart slowly enough that
+# cinnamon-session never sees a "respawning too quickly" and tears the session down.
+i=0
+while [ $i -lt 100 ]; do
+	[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && [ -S "$XDG_RUNTIME_DIR/bus" ] && break
+	i=$((i+1)); sleep 0.1
+done
+while :; do
+	/usr/bin/nemo-desktop "$@"
+	sleep 5
+done
 SHIM
 			chmod 0755 "$ROOT/opt/nemo-shim"
 			mkdir -p "$ROOT/etc/xdg/autostart"
