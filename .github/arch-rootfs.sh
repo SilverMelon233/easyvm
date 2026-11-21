@@ -746,6 +746,12 @@ STARTUP
 		elif [ "$DESKTOP" = "plasma" ]; then
 			# `plasma.desktop`: Exec=/usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland
 			# - the mainstream KDE Plasma Wayland session, from its own session file.
+			#
+			# THE SESSION IS STABLE (ARCH-SESSION-STARTING once, kwin_wayland on wayland-1) and the
+			# capture reaches the SAME KWin/portal wall as plasma-mobile: easystream logs
+			# "SelectDevices ok" then "Start will ask for consent" and the frame is black. KWin has
+			# no wlr-screencopy; the KDE portal wants one human click to mint a restore token, which
+			# a headless boot cannot give (see the long plasma-mobile note on the permission store).
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland'
 		elif [ "$DESKTOP" = "plasma-mobile" ]; then
 			# THE SESSION RUNS - kwin_wayland, plasmashell and plasma-keyboard all come up - AND
