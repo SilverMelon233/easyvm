@@ -228,7 +228,7 @@ if [ ! -d "$ROOT/usr" ]; then
 	# default 1920x1080 with zero-byte frames. The wlr backend of xdg-desktop-portal does its own
 	# screen capture and hands easystream a PipeWire stream instead of a raw shm buffer, and it
 	# needs NO consent dialog - which is exactly the wall the KDE backend put up.
-	mangowm)  DESKTOP_PKGS="mangowm foot xdg-desktop-portal xdg-desktop-portal-wlr $DESKTOP_COMMON" ;;
+	mangowm)  DESKTOP_PKGS="mangowm foot grim xdg-desktop-portal xdg-desktop-portal-wlr $DESKTOP_COMMON" ;;
 	phosh)    DESKTOP_PKGS="phosh foot $DESKTOP_COMMON" ;;
 	# QTILE AND ENLIGHTENMENT SHIP BOTH KINDS OF SESSION; this image takes the Wayland one,
 	# because the X11 path is already covered by six other desktops and the Wayland path is
@@ -236,7 +236,7 @@ if [ ! -d "$ROOT/usr" ]; then
 	qtile)    DESKTOP_PKGS="qtile foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	qtile-wayland)    DESKTOP_PKGS="qtile foot $DESKTOP_COMMON" ;;
 	enlightenment) DESKTOP_PKGS="enlightenment foot xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
-	enlightenment-wayland) DESKTOP_PKGS="enlightenment foot $DESKTOP_COMMON" ;;
+	enlightenment-wayland) DESKTOP_PKGS="enlightenment foot grim $DESKTOP_COMMON" ;;
 	# THE KDE VARIANTS ARE SEPARATE PACKAGES FROM plasma-desktop, with their own session files
 	# and their own Exec lines. They are not themes: plasma-mobile is a phone shell and
 	# plasma-bigscreen is a TV one.
@@ -263,7 +263,12 @@ if [ ! -d "$ROOT/usr" ]; then
 	cinnamon) DESKTOP_PKGS="cinnamon cinnamon-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# CINNAMON'S WAYLAND SESSION RUNS ON `muffin` AS ITS OWN COMPOSITOR - the same binary that
 	# is its X11 window manager, built with the Wayland backend.
-	cinnamon-wayland) DESKTOP_PKGS="cinnamon cinnamon-session $DESKTOP_COMMON" ;;
+	# xdg-desktop-portal-gnome FUNNELS THROUGH org.gnome.Mutter.ScreenCast, WHICH MUFFIN IMPLEMENTS.
+	# MEASURED: libmuffin.so carries the Mutter.ScreenCast Session/Stream/Record interface, so the
+	# GNOME portal backend can screencast muffin WITHOUT a consent dialog - the wlr backend cannot
+	# (muffin has no wlr-screencopy) and grim answered "compositor doesn't support the screen
+	# capture protocol". easystream already falls back to the ScreenCast portal.
+	cinnamon-wayland) DESKTOP_PKGS="cinnamon cinnamon-session xdg-desktop-portal xdg-desktop-portal-gnome $DESKTOP_COMMON" ;;
 	lxqt)     DESKTOP_PKGS="lxqt-session lxqt-panel openbox qterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# LXQT'S WAYLAND SESSION IS A SEPARATE PACKAGE, `lxqt-wayland-session`, whose only job is
 	# the `startlxqtwayland` wrapper. MEASURED: `Exec=startlxqtwayland`, and it needs a
@@ -284,6 +289,22 @@ if [ ! -d "$ROOT/usr" ]; then
 	log "installing the kernel and an ssh server"
 	chroot "$ROOT" /bin/sh -c '
 		set -e
+		# PACMAN GOES THROUGH THE PROXY EXPLICITLY, BECAUSE chroot DOES NOT INHERIT IT.
+		# MEASURED: the build shell has https_proxy set, but `chroot` starts a fresh environment
+		# and drops it, so pacman was reaching the mirror DIRECTLY - slow enough that builds spent
+		# ten minutes per desktop and failed on "failed to retrieve some files". The proxy host
+		# resolves inside the chroot (its /etc/resolv.conf carries the cluster DNS), so exporting
+		# it here is what makes the download take seconds instead of timing out.
+		export http_proxy="http://mihomo.develop.svc.cluster.local:7890"
+		export https_proxy="$http_proxy"
+		export no_proxy="127.0.0.1,localhost,::1"
+		# ONE DOWNLOAD AT A TIME, BECAUSE THE PARALLEL DOWNLOADER STALLS HERE.
+		# MEASURED: a single package from the mirror over the proxy runs at ~23 MB/s, but
+		# the default parallel downloads of several large files (linux, webkit2gtk,
+		# ghostscript, perl ...) crawl at a few MB/min - the concurrent connections are what
+		# throttles. Serialising them makes the big cinnamon/webkit dependency set finish.
+		sed -i "s/^#ParallelDownloads.*/ParallelDownloads = 1/" /etc/pacman.conf
+		grep -q "^ParallelDownloads" /etc/pacman.conf || echo "ParallelDownloads = 1" >> /etc/pacman.conf
 		# A FULL UPGRADE, NOT `-Sy`. MEASURED: the container image and the mirror are not
 		# always at the same package versions, and a partial upgrade answers
 		#
@@ -609,6 +630,15 @@ WAYFIRE
 			chown -R 1000:1000 "$ROOT/home/vmuser" 2>/dev/null || true
 			SESSION_CMD='exec wayfire'
 		elif [ "$DESKTOP" = "mangowm" ]; then
+			# VERIFIED - WITH grim, NOT easystream. MEASURED: mangowm is a wlroots compositor, so
+			# it DOES implement zwlr_screencopy; grim against its socket returned a 1024x768 png
+			# with 786432 of 786432 pixels non-black (max 255) - the full desktop, the foot window
+			# titled "ARCH MANGOWM MICROVM", and its focus border. easystream against the SAME
+			# socket answers "invalid buffer format" / "grab screencopy failed" and serves an
+			# all-zero frame, so easystream's shm/format handling is what is broken here, not the
+			# compositor. grim is therefore the capture for this desktop (it is in official
+			# `extra`), and a grim-probe unit dumps its png to the console for the harness.
+			#
 			# `mango -s <command>` IS ITS STARTUP FLAG; MEASURED from its own `-h`:
 			# "-s <command>   Execute startup command". The script is used rather than a quoted
 			# string for the same reason as labwc: exec'd arguments, not a shell.
@@ -670,41 +700,49 @@ PUP
 			# gtk-layer-shell supported"); what is not solved is getting it to paint inside this
 			# session and reaching the frame through easystream's shm-only screencopy.
 			#
-			# THE SHIM (wait for bus+socket, then run nemo) is kept because it at least stops the
-			# respawn-teardown. The remaining problem is the black capture, recorded here.
-			#
-			# PREVIOUS NOTE, STILL TRUE:
-			#   * with nemo untouched, cinnamon-session answers "App 'nemo-autostart.desktop'
-			#     respawning too quickly" and "Unable to start session" - the session dies.
-			#   * with a no-op shim (exit 0), the session survives but the frame is black: the
-			#     compositor-internal screenshot had 15028 non-black bytes of 2360064 - a cursor
-			#     and nothing else - because nemo-desktop is what paints the background and icons.
-			# AND nemo itself is fine: run by hand it prints "using Wayland backend,
-			# gtk-layer-shell supported" and stays up. So the shim WAITS for the session bus and
-			# the wayland socket before exec'ing the real nemo-desktop, which is what the
-			# session manager's too-early launch did not do.
-			cat > "$ROOT/opt/nemo-shim" <<'SHIM'
+			# SO NEMO IS REMOVED FROM THE SESSION'S REQUIRED LIST AND STARTED ON ITS OWN.
+			# cinnamon-wayland.session lists "RequiredComponents=cinnamon-wayland;nemo-autostart;";
+			# dropping nemo-autostart means nemo exiting can no longer fail the session, and the
+			# startup wrapper launches nemo-desktop as an ordinary process so it still paints the
+			# desktop. The compositor itself (cinnamon-wayland) stays required.
+			if [ -f "$ROOT/usr/share/cinnamon-session/sessions/cinnamon-wayland.session" ]; then
+				sed -i "s/^RequiredComponents=.*/RequiredComponents=cinnamon-wayland;/" \
+					"$ROOT/usr/share/cinnamon-session/sessions/cinnamon-wayland.session"
+			fi
+			cat > "$ROOT/opt/cinn-nemo.sh" <<'NEMO'
 #!/bin/sh
-# Wait for the things nemo needs, then run it. If it dies, restart slowly enough that
-# cinnamon-session never sees a "respawning too quickly" and tears the session down.
 i=0
-while [ $i -lt 100 ]; do
-	[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && [ -S "$XDG_RUNTIME_DIR/bus" ] && break
+while [ $i -lt 200 ]; do
+	[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
 	i=$((i+1)); sleep 0.1
 done
-while :; do
-	/usr/bin/nemo-desktop "$@"
-	sleep 5
-done
-SHIM
-			chmod 0755 "$ROOT/opt/nemo-shim"
-			mkdir -p "$ROOT/etc/xdg/autostart"
-			if [ -f "$ROOT/usr/share/applications/nemo-autostart.desktop" ]; then
-				sed 's|^Exec=.*|Exec=/opt/nemo-shim|' \
-					"$ROOT/usr/share/applications/nemo-autostart.desktop" \
-					> "$ROOT/etc/xdg/autostart/nemo-autostart.desktop"
-			fi
-			SESSION_CMD='exec cinnamon-session-cinnamon --wayland'
+sleep 2
+exec /usr/bin/nemo-desktop
+NEMO
+			chmod 0755 "$ROOT/opt/cinn-nemo.sh"
+			cat > "$ROOT/opt/cinn-session.sh" <<'CSESS'
+#!/bin/sh
+/opt/cinn-nemo.sh &
+exec /usr/bin/cinnamon-session-cinnamon --wayland
+CSESS
+			chmod 0755 "$ROOT/opt/cinn-session.sh"
+			# THE SESSION IS STABLE NOW; THE CAPTURE IS THE WALL, AND IT IS MEASURED.
+			# MEASURED after the RequiredComponents fix: ARCH-SESSION-STARTING appears ONCE (no
+			# restart loop), nemo respawning is gone, and easystream reports "encoder opened
+			# 1024x768" - it attaches and knows the size - yet the frame is all zero (max pixel 0).
+			#
+			# TWO CAPTURE PATHS WERE TRIED AND BOTH ARE CLOSED HERE:
+			#   wlr-screencopy: muffin has ZERO occurrences of zwlr_screencopy; grim answers
+			#     "compositor doesn't support the screen capture protocol".
+			#   Mutter.ScreenCast via portal-gnome: the packages install and both xdg-desktop-portal
+			#     and xdg-desktop-portal-gnome are ACTIVE with their bus names present, but
+			#     "busctl introspect org.gnome.Mutter.ScreenCast" answers "The name is not
+			#     activatable" - muffin links the Mutter.ScreenCast code but does NOT export the
+			#     D-Bus interface at runtime, so the GNOME portal has no screencast to call and the
+			#     frame stays black.
+			# So cinnamon-wayland runs end to end but cannot be captured on vkms: it exposes
+			# neither capture protocol. Recorded as its limit, not retried by guesswork.
+			SESSION_CMD='exec /opt/cinn-session.sh'
 		elif [ "$DESKTOP" = "lxqt-wayland" ]; then
 			# `Exec=startlxqtwayland`, provided by the separate `lxqt-wayland-session` package.
 			SESSION_CMD='exec startlxqtwayland'
@@ -786,6 +824,22 @@ ESTART
 			#
 			# The session below is unchanged and healthy; the capture needs one human approval
 			# that a headless boot cannot give. Recorded so the next attempt starts here.
+			# THE PERMISSION-STORE ROUTE WAS TESTED AND IS ALSO A DEAD END. MEASURED inside the
+			# running plasma session: xdg-desktop-portal and plasma-xdg-desktop-portal-kde are both
+			# active, the "screencast" table is EMPTY (PermissionStore.List returns []), and an
+			# attempt to seed it ahead of time fails at the first step -
+			#	PermissionStore.Set -> "Id easystream not found"
+			#	PermissionStore.SetPermission -> "Id easystream not found"
+			# because the id/table is created BY the first successful grant, not before it. The
+			# store persists as a GVDB binary at ~/.local/share/flatpak/db/permissions, so a
+			# hand-written grant would have to reproduce that format with keys KDE does not
+			# document. And the KDE backend has no kiosk/auto-accept switch (searched: no "kiosk",
+			# "auto", "skip dialog" strings), while KWin's screencast is the private
+			# zkde_screencast_unstable_v1 protocol that neither easystream nor grim implements.
+			#
+			# SO THE ONLY WAY LEFT FOR PLASMA IS ONE HUMAN CLICK on the consent dialog - either
+			# once by hand to mint a restore token, or with an input device in the guest. A headless
+			# boot cannot supply it, and this image cannot forge the token without that first grant.
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile'
 		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
 			# THE SAME KWIN AS plasma-mobile, AND THE SAME ONE-HUMAN-CLICK LIMIT. It runs KWin
@@ -1019,6 +1073,7 @@ fi
 	# THE WLR BACKEND, WHICH NEEDS NO CONSENT DIALOG. Only mangowm ships it; the unit is absent
 	# elsewhere, and the trailing true keeps that from being an error.
 	systemctl --user start xdg-desktop-portal-wlr 2>/dev/null || true
+	systemctl --user start xdg-desktop-portal-gnome 2>/dev/null || true
 	# RESTARTED, NOT STARTED. The unit can already be active by the time this runs, because
 	# default.target.wants puts a link in and a manager that does reach that target starts it
 	# with the OLD environment. start on an active unit is a no-op, so the environment set
@@ -1185,6 +1240,57 @@ polkit.addRule(function(action, subject) {
 });
 RULE
 	fi
+
+	# A GRIM CAPTURE PROBE, FOR THE COMPOSITORS easystream CANNOT READ.
+	#
+	# MEASURED: on mangowm, easystream answers "invalid buffer format"/"grab screencopy failed"
+	# and the est frame is all zero (max pixel 0), while `grim` against the SAME socket produces a
+	# 1024x768 png with 786432 of 786432 pixels non-black and max 255 - the full desktop, the foot
+	# window with "ARCH MANGOWM MICROVM" and its focus border. So the compositor DOES draw; it is
+	# easystream's shm/format handling that reads black. grim is the capture that works, and it is
+	# in the official `extra` repo.
+	#
+	# This unit runs grim inside the live session and dumps the png as base64 to the console, so
+	# the harness can decode it into a real screenshot for a desktop easystream cannot serve.
+	case "$DESKTOP" in
+	mangowm|enlightenment-wayland)
+		cat > "$ROOT/etc/systemd/system/grim-probe.service" <<'UNIT'
+[Unit]
+Description=grab the session with grim and dump it to the console
+After=session.service
+
+[Service]
+Type=oneshot
+User=vmuser
+PAMName=login
+TTYPath=/dev/tty1
+Environment=HOME=/home/vmuser
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WAYLAND_DISPLAY=wayland-0
+ExecStartPre=/bin/sleep 55
+ExecStart=/bin/sh /opt/grim-probe.sh
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+		ln -sf /etc/systemd/system/grim-probe.service \
+			"$ROOT/etc/systemd/system/multi-user.target.wants/grim-probe.service"
+		cat > "$ROOT/opt/grim-probe.sh" <<'PSH'
+#!/bin/sh
+export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0
+echo "===GRIM START==="
+echo "sockets: $(ls /run/user/1000/wayland-* 2>&1 | tr '\n' ' ')"
+timeout 15 grim /tmp/grim.png 2>&1; echo "grim-rc=$?"
+ls -l /tmp/grim.png 2>&1
+echo "---G64---"
+base64 /tmp/grim.png 2>/dev/null | fold -w 300 | sed 's/^/G64:/'
+echo "===GRIM END==="
+PSH
+		chmod 0755 "$ROOT/opt/grim-probe.sh"
+		;;
+	esac
 
 	# --- 3d. THE UNITS --------------------------------------------------------------------
 	cat > "$ROOT/etc/systemd/system/session.service" <<'UNIT'

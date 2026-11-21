@@ -192,6 +192,10 @@ jobs:
             script: .github/arch-rootfs.sh
             desktop: "deepin"
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-mangowm
+            script: .github/arch-rootfs.sh
+            desktop: "mangowm"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
           - tag: rootfs-arch-labwc
             script: .github/arch-rootfs.sh
             desktop: "labwc"
