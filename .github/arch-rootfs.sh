@@ -706,6 +706,21 @@ STARTUP
 			SESSION_CMD='exec startxfce4 --wayland'
 		elif [ "$DESKTOP" = "cinnamon-wayland" ]; then
 			# `Exec=cinnamon-session-cinnamon --wayland`, from the session file.
+			#
+			# TWO BLOCKERS WERE REMOVED AND A THIRD REMAINS. MEASURED, in order:
+			#  1. cinnamon-session answered "Could not get session id for session ... pam_systemd
+			#     is getting used at login" - fixed by `PAMName=login` on session.service, which
+			#     is where that id comes from.
+			#  2. `cinnamon --replace` restarted every few hundred milliseconds with
+			#     "respawning too quickly" - fixed by XDG_SESSION_TYPE=wayland and
+			#     XDG_CURRENT_DESKTOP in session.sh, which this Mutter-based shell reads before
+			#     it will bring up a Wayland backend (wlroots compositors assume it; it does not).
+			#  3. AFTER BOTH, the error is now the honest one:
+			#	"Cinnamon ('cinnamon-wayland.desktop') exited unexpectedly. Terminating the session."
+			#     - cinnamon's compositor (muffin, a Mutter fork) exits with no message on the
+			#     console. It is the same class as niri and mangowm: a Mutter-style GL/EGL
+			#     composer that does not settle on vkms' software device. The session manager
+			#     itself is now happy; the compositor it launches is not.
 			SESSION_CMD='exec cinnamon-session-cinnamon --wayland'
 		elif [ "$DESKTOP" = "lxqt-wayland" ]; then
 			# `Exec=startlxqtwayland`, provided by the separate `lxqt-wayland-session` package.
@@ -889,6 +904,13 @@ if [ ! -d "\$XDG_RUNTIME_DIR" ]; then
 fi
 export LIBSEAT_BACKEND=noop
 export LIBGL_ALWAYS_SOFTWARE=1
+# THE SESSION'S OWN TYPE, WHICH MUTTER-BASED COMPOSITORS CHECK BEFORE CHOOSING A BACKEND.
+# MEASURED on cinnamon-wayland: without it, `cinnamon --replace` (the session's compositor)
+# restarted every few hundred milliseconds - "App 'cinnamon-wayland.desktop' respawning too
+# quickly" - because it did not know it was supposed to bring up a Wayland backend. wlroots
+# compositors assume it; the GNOME/Session-manager based ones read it.
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP="$DESKTOP"
 
 # THE WLR_* VARIABLES ARE wlroots', AND HYPRLAND IS NOT wlroots.
 #
@@ -1162,6 +1184,16 @@ Wants=systemd-logind.service
 Type=simple
 User=vmuser
 Environment=HOME=/home/vmuser
+# A LOGIND SESSION, BECAUSE SOME SESSION MANAGERS REQUIRE ONE.
+#
+# MEASURED on cinnamon-wayland: cinnamon-session answered
+#	Could not get session id for session. Check that logind is properly installed and
+#	pam_systemd is getting used at login.
+# and then "App 'cinnamon-wayland.desktop' respawning too quickly" - it refused to carry on
+# because there was no logind session behind it. A plain `User=` service has none; `PAMName=`
+# makes systemd open a PAM session for the unit, which is where pam_systemd registers it and
+# where XDG_SESSION_ID and friends come from. Harmless for the desktops that do not need it.
+PAMName=login
 ExecStart=/opt/session.sh
 Restart=always
 RestartSec=3
