@@ -289,17 +289,25 @@ if [ ! -d "$ROOT/usr" ]; then
 	export DESKTOP_PKGS
 
 	log "installing the kernel and an ssh server"
+	# PACMAN GOES THROUGH A PROXY IF THE BUILD HAS ONE, BECAUSE chroot DOES NOT INHERIT IT.
+	#
+	# MEASURED: `chroot` starts a fresh environment and drops https_proxy, so when a proxy IS
+	# configured the pacman inside reached the mirror directly and crawled. The proxy is written
+	# to a file the chroot sources - but ONLY when the build shell actually has one. MEASURED the
+	# other way: hard-coding the lab's mihomo host made EVERY CI job fail with
+	# "Could not resolve proxy: mihomo.develop.svc.cluster.local", because that host exists only
+	# in the lab, not on a GitHub runner. With no outer proxy, this file is empty and pacman
+	# connects directly, which is what CI needs.
+	if [ -n "${https_proxy:-}" ]; then
+		mkdir -p "$ROOT/tmp"
+		printf 'export https_proxy=%s\nexport http_proxy=%s\nexport no_proxy=127.0.0.1,localhost,::1\n' \
+			"$https_proxy" "$https_proxy" > "$ROOT/tmp/proxy.env"
+	else
+		: > "$ROOT/tmp/proxy.env"
+	fi
 	chroot "$ROOT" /bin/sh -c '
 		set -e
-		# PACMAN GOES THROUGH THE PROXY EXPLICITLY, BECAUSE chroot DOES NOT INHERIT IT.
-		# MEASURED: the build shell has https_proxy set, but `chroot` starts a fresh environment
-		# and drops it, so pacman was reaching the mirror DIRECTLY - slow enough that builds spent
-		# ten minutes per desktop and failed on "failed to retrieve some files". The proxy host
-		# resolves inside the chroot (its /etc/resolv.conf carries the cluster DNS), so exporting
-		# it here is what makes the download take seconds instead of timing out.
-		export http_proxy="http://mihomo.develop.svc.cluster.local:7890"
-		export https_proxy="$http_proxy"
-		export no_proxy="127.0.0.1,localhost,::1"
+		[ -s /tmp/proxy.env ] && . /tmp/proxy.env || true
 		# ONE DOWNLOAD AT A TIME, BECAUSE THE PARALLEL DOWNLOADER STALLS HERE.
 		# MEASURED: a single package from the mirror over the proxy runs at ~23 MB/s, but
 		# the default parallel downloads of several large files (linux, webkit2gtk,
