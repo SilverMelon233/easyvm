@@ -263,7 +263,12 @@ if [ ! -d "$ROOT/usr" ]; then
 	cinnamon) DESKTOP_PKGS="cinnamon cinnamon-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# CINNAMON'S WAYLAND SESSION RUNS ON `muffin` AS ITS OWN COMPOSITOR - the same binary that
 	# is its X11 window manager, built with the Wayland backend.
-	cinnamon-wayland) DESKTOP_PKGS="cinnamon cinnamon-session grim $DESKTOP_COMMON" ;;
+	# xdg-desktop-portal-gnome FUNNELS THROUGH org.gnome.Mutter.ScreenCast, WHICH MUFFIN IMPLEMENTS.
+	# MEASURED: libmuffin.so carries the Mutter.ScreenCast Session/Stream/Record interface, so the
+	# GNOME portal backend can screencast muffin WITHOUT a consent dialog - the wlr backend cannot
+	# (muffin has no wlr-screencopy) and grim answered "compositor doesn't support the screen
+	# capture protocol". easystream already falls back to the ScreenCast portal.
+	cinnamon-wayland) DESKTOP_PKGS="cinnamon cinnamon-session xdg-desktop-portal xdg-desktop-portal-gnome $DESKTOP_COMMON" ;;
 	lxqt)     DESKTOP_PKGS="lxqt-session lxqt-panel openbox qterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# LXQT'S WAYLAND SESSION IS A SEPARATE PACKAGE, `lxqt-wayland-session`, whose only job is
 	# the `startlxqtwayland` wrapper. MEASURED: `Exec=startlxqtwayland`, and it needs a
@@ -284,6 +289,15 @@ if [ ! -d "$ROOT/usr" ]; then
 	log "installing the kernel and an ssh server"
 	chroot "$ROOT" /bin/sh -c '
 		set -e
+		# PACMAN GOES THROUGH THE PROXY EXPLICITLY, BECAUSE chroot DOES NOT INHERIT IT.
+		# MEASURED: the build shell has https_proxy set, but `chroot` starts a fresh environment
+		# and drops it, so pacman was reaching the mirror DIRECTLY - slow enough that builds spent
+		# ten minutes per desktop and failed on "failed to retrieve some files". The proxy host
+		# resolves inside the chroot (its /etc/resolv.conf carries the cluster DNS), so exporting
+		# it here is what makes the download take seconds instead of timing out.
+		export http_proxy="http://mihomo.develop.svc.cluster.local:7890"
+		export https_proxy="$http_proxy"
+		export no_proxy="127.0.0.1,localhost,::1"
 		# A FULL UPGRADE, NOT `-Sy`. MEASURED: the container image and the mirror are not
 		# always at the same package versions, and a partial upgrade answers
 		#
@@ -1028,6 +1042,7 @@ fi
 	# THE WLR BACKEND, WHICH NEEDS NO CONSENT DIALOG. Only mangowm ships it; the unit is absent
 	# elsewhere, and the trailing true keeps that from being an error.
 	systemctl --user start xdg-desktop-portal-wlr 2>/dev/null || true
+	systemctl --user start xdg-desktop-portal-gnome 2>/dev/null || true
 	# RESTARTED, NOT STARTED. The unit can already be active by the time this runs, because
 	# default.target.wants puts a link in and a manager that does reach that target starts it
 	# with the OLD environment. start on an active unit is a no-op, so the environment set
@@ -1207,7 +1222,7 @@ RULE
 	# This unit runs grim inside the live session and dumps the png as base64 to the console, so
 	# the harness can decode it into a real screenshot for a desktop easystream cannot serve.
 	case "$DESKTOP" in
-	mangowm)
+	mangowm|enlightenment-wayland)
 		cat > "$ROOT/etc/systemd/system/grim-probe.service" <<'UNIT'
 [Unit]
 Description=grab the session with grim and dump it to the console
@@ -1221,7 +1236,7 @@ TTYPath=/dev/tty1
 Environment=HOME=/home/vmuser
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=WAYLAND_DISPLAY=wayland-0
-ExecStartPre=/bin/sleep 30
+ExecStartPre=/bin/sleep 55
 ExecStart=/bin/sh /opt/grim-probe.sh
 StandardOutput=journal+console
 StandardError=journal+console
