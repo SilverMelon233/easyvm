@@ -650,6 +650,29 @@ PUP
 			#     console. It is the same class as niri and mangowm: a Mutter-style GL/EGL
 			#     composer that does not settle on vkms' software device. The session manager
 			#     itself is now happy; the compositor it launches is not.
+			# NEMO'S DESKTOP WINDOW IS AN X11 PROGRAM AND CRASHES UNDER WAYLAND.
+			#
+			# MEASURED: the compositor starts (it creates wayland-0 and easystream captures 1024x768),
+			# but cinnamon-session then answers "App 'nemo-autostart.desktop' respawning too quickly"
+			# and "Unable to start session", because nemo-desktop is a RequiredComponent of
+			# cinnamon-wayland.session and it dereferences X11 atoms (gdk_x11_window_get_xid) on a
+			# Wayland display. A crash in a required component tears the whole session down.
+			#
+			# THE SHIM MAKES IT A CLEAN EXIT UNDER WAYLAND, so the session survives and the panel
+			# and window manager (which DO work) are the desktop that gets drawn and captured.
+			cat > "$ROOT/opt/nemo-shim" <<'SHIM'
+#!/bin/sh
+# nemo-desktop is X11-only; under Wayland it crashes and takes the session with it. Exit 0.
+[ -n "$WAYLAND_DISPLAY" ] && exit 0
+exec /usr/bin/nemo-desktop "$@"
+SHIM
+			chmod 0755 "$ROOT/opt/nemo-shim"
+			mkdir -p "$ROOT/etc/xdg/autostart"
+			if [ -f "$ROOT/usr/share/applications/nemo-autostart.desktop" ]; then
+				sed 's|^Exec=.*|Exec=/opt/nemo-shim|' \
+					"$ROOT/usr/share/applications/nemo-autostart.desktop" \
+					> "$ROOT/etc/xdg/autostart/nemo-autostart.desktop"
+			fi
 			SESSION_CMD='exec cinnamon-session-cinnamon --wayland'
 		elif [ "$DESKTOP" = "lxqt-wayland" ]; then
 			# `Exec=startlxqtwayland`, provided by the separate `lxqt-wayland-session` package.
@@ -809,7 +832,7 @@ fi
 export LIBSEAT_BACKEND=noop
 export LIBGL_ALWAYS_SOFTWARE=1
 # THE SESSION'S OWN TYPE, WHICH MUTTER-BASED COMPOSITORS CHECK BEFORE CHOOSING A BACKEND.
-# MEASURED on cinnamon-wayland: without it, `cinnamon --replace` (the session's compositor)
+# MEASURED on cinnamon-wayland: without it, cinnamon --replace (the session's compositor)
 # restarted every few hundred milliseconds - "App 'cinnamon-wayland.desktop' respawning too
 # quickly" - because it did not know it was supposed to bring up a Wayland backend. wlroots
 # compositors assume it; the GNOME/Session-manager based ones read it.
@@ -838,7 +861,7 @@ elif [ "${DESKTOP}" = "mangowm" ]; then
 	export WLR_XWAYLAND=
 elif [ "${DESKTOP}" = "budgie" ]; then
 	# BUDGIE'S COMPOSITOR IS labwc - MEASURED from startbudgielabwc, which ends in
-	# `labwc ... -S budgie-desktop` - so it takes wlroots' variables like every other
+	# labwc ... -S budgie-desktop - so it takes wlroots' variables like every other
 	# wlroots compositor here.
 	export WLR_BACKENDS=drm
 	export WLR_RENDERER=pixman
@@ -855,7 +878,7 @@ unset DISPLAY
 
 # THE SESSION BUS IS STARTED HERE TOO, FOR THE SAME REASON IT IS IN desktop.sh.
 #
-# MEASURED on Phosh: `phosh-session` checks DBUS_SESSION_BUS_ADDRESS and, when it is empty,
+# MEASURED on Phosh: phosh-session checks DBUS_SESSION_BUS_ADDRESS and, when it is empty,
 # wraps the compositor in its own dbus-run-session. That nested bus is not the one a login
 # would provide, and gnome-session inside it failed with
 #
@@ -913,13 +936,13 @@ fi
 		exit 1
 	fi
 	# PUSHED INTO THE MANAGER, because the unit's environment is the manager's environment and
-	# `environment.d` was MEASURED not to reach it.
+	# environment.d was MEASURED not to reach it.
 	# THE SOCKET NAME GOES INTO A FILE THE UNIT READS, NOT INTO THE MANAGER'S ENVIRONMENT.
 	#
-	# MEASURED, and it is the reason this is a file: `systemctl --user set-environment` returned
-	# 0 from inside session.sh, and `systemctl --user show-environment` right afterwards printed
+	# MEASURED, and it is the reason this is a file: systemctl --user set-environment returned
+	# 0 from inside session.sh, and systemctl --user show-environment right afterwards printed
 	# NOTHING - the manager session.sh talks to is not the one easystream runs under, so the
-	# variable reached a manager that owns no process. The unit's own `EnvironmentFile=` is read
+	# variable reached a manager that owns no process. The unit's own EnvironmentFile= is read
 	# by the manager that DOES own the process, so the value cannot land in the wrong place.
 	printf 'WAYLAND_DISPLAY=%s\nXDG_RUNTIME_DIR=%s\n' "\$WL" "\$XDG_RUNTIME_DIR" \
 		> "\$XDG_RUNTIME_DIR/wl-session.env"
@@ -948,8 +971,8 @@ fi
 	# elsewhere, and the trailing true keeps that from being an error.
 	systemctl --user start xdg-desktop-portal-wlr 2>/dev/null || true
 	# RESTARTED, NOT STARTED. The unit can already be active by the time this runs, because
-	# `default.target.wants` puts a link in and a manager that does reach that target starts it
-	# with the OLD environment. `start` on an active unit is a no-op, so the environment set
+	# default.target.wants puts a link in and a manager that does reach that target starts it
+	# with the OLD environment. start on an active unit is a no-op, so the environment set
 	# above would never be picked up - MEASURED: labwc kept answering at the default 1920x1080
 	# with zero-byte frames while the unit reported itself active.
 	i=0
@@ -1086,6 +1109,34 @@ DESKTOP
 		chmod 0755 "$ROOT/opt/desktop.sh"
 	fi
 
+	# POLKIT, FOR THE COMPOSITOR THAT ASKS LOGIND FOR CONTROL OF THE MACHINE.
+	#
+	# MEASURED on cinnamon-wayland: `cinnamon --replace` exited rc=1 in 0.06s, printing only
+	#	Access denied as the requested operation requires interactive authentication.
+	#	However, interactive authentication has not been enabled by the calling program.
+	# The call behind it is logind's TakeControl (muffin binds org.freedesktop.login1.Seat and
+	# Session), whose action org.freedesktop.login1.manage defaults to auth_admin_keep - it
+	# wants an administrator password through a polkit agent, and a headless session has no agent
+	# to prompt and no one to type. The session IS active (loginctl showed Active=yes, State=active
+	# on an active VT), so this is not the "scope not active" wall; it is the authentication one.
+	#
+	# THE RULE GRANTS IT TO THE CONSOLE USER WITH NO PROMPT. vmuser is the only account that can
+	# be logged in here and the machine has one display, so an authentication prompt protects
+	# nothing real - and without a way to answer it, the compositor can never start.
+	if [ "$DESKTOP_FAMILY" != "none" ]; then
+		mkdir -p "$ROOT/etc/polkit-1/rules.d"
+		cat > "$ROOT/etc/polkit-1/rules.d/49-compositor-take-control.rules" <<'RULE'
+// Let the console user take control of the seat without a prompt, so a HEADLESS compositor
+// (muffin in cinnamon's Wayland session) can complete TakeControl. Without polkitd running at
+// all, the same call is denied the same way, so this file is paired with enabling polkit.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.login1.manage" && subject.user == "vmuser") {
+        return polkit.Result.YES;
+    }
+});
+RULE
+	fi
+
 	# --- 3d. THE UNITS --------------------------------------------------------------------
 	cat > "$ROOT/etc/systemd/system/session.service" <<'UNIT'
 [Unit]
@@ -1107,6 +1158,23 @@ Environment=HOME=/home/vmuser
 # makes systemd open a PAM session for the unit, which is where pam_systemd registers it and
 # where XDG_SESSION_ID and friends come from. Harmless for the desktops that do not need it.
 PAMName=login
+# A VIRTUAL TERMINAL, SO A COMPOSITOR CAN ACTIVATE ITS OWN SESSION WITHOUT A PROMPT.
+#
+# MEASURED on cinnamon-wayland, after polkit was granted: the remaining error was
+#	muffin-WARNING: Failed to activate session:
+#	  org.freedesktop.DBus.Error.InteractiveAuthorizationRequired
+# - muffin calls logind's ActivateSession to take over the VT, and logind refuses a session that
+# has no TTY at all (loginctl showed TTY= empty), because there is no VT to activate and the
+# call is treated as one needing a password. Giving the unit a TTY makes logind attach the
+# session to that VT, so the activation is a local VT switch rather than an authenticated call.
+# Harmless elsewhere: the desktops that never activate a VT simply never use it.
+TTYPath=/dev/tty1
+TTYReset=no
+TTYVHangup=no
+# THE NODE MAY NOT EXIST: the image's /dev is a static directory and systemd sets /dev up as a
+# tmpfs, so /dev/tty1 is not there until something makes it. MEASURED: `ls /dev/tty1` in the
+# built tree answered "No such file or directory". mknod it first, or TTYPath points at nothing.
+ExecStartPre=/bin/sh -c 'mkdir -p /dev; [ -e /dev/tty1 ] || mknod /dev/tty1 c 4 1; chmod 620 /dev/tty1; chown root:tty /dev/tty1 2>/dev/null || true'
 ExecStart=/opt/session.sh
 Restart=always
 RestartSec=3
