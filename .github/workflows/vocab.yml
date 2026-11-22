@@ -1,0 +1,590 @@
+name: vocab
+
+# THE BRANCH'S WORKFLOW, ON A BRANCH THAT GITHUB WILL ACTUALLY START.
+#
+# WHY THIS FILE IS HERE RATHER THAN ONLY ON THE FEATURE BRANCH, measured three ways:
+#
+#	gh workflow run vocab-image.yml --ref vocabulary/three-verbs
+#	  -> HTTP 404 (…/actions/workflows/vocab-image.yml)
+#	gh run list --workflow=vocab-image.yml       -> nothing
+#	gh api …/actions/workflows                    -> the default-branch files only
+#
+# `workflow_dispatch` and `workflow_run` are BOTH resolved against the DEFAULT branch, so a workflow
+# that exists only on a feature branch can never be started by hand and never triggers another. A
+# push to that branch does run it, which is enough to compile and test - but not enough to RE-RUN a
+# real install without inventing a commit.
+#
+# SO THIS ONE FILE LIVES ON `main` AND ITSELF CHECKS OUT THE BRANCH UNDER TEST. Its inputs name the
+# branch, so the same file can drive any feature branch without another commit on that branch.
+#
+# THE WHOLE POINT IS THE LAST JOB: a step that loads, validates and then does nothing is the failure
+# the vocabulary's own tests cannot see. Only a real guest can tell a working walkthrough from a
+# parseable one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "the branch under test"
+        default: "vocabulary/three-verbs"
+        type: string
+      distro:
+        description: "which install to drive"
+        default: "kubuntu"
+        type: choice
+        options: [kubuntu, ubuntu]
+      walk:
+        description: >-
+          the walkthrough file to run, relative to the repository. Empty means
+          linux/<distro>/steps/install.yaml. THIS IS HOW THE MICROVM IS DRIVEN: its file is a .walk
+          and it installs nothing, so the distro matrix's install path would not find it.
+        default: ""
+        type: string
+      assets:
+        description: >-
+          space-separated `tag:file` pairs to pull before the run, for a walkthrough whose media are
+          not an installer ISO. The alpine microvm needs three files out of one ISO.
+        default: ""
+        type: string
+      boot_disk:
+        description: >-
+          a published disk tag to boot the walkthrough FROM, such as
+          `linux-ubuntu`. The ssh and vm-configure legs boot a system somebody else installed, and a
+          leg that has to install one first is measuring the installer again. Empty means the
+          walkthrough makes its own disk, which is what an install leg does.
+        default: ""
+        type: string
+      run_walkthrough:
+        description: "run the real install (40-90 minutes), not just the compile and unit tests"
+        default: true
+        type: boolean
+      upstream:
+        description: "the repository whose published media and disks a run pulls"
+        default: "easydev-org/easyvm"
+        type: string
+
+# THE GROUP MUST NAME THE WALKTHROUGH, NOT THE DISTRO.
+#
+# `inputs.distro` IS A CHOICE WITH TWO VALUES, so dispatching freebsd, windows and macos in parallel
+# put all three in ONE group when `walk:` named the file - MEASURED: the second and third dispatches
+# were cancelled by the first, with no message beyond `conclusion: cancelled`. `walk` is the input that
+# actually identifies a leg, and it is unique per file.
+concurrency:
+  group: vocab-${{ inputs.branch }}-${{ inputs.distro }}-${{ inputs.walk }}
+  cancel-in-progress: true
+
+# NO `env:` FOR THE IMAGE NAME, AND THAT IS MEASURED RATHER THAN TIDY: `env` is NOT resolvable inside
+# a job's `container.image:` - the dispatch was refused with
+#
+#	Line: 188, Col: 14: Unrecognized named-value: 'env'
+#
+# so the registry path is written where it is used, from `github.repository_owner`.
+
+permissions:
+  contents: read
+  packages: write
+  checks: write
+
+jobs:
+  # ===========================================================================
+  # THE CHEAP GATE. It needs nothing but a compiler, so it runs on the runner.
+  # ===========================================================================
+  compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: the code compiles
+        run: go build ./...
+
+      - name: vet
+        run: go vet ./...
+
+      - name: every walkthrough still loads
+        # A PURE PARSE: it asks the vocabulary whether each step means something. No guest, no image.
+        # It is also the check that catches a vocabulary change breaking a real file.
+        run: |
+          set -e
+          go build -o /tmp/easyvm ./cmd/easyvm
+          n=0
+          # BOTH EXTENSIONS, because a tree mid-migration holds both and a glob that said `*.yaml`
+          # checked 39 of 60 files and reported success - measured on run 44074330266, after 18
+          # walkthroughs had been converted and none of them was looked at.
+          for f in $(find . -path ./.git -prune -o \( -name '*.yaml' -o -name '*.walk' \) -path '*/steps/*' -print); do
+            /tmp/easyvm check "$f" >/dev/null
+            n=$((n+1))
+          done
+          echo "$n walkthrough(s) load"
+
+  # ===========================================================================
+  # THE TESTS, IN THE MACHINE THEY DESCRIBE, AND THE IMAGE THEY ARE SHIPPED IN.
+  # ===========================================================================
+  image:
+    needs: compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      tag: ${{ steps.tag.outputs.name }}
+      owner: ${{ steps.tag.outputs.owner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # THE CONTAINERFILE COPIES `dist/easyvm`, so the binary the image carries is built here - the
+      # same way `image.yml` does it, for the same reason: a test of an image built from another
+      # commit's binary proves nothing.
+      - name: build the binary the image carries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" -o dist/easyvm ./cmd/easyvm
+          chmod 0755 dist/easyvm
+          ls -l dist/easyvm
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: log in to ghcr
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: the tag
+        id: tag
+        run: |
+          set -euo pipefail
+          # LOWERCASE, because a registry repository name may not carry a capital and the OWNER
+          # here is `SilverMelon233`. MEASURED: the push failed with
+          #
+          #	ERROR: failed to build: invalid tag "ghcr.io/SilverMelon233/easyvm:vocab-...":
+          #	repository name must be lowercase
+          #
+          # - after every test had passed, which is the expensive place to learn it.
+          owner=$(printf '%s' "${{ github.repository_owner }}" | tr 'A-Z' 'a-z')
+          echo "owner=${owner}" >> "$GITHUB_OUTPUT"
+          slug=$(printf '%s' "${{ inputs.branch }}" | tr '/_' '--' | tr -cd 'a-zA-Z0-9.-' | tr 'A-Z' 'a-z')
+          # THE COMMIT IS PART OF THE TAG, BECAUSE THE TAG IS WHAT A WALKTHROUGH PULLS.
+          #
+          # MEASURED: three OS legs dispatched in parallel all pushed `vocab-vocabulary-three-verbs`,
+          # so the last push won and an earlier leg pulled a binary from a different commit. The
+          # symptom was the macos leg failing with the EXACT error the commit fixed:
+          #
+          #	the recovery menu's rows: crop [760, 200, 1400, 560] is not inside a 640x480 frame
+          #
+          # - on `ccc27fb`, which fixes it. A tag that two runs can write is a tag that says nothing
+          # about what is inside.
+          # `github.sha` IS THE DEFAULT BRANCH'S COMMIT under `workflow_dispatch`, not the branch this
+          # job checked out - so the tag would be the same for every dispatch of every branch. The
+          # commit that was actually built is HEAD after checkout.
+          sha=$(git rev-parse --short=12 HEAD)
+          echo "name=vocab-${slug}-${sha}" >> "$GITHUB_OUTPUT"
+
+      - name: build and push the branch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ steps.tag.outputs.owner }}/easyvm:${{ steps.tag.outputs.name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ===========================================================================
+  # THE TESTS, IN THE MACHINE THEY DESCRIBE. A PARALLEL JOB, NOT A STEP IN `image`.
+  # ===========================================================================
+  #
+  # THEY USED TO LIVE INSIDE `image`, WHICH MADE THE WALL CLOCK THE SUM OF THE TWO: MEASURED, that job
+  # took 7.7 minutes and about 5.5 of them were `go test ./...` - `internal/run` alone is 331 seconds,
+  # because it drives real QMP and OCR paths. Nothing about the image depends on the tests having
+  # finished, so serialising them bought nothing and cost every dispatch five minutes.
+  #
+  # THE TWO RERUNS ARE GONE WITH IT. `test ./...` already covers `./internal/step/` and
+  # `./internal/screen/`, so the two extra `docker run`s that repeated a subset of it were pure
+  # duplication - and duplication that costs a container start each time.
+  test:
+    needs: compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      # THE TESTER STAGE INHERITS FROM `runtime`, AND `runtime` COPIES `dist/easyvm`. MEASURED on run
+      # 44078552324, when this job was extracted and the build left behind:
+      #
+      #	ERROR: failed to calculate checksum of ref ...: "/dist/easyvm": not found
+      #
+      # - so the binary is built here too. It is the same `go build` the image job does, and the module
+      # cache makes it seconds rather than minutes.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: build the binary the tester stage inherits
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" -o dist/easyvm ./cmd/easyvm
+          chmod 0755 dist/easyvm
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: the unit tests, in the machine they describe
+        # `--target tester` IS THIS IMAGE PLUS A GO TOOLCHAIN, so the tools a test reaches for are the
+        # ones the walkthroughs get. `internal/run`'s GPT test spawns `qemu-img`, which a bare runner
+        # does not have - and the fix for that is not to skip the test.
+        #
+        # THE SAME CACHE `image` WRITES, READ-ONLY HERE: the apt layer is the one expensive thing the
+        # two jobs share, and a second cache scope would build it twice. Only `image` writes, so the
+        # two cannot race on a cache key.
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --file ./Containerfile --target tester --load \
+            --cache-from type=gha \
+            --tag easyvm-tester:ci .
+          docker run --rm \
+            -v "$PWD:/src" -w /src -e GOCACHE=/tmp/go-cache \
+            easyvm-tester:ci test ./... -count=1 -timeout 900s
+
+  # ===========================================================================
+  # THE REAL INSTALL, IN THE IMAGE JUST PUSHED. THIS IS THE JOB THAT ANSWERS THE QUESTION.
+  # ===========================================================================
+  walkthrough:
+    # BOTH LEGS, AND IT COSTS NOTHING: they run in parallel, so the gate is ready when the slower one
+    # is. What it buys is that a red test does not send a 40-minute install after it.
+    needs: [image, test]
+    if: inputs.run_walkthrough
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+      checks: write
+    container:
+      image: ghcr.io/${{ needs.image.outputs.owner }}/easyvm:${{ needs.image.outputs.tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --device /dev/kvm --device /dev/net/tun --cap-add NET_ADMIN --shm-size 2g
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: the leg's own name, without the slashes an artifact name cannot carry
+        id: name
+        run: |
+          set -eu
+          slug=$(printf '%s' "${{ inputs.walk != '' && inputs.walk || format('linux/{0}/steps/install', inputs.distro) }}" \
+            | tr '/' '-' | sed 's/-steps-/-/; s/\.walk$//')
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+          echo "this leg is $slug"
+
+      - name: the binary, as the image carries it
+        run: easyvm versions
+
+      - name: the medium, pulled before the run so nothing downloads mid-install
+        # `easyvm pull` NO LONGER EXISTS - every medium is pulled outside the run, which is the rule
+        # this step follows.
+        #
+        # THE TOKEN IS AN `env:` AND ITS ABSENCE READS LIKE A MISSING TAG. MEASURED on run
+        # 44020426741:
+        #
+        #	GITHUB_TOKEN is empty; a private package needs it and an anonymous pull answers 401
+        #
+        # - the same failure `stage.yml` records at its own pull, reproduced by writing this step as
+        # a `run:` without the env block. The media live in the UPSTREAM repository, not the fork,
+        # so that is what is pulled from.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p work
+          [ -n "${GITHUB_TOKEN:-}" ] || {
+            echo "::error::GITHUB_TOKEN is empty, so this pull would answer 401"
+            exit 1
+          }
+          upstream=$(printf '%s' "${{ inputs.upstream }}" | tr '[:upper:]' '[:lower:]')
+          # `assets:` NAMES `tag:file` PAIRS, so a walkthrough whose media are not an installer ISO
+          # can say what it needs. The alpine microvm takes three files, two of which live INSIDE
+          # the third - see the extraction below.
+          for pair in ${{ inputs.assets }}; do
+            tag="${pair%%:*}"
+            dest="${pair#*:}"
+            echo "=== pull $tag -> $dest"
+            # A TAG THAT IS NOT PUBLISHED IS NOT A FAILURE WHEN THE MEDIUM IS DOWNLOADED BELOW.
+            # `alpine.iso` comes from the distribution's own mirror, so the pull is attempted and
+            # allowed to miss - otherwise a walkthrough that needs no published asset could not be
+            # dispatched at all.
+            if ! sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+                 ghcr.io "$upstream" "$tag" "$GITHUB_WORKSPACE/work/$dest"; then
+              echo "=== $tag is not published; the download step below is expected to provide $dest"
+            fi
+          done
+          # A LEG THAT BOOTS A PUBLISHED DISK NEEDS NO INSTALLER. `boot_disk` names a system somebody
+          # else installed, so pulling `iso-<distro>-desktop` for it would download 4.8 GiB that
+          # nothing reads - and it is the FIRST thing the job does, so the wait is the whole leg's
+          # start. MEASURED on the ubuntu ssh leg, which sat in this step pulling an ISO it never
+          # opened.
+          if [ -z "${{ inputs.assets }}" ] && [ -z "${{ inputs.boot_disk }}" ]; then
+            sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+              ghcr.io "$upstream" \
+              "iso-${{ inputs.distro }}-desktop" \
+              "$GITHUB_WORKSPACE/work/${{ inputs.distro }}.iso"
+            ls -l "work/${{ inputs.distro }}.iso"
+          fi
+
+      - name: the disk this leg boots from
+        # `ssh:` AND `vm-configure:` START FROM A SYSTEM SOMEBODY ELSE INSTALLED. Pulling it here rather
+        # than inside the walk is the same rule the media follow: a stage whose duration depends on a
+        # registry is measuring a download.
+        if: github.event_name != 'workflow_dispatch' || inputs.boot_disk != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p work
+          upstream=$(printf '%s' "${{ inputs.upstream }}" | tr '[:upper:]' '[:lower:]')
+          sh "$GITHUB_WORKSPACE/.github/pull-artifact.sh" \
+            ghcr.io "$upstream" "${{ inputs.boot_disk }}" \
+            "$GITHUB_WORKSPACE/work/disk.qcow2"
+          ls -l "$GITHUB_WORKSPACE/work/disk.qcow2"
+
+      - name: a microvm's medium, downloaded because upstream publishes none
+        # THE ALPINE README (63 MiB) IS SMALL ENOUGH TO FETCH DIRECTLY, and that is the point of a
+        # microvm: a walkthrough that proves the vocabulary should not wait on a 4.8 GiB installer.
+        #
+        # IT IS AN INPUT LIKE ANY OTHER, so it is downloaded BEFORE the run and nothing fetches
+        # inside the guest - the rule every stage here follows.
+        if: github.event_name != 'workflow_dispatch' || contains(inputs.assets, 'alpine')
+        run: |
+          set -eu
+          cd "$GITHUB_WORKSPACE/work"
+          iso=alpine-virt-3.21.0-x86_64.iso
+          if [ ! -f alpine.iso ]; then
+            echo "=== downloading $iso"
+            curl -fsSL --retry 3 --retry-delay 5 \
+              -o "$iso" "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/x86_64/$iso"
+            mv "$iso" alpine.iso
+          fi
+          ls -l alpine.iso
+          echo "the medium is $(( $(stat -c %s alpine.iso) >> 20 )) MiB"
+
+      - name: a microvm's kernel, out of its own ISO
+        # A MICROVM IS HANDED ITS KERNEL, because there is no firmware to read a boot sector. Alpine
+        # ships both inside its ISO, so the extract happens here rather than as a published asset:
+        # the files are derived, and a derived file that is published is a second thing to keep in
+        # step with the ISO it came from.
+        #
+        # 7z RATHER THAN `mount`, because a container step has no loop device - MEASURED: `mount -o
+        # loop` answers "failed to setup loop device" in the runner and in the lab pod alike.
+        run: |
+          set -eu
+          cd "$GITHUB_WORKSPACE/work"
+          for iso in *.iso; do
+            [ -e "$iso" ] || continue
+            case "$iso" in
+              alpine*)
+                echo "=== extracting the kernel and initramfs from $iso"
+                boot=$(7z l "$iso" | awk '/boot\/(vmlinuz|initramfs)/ {print $NF}' | head -20)
+                printf '%s\n' "$boot"
+                7z e -y -o. "$iso" boot/vmlinuz-virt boot/initramfs-virt
+                mv vmlinuz-virt alpine-vmlinuz
+                mv initramfs-virt alpine-initramfs
+                ls -l alpine-vmlinuz alpine-initramfs
+                ;;
+            esac
+          done
+
+      - name: a microvm's root filesystem, and an initramfs that can mount it
+        # A MICROVM HAS NO INSTALLER, so the disk arrives ready. `.github/alpine-rootfs.sh` builds it:
+        # apk populates a directory, `mke2fs -d` writes it to an image, and `mkinitfs` rebuilds the
+        # initramfs WITH ext4. That last part is not optional - MEASURED, the stock netboot initramfs
+        # carries 72 modules and ext4 is not one of them, so the guest answers
+        # `mount: /dev/vda: No such device` and drops to an emergency shell.
+        #
+        # IT RUNS ONLY FOR A WALKTHROUGH THAT ASKS FOR IT, because it costs about two minutes of apk
+        # and every other leg would pay for a root filesystem it never opens.
+        #
+        # THE CONDITION IS THE DIRECTORY, NOT ONE FILE NAME. It used to name exactly
+        # `.../steps/desktop.walk`, which meant RENAMING that file silently stopped the root
+        # filesystem from being built - and the failure mode is a `needs:` miss at step 1, forty
+        # minutes into an apk run nobody was waiting for. Every walkthrough under this directory
+        # boots the same three files, so the directory is what identifies the leg.
+        if: github.event_name != 'workflow_dispatch' || startsWith(inputs.walk, 'linux/alpine-microvm/')
+        run: |
+          set -eu
+          mkdir -p work
+          sh "$GITHUB_WORKSPACE/.github/alpine-rootfs.sh" "$GITHUB_WORKSPACE/work"
+
+      - name: start the daemon
+        # `easyvm run` IS A CLIENT: it sends a request and returns, and the daemon drives the file.
+        # MEASURED on run 44022381236, where this step did not exist:
+        #
+        #	FAILED: POST http://127.0.0.1:8080/api/command: dial tcp 127.0.0.1:8080: connect:
+        #	connection refused
+        #
+        # - after the binary, the tools and the 4.8 GiB medium had all been proven good.
+        #
+        # THE READY LINE IS THE CONTRACT, not the socket file: a file that exists is not a daemon
+        # that answers. The output is CAPTURED FIRST and matched with `case`, because `| grep -q`
+        # closes the pipe on its first match and `pipefail` turns that into exit 141 for a check
+        # that succeeded.
+        run: |
+          set -eu
+          easyvm serve --work "$GITHUB_WORKSPACE/work" \
+            > "$GITHUB_WORKSPACE/work/daemon.log" 2>&1 &
+          echo $! > "$GITHUB_WORKSPACE/work/daemon.pid"
+          for i in $(seq 1 30); do
+            logs=$(cat "$GITHUB_WORKSPACE/work/daemon.log" || true)
+            case "$logs" in *"listening on"*) break ;; esac
+            sleep 1
+          done
+          logs=$(cat "$GITHUB_WORKSPACE/work/daemon.log" || true)
+          printf '%s\n' "$logs"
+          case "$logs" in
+            *"listening on"*) echo "the daemon is up" ;;
+            *) echo "=== THE DAEMON DID NOT COME UP ==="; exit 1 ;;
+          esac
+
+      - name: follow it
+        # THE WALK IS STREAMED TO A CHECK RUN, SO IT CAN BE WATCHED WHILE IT RUNS.
+        #
+        # THIS FILE DID NOT HAVE THIS, AND THAT IS WHY EVERY EARLIER RUN WAS FOLLOWED BY SLEEPING.
+        # The actions log is unreadable until the step finishes, so `easyvm status` polled from outside
+        # is the only signal a person gets - and that means waiting. `easyactions/log-stream` publishes
+        # the newest 60,000 characters to a check run every ten seconds, which is exactly the "which
+        # step is it on" question an in-progress stage has.
+        #
+        # `stage.yml` has done this since it was written; this workflow is a copy of the mechanism and
+        # the copy had lost it.
+        uses: easydev-org/easyactions/log-stream@main
+        with:
+          token: ${{ github.token }}
+          # THE CHECK RUN IS NAMED FROM THE FILE, because `distro` is a placeholder when `walk:` names
+          # it - and three parallel OS legs all publishing to `ubuntu-live` is one name for three
+          # different runs, which is worse than no name at all.
+          name: ${{ inputs.walk != '' && inputs.walk || format('linux/{0}/steps/install', inputs.distro) }}-live
+          interval: "10"
+          max_bytes: "60000"
+          command: |
+            set -eu
+            summary=${GITHUB_STEP_SUMMARY:-/dev/null}
+            printf '| time | state |\n|---|---|\n' >> "$summary"
+            file="${{ inputs.walk }}"
+            if [ -z "$file" ]; then file="linux/${{ inputs.distro }}/steps/install.yaml"; fi
+            echo "the walkthrough is $file"
+            # THE OUTPUT IS NAMED FROM THE FILE, not from `distro`: `distro` is a two-value choice
+            # used as a placeholder when `walk:` names the file, so naming an artifact after it would
+            # produce `vocab-ubuntu.qcow2` for a Windows install.
+            slug=$(printf '%s' "$file" | tr '/' '-' | sed 's/-steps-/-/; s/\.walk$//')
+            # THE FILE SAYS `disk: disk.qcow2` AND `boot:` STARTS IT, so the pulled disk IS
+            # `work/disk.qcow2`. Passing `--boot-disk` as well would name a SECOND path for the same
+            # file, and the step that takes the input disk looks only for the name the file wrote -
+            # MEASURED: `take the input disk: no disk at .../work/disk.qcow2`.
+            boot=""
+            if [ -n "${{ inputs.boot_disk }}" ]; then boot="--boot-disk $GITHUB_WORKSPACE/work/disk.qcow2"; fi
+            easyvm run "$file" \
+              --work "$GITHUB_WORKSPACE/work" \
+              --out "$GITHUB_WORKSPACE/$slug.qcow2" \
+              $boot \
+              --password admin
+            # TEN MINUTES OF HEADROOM, because the steps after this one are not instant.
+            limit=$(( 120 - 10 ))
+            rounds=0
+            while [ "$rounds" -lt "$limit" ]; do
+              rounds=$((rounds + 1))
+              state=$(easyvm status --work "$GITHUB_WORKSPACE/work" 2>&1 || true)
+              printf '%s\n' "$state"
+              printf '| %s | %s |\n' "$(date -u +%H:%M:%S)" "$(printf '%s' "$state" | head -1)" >> "$summary"
+              case "$state" in
+                *"status: finished"*)
+                  echo "=== THE WALKTHROUGH FINISHED ==="
+                  cat "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
+                  exit 0 ;;
+                *"status: failed"*)
+                  echo "=== THE WALKTHROUGH FAILED ==="
+                  cat "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
+                  exit 1 ;;
+              esac
+              sleep 60
+            done
+            echo "=== THE WALKTHROUGH DID NOT FINISH IN TIME ==="
+            cat "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
+            exit 1
+
+      - name: prove the disk was written
+        run: |
+          set -e
+          # A WALKTHROUGH THAT INSTALLS NOTHING PRODUCES NO ARTIFACT, and that is the microvm's whole
+          # point: it proves the vocabulary drives a guest, not that a system was written. The disk is
+          # checked only when the file produced one.
+          slug=$(printf '%s' "${{ inputs.walk }}" | tr '/' '-' | sed 's/-steps-/-/; s/\.walk$//')
+          f="$GITHUB_WORKSPACE/$slug.qcow2"
+          if [ ! -f "$f" ]; then
+            echo "no $f - this walkthrough wrote no artifact, which is expected when it installs nothing"
+            ls -l "$GITHUB_WORKSPACE"/*.qcow2 2>/dev/null || true
+            echo "the run's own output:"
+            tail -40 "$GITHUB_WORKSPACE/work/daemon.log" 2>/dev/null || true
+            exit 0
+          fi
+          size=$(stat -c %s "$f")
+          echo "the disk is $size bytes"
+          # THE SAME FLOOR THE PRODUCT USES. A header-only qcow2 is a walk whose clicks never reached
+          # the installer's disk, and a green step in front of one proves nothing.
+          if [ "$size" -lt $((512 * 1024 * 1024)) ]; then
+            echo "::error::$size bytes is a qcow2 header with nothing written to it"
+            exit 1
+          fi
+
+      # THE RECORDING COMES BACK, BECAUSE A VIDEO IS THE ONLY ARTEFACT THAT SHOWS WHAT A GUEST DID.
+      #
+      # MEASURED: this workflow uploaded NOTHING - 110 artifacts across the fork's runs, all of them
+      # `dockerbuild` and `binary`. So a leg could fail with no way to see the screen it failed on,
+      # and a reference image for `see: {reference: ...}` could not be produced from a run at all.
+      #
+      # `if: always()` because a FAILING leg is the one whose video matters, and
+      # `if-no-files-found: warn` because a walkthrough that draws nothing has nothing to show.
+      # THE ARTIFACT NAME CANNOT CONTAIN A `/`. MEASURED on run 44268736694, whose walkthrough had
+      # finished 6/6 and recorded 24 frames - and then the job FAILED at the upload with
+      #
+      #	The artifact name is not valid: linux/alpine-microvm/steps/desktop.walk-video
+      #
+      # because `walk:` is a PATH when a dispatch names a file. The slug is the same transformation
+      # the disk publish already uses, so a video and its disk are named alike.
+      - id: videoslug
+        if: always()
+        shell: bash
+        run: |
+          # `tr` RATHER THAN `format()`: artifact names forbid the characters Windows reserves.
+          slug=$(printf '%s' "${{ inputs.walk }}" | tr '/' '-' | sed 's/\.walk$//')
+          echo "name=${slug}-video" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ steps.name.outputs.slug || inputs.walk }}-video
+          path: work/*.mp4
+          if-no-files-found: warn
+          retention-days: 7

@@ -392,7 +392,7 @@ jobs:
         uses: easydev-org/easyactions/log-stream@main
         with:
           token: ${{ github.token }}
-          name: ${{ matrix.name }}-live
+          name: ${{ matrix.slug || matrix.name }}-live
           interval: "10"
           max_bytes: "60000"
           command: |
@@ -605,7 +605,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ matrix.name }}-video
+          name: ${{ matrix.slug || matrix.name }}-video
           path: |
             work/*.mp4
           if-no-files-found: warn
@@ -614,7 +614,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ matrix.name }}-logs
+          name: ${{ matrix.slug || matrix.name }}-logs
           path: |
             work/daemon.log
             # THE GUEST'S OWN SERIAL CONSOLE, WHICH IS THE ONLY RECORD OF WHAT THE FIRMWARE DID.

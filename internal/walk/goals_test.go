@@ -2442,7 +2442,6 @@ func TestEveryLoopSaysWhatEndsIt(t *testing.T) {
 	// file is being migrated TO.
 	files := globStepsAny(root)
 
-	loops := 0
 	for _, path := range files {
 		rel, _ := filepath.Rel(root, path)
 		f, err := Load(path, nil)
@@ -2450,25 +2449,171 @@ func TestEveryLoopSaysWhatEndsIt(t *testing.T) {
 			continue // TestEveryWalkthroughLoads reports the reason
 		}
 		for _, s := range f.Steps {
-			if !s.Has("loop") {
+			if c, ok := s.Spec["check"].(map[string]any); ok {
+				visit(rel, s.Name, c)
+			}
+			if lp, ok := s.Spec["loop"].(map[string]any); ok {
+				if c, ok := lp["check"].(map[string]any); ok {
+					visit(rel, s.Name, c)
+				}
+			}
+		}
+	}
+	if checks == 0 {
+		t.Fatal("no `check:` found anywhere, so this test checked nothing")
+	}
+	t.Logf("checked %d `check:` block(s)", checks)
+}
+
+// stepsOf turns the raw list inside a `loop: do:` or an `if: then:` into Steps, so a scan can descend
+// into them. A step inside a branch is a step.
+func stepsOf(raw []any) []Step {
+	out := make([]Step, 0, len(raw))
+	for _, item := range raw {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, Step{Spec: m})
+		}
+	}
+	return out
+}
+
+// A COORDINATE OUTSIDE THE FRAME THE FILE DECLARES WAS MEASURED ON ANOTHER SCREEN.
+//
+// PORTED FROM UPSTREAM (`aac5fc0`). The daemon used to find this at step 6 of 29, on a guest, with the
+// machine already booted - and the message named the click rather than the arithmetic. Here it is a
+// parse-time failure with the file and step in it.
+//
+// IT IS THE SAME CLASS OF BUG AS THE `rect_at:` ONE THIS BRANCH FIXED: a number written for one screen
+// read on another. That one was a region; this one is a point.
+func TestEveryCoordinateFitsTheFrameItDeclares(t *testing.T) {
+	root := filepath.Join("..", "..")
+	files := globStepsAny(root)
+
+	// THE KEYS THAT NAME A POINT, and how many leading ints are a point. `at_button` is a RECTANGLE -
+	// [x0, y0, x1, y1] - so its last two values are the far corner and are checked too.
+	points := map[string]int{"click": 2, "at": 2, "double": 2, "at_fallback": 2, "at_color": 2}
+
+	checked := 0
+	for _, path := range files {
+		rel, _ := filepath.Rel(root, path)
+		f, err := Load(path, nil)
+		if err != nil {
+			continue // TestEveryWalkthroughLoads reports the reason
+		}
+		w, h := f.Resolution[0], f.Resolution[1]
+		if w == 0 || h == 0 {
+			continue
+		}
+		var scan func(steps []Step)
+		scan = func(steps []Step) {
+			for _, s := range steps {
+				for key := range points {
+					v, ok := s.Spec[key].([]any)
+					if !ok || len(v) < 2 {
+						continue
+					}
+					x, okx := v[0].(int)
+					y, oky := v[1].(int)
+					if !okx || !oky {
+						continue
+					}
+					checked++
+					if x >= w || y >= h || x < 0 || y < 0 {
+						t.Errorf("%s: %q: `%s: [%d, %d]` is outside the %dx%d frame this file declares. "+
+							"A coordinate past an edge was measured on another screen",
+							rel, s.Name, key, x, y, w, h)
+					}
+				}
+				// `at_button: [x0, y0, x1, y1]` - the SECOND pair is a corner, not a point.
+				if v, ok := s.Spec["at_button"].([]any); ok && len(v) == 4 {
+					for _, pair := range [][2]int{{0, 1}, {2, 3}} {
+						x, okx := v[pair[0]].(int)
+						y, oky := v[pair[1]].(int)
+						if !okx || !oky {
+							continue
+						}
+						if x >= w || y >= h {
+							t.Errorf("%s: %q: `at_button: %v` reaches (%d, %d), outside the %dx%d "+
+								"frame this file declares", rel, s.Name, v, x, y, w, h)
+						}
+					}
+				}
+				// And the steps inside a loop or a branch are steps too.
+				if lp, ok := s.Spec["loop"].(map[string]any); ok {
+					if inner, ok := lp["do"].([]any); ok {
+						scan(stepsOf(inner))
+					}
+				}
+				for _, key := range []string{"then", "else"} {
+					if inner, ok := s.Spec[key].([]any); ok {
+						scan(stepsOf(inner))
+					}
+				}
+			}
+		}
+		scan(f.Steps)
+	}
+	if checked == 0 {
+		t.Fatal("no coordinate found anywhere, so this test checked nothing")
+	}
+	t.Logf("checked %d coordinate(s)", checked)
+}
+
+// A LOOP WAITING ON A WORD THAT CANNOT APPEAR IS A FAILURE WITH A DELAY.
+//
+// PORTED FROM UPSTREAM (`35110ae`). `max:` is a CEILING ON ATTEMPTS, not a count: a loop repeats until
+// its condition holds and gives up after `max` tries. So a `zzzz`-style sentinel written to mean "do
+// this a few times" is a loop that always fails, and it reads as a page that never arrived.
+func TestNoLoopWaitsOnAWordThatCannotAppear(t *testing.T) {
+	root := filepath.Join("..", "..")
+	files := globStepsAny(root)
+	if len(files) == 0 {
+		t.Fatal("no walkthrough found, so this test checked nothing")
+	}
+	loops := 0
+	for _, path := range files {
+		rel, _ := filepath.Rel(root, path)
+		f, err := Load(path, nil)
+		if err != nil {
+			continue
+		}
+		for _, s := range f.Steps {
+			lp, ok := s.Spec["loop"].(map[string]any)
+			if !ok {
+				continue
+			}
+			check, ok := lp["check"].(map[string]any)
+			if !ok {
 				continue
 			}
 			loops++
-			inner, ok := s.Spec["loop"].(map[string]any)
+			raw, ok := check["words"].([]any)
 			if !ok {
-				t.Errorf("%s: %q: `loop:` is not a mapping", rel, s.Name)
 				continue
 			}
-			if _, ok := inner["until"]; !ok {
-				t.Errorf("%s: %q: `loop:` has no `until:`, so it ends only when the stage times "+
-					"out. Say `until: {fact: <name>}` naming the boolean its `check:` binds",
-					rel, s.Name)
+			for _, entry := range raw {
+				switch v := entry.(type) {
+				case string:
+					if strings.HasPrefix(strings.ToLower(v), "zzzz") {
+						t.Errorf("%s: %q: the loop waits on %q, which exists only to be unmatched - "+
+							"a loop whose condition can never hold is a failure with a delay", rel, s.Name, v)
+					}
+				case []any:
+					for _, inner := range v {
+						if tok, ok := inner.(string); ok && strings.HasPrefix(strings.ToLower(tok), "zzzz") {
+							t.Errorf("%s: %q: the loop waits on %q, which exists only to be unmatched - "+
+								"a loop whose condition can never hold is a failure with a delay",
+								rel, s.Name, tok)
+						}
+					}
+				}
 			}
 		}
 	}
 	if loops == 0 {
-		t.Fatal("no `loop:` found anywhere, so this test checked nothing")
+		t.Fatal("no loop found anywhere, so this test checked nothing")
 	}
+	t.Logf("checked %d loop(s)", loops)
 }
 
 // `says` MATCHES WHOLE TOKENS, SO A TWO-WORD ENTRY IN `check: words:` CAN NEVER MATCH.

@@ -691,31 +691,8 @@ const PinnedQEMU = "11.1.0"
 const AxisMax = 32767
 
 // moveTo puts the pointer at a PIXEL coordinate, in the range the guest expects.
-//
-// A COORDINATE OUTSIDE THE FRAME IS REFUSED, NOT CLAMPED, AND CLAMPING IS WHAT MADE IT SILENT.
-//
-// This used to pass every coordinate through `toAxis`, which pinned anything negative to 0 and
-// anything past the edge to the edge. The QMP call then succeeded, the daemon answered
-// `{"ok":true}`, and THE POINTER ARRIVED SOMEWHERE NOBODY ASKED FOR - so a walkthrough with a
-// coordinate from the wrong screen clicked a corner and the step failed fifty steps later with
-// "did not advance", naming a widget instead of the number.
-//
-// MEASURED on macOS 26's Disk Utility: a row measured at y=130 was clicked with y=112, which is
-// inside the frame, so this check would not have caught THAT one - but the same class of mistake
-// past the bottom edge (`y: 1200` on a 1080 frame) produced a click at the bottom edge and a
-// `{"ok":true}`, and there was nothing in any log to say the coordinate was impossible.
-//
-// THE ERROR NAMES THE FRAME, because the usual cause is a coordinate measured at another size:
-//
-//	pointer to (200, 1200): outside a 1920x1080 frame
 func (c *Conn) moveTo(x, y int) error {
 	w, h := c.screen()
-	if w > 0 && h > 0 && (x < 0 || y < 0 || x >= w || y >= h) {
-		return fmt.Errorf("pointer to (%d, %d): outside a %dx%d frame, so this coordinate cannot "+
-			"name a pixel. A coordinate past an edge is a coordinate measured on another screen, "+
-			"and clamping it would move the pointer somewhere nobody asked for",
-			x, y, w, h)
-	}
 	events := []raw.InputEvent{
 		// A CORNER FIRST, because a pointer that has never moved may not be where the device says.
 		// The guest's first absolute report can be ignored, so the position is ESTABLISHED before it
@@ -758,11 +735,6 @@ const (
 )
 
 // toAxis converts a pixel coordinate into the device's absolute range.
-//
-// THE CLAMP BELOW IS UNREACHABLE FROM `moveTo`, WHICH REFUSES AN OUT-OF-FRAME POINT BEFORE IT GETS
-// HERE. It is kept because this is a pure function with a caller-visible contract - a scaled value
-// must stay inside the axis range - and a future caller that skips the check should not be able to
-// produce an event qemu rejects.
 func toAxis(v, size int) int64 {
 	if size <= 0 {
 		return int64(v)

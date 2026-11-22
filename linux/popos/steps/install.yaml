@@ -21,10 +21,8 @@ steps:
   # forty minutes into a run. Every one of these files is declared by this leg's
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
-  require:
+  needs:
   - popos.iso
-- name: start recording
-  record: popos-install.mp4
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
@@ -68,19 +66,8 @@ steps:
     - click:
       - 420
       - 300
-      wait_after: 3
-    ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
-      scale: 1
-      wait: 0
+      settle: 3
+    see: {name: screen}
     check:
       name: done
       from: screen
@@ -349,23 +336,12 @@ steps:
   loop:
     max: 45
     do:
-    - wait: 2
-    ocr:
-      name: screen
-      region:
-      - 0
-      - 0
-      - 1920
-      - 1080
-      region_at:
-      - 1920
-      - 1080
-      scale: 1
-      wait: 0
+    - settle: 2
+    see: {name: screen}
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - Account
       - - User
@@ -490,7 +466,7 @@ steps:
   clear: true
   type: '{{ password }}'
   type_gap: 0.09
-  wait_after: 2
+  settle: 2
 - name: confirm the password
   click:
   - 1200
@@ -498,7 +474,7 @@ steps:
   clear: true
   type: '{{ password }}'
   type_gap: 0.09
-  wait_after: 2
+  settle: 2
 - name: account password next
   click:
   - 1367
@@ -554,12 +530,8 @@ steps:
   disk_settle: 180
   disk_min_mb: 512
   timeout: 3600
-  poll: 20
-  keep_alive: true
 - name: stop the machine
   shutdown: kill
   timeout: 120
 - name: publish the disk
   compress: '{{ out }}'
-- name: stop recording
-  record: false

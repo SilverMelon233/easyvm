@@ -331,41 +331,9 @@ func (d *Daemon) handleScreenPNG(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.bytes)
 }
 
-// THE FOUR BESPOKE ROUTES DECODE STRICTLY AND THEN RUN THE REQUEST AS IT ARRIVED.
-//
-// EVERY ONE OF THEM USED TO REBUILD A REQUEST FROM THE FIELDS IT EXPECTED:
-//
-//	handleClick   protocol.Request{Command: CommandClick, X: req.X, Y: req.Y}
-//
-// WHICH IS A SECOND, NARROWER TYPE THAN THE ONE THE SOCKET ACCEPTS, and it is how a misspelled key
-// became a successful click: `{"xx": 100}` decoded to a zero `X`, the rebuilt request carried that
-// zero on purpose, and `d.handle` had no way to know a number had been dropped - the evidence was
-// discarded one line above the code that needed it.
-//
-// NOW `decodeStrict` refuses an unknown field by name and `respond` maps a refusal to a status code.
-func (d *Daemon) handlePointer(w http.ResponseWriter, r *http.Request, command string) {
-	req, err := decodeStrict(w, r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	req.Command = command
-	// A MISSING COORDINATE IS A BAD REQUEST, NOT A CONFLICT WITH THE MACHINE, AND THE DIFFERENCE IS
-	// THE STATUS CODE A CALLER READS.
-	//
-	// `d.handle` also refuses it - that is the check the SOCKET transport needs - but by then the only
-	// thing this layer knows is `OK:false`, which it maps to 409. "Your request did not carry a
-	// coordinate" is a 400 and "there is no machine to click" is a 409, and a caller retrying on 409
-	// would retry forever on a body that will never have an x in it.
-	if command == protocol.CommandClick || command == protocol.CommandDouble {
-		if _, _, err := xyOf(command, req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-	}
-	respond(w, r, d.handle(req))
-}
-
+// THE FOUR BESPOKE ROUTES DECODE STRICTLY AND RUN THE REQUEST AS IT ARRIVED - see `handlePointer`
+// for the point-naming two, and the same rule for `key` and `type`: nothing is rebuilt, so a
+// misspelled field is refused by name instead of being dropped into a zero value.
 func (d *Daemon) handleClick(w http.ResponseWriter, r *http.Request) {
 	d.handlePointer(w, r, protocol.CommandClick)
 }
@@ -375,59 +343,23 @@ func (d *Daemon) handleDouble(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Daemon) handleKey(w http.ResponseWriter, r *http.Request) {
-	d.handlePointer(w, r, protocol.CommandKey)
+	req, err := decodeStrict(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Command = protocol.CommandKey
+	respond(w, r, d.handle(req))
 }
 
 func (d *Daemon) handleType(w http.ResponseWriter, r *http.Request) {
-	d.handlePointer(w, r, protocol.CommandType)
-}
-
-// decodeStrict reads one Request and REFUSES A FIELD THE REQUEST TYPE DOES NOT HAVE.
-//
-// `json.Decoder.DisallowUnknownFields` is the whole change. Without it a body is a suggestion: any
-// key that does not match is silently ignored, so a caller who wrote `{"pixelX": 200}` - or whose
-// client serialised a differently-named field, which is the same mistake from a different chair -
-// got the zero value and a success reply.
-//
-// THE COST IS THAT A CLIENT CANNOT SEND EXTRA FIELDS, which is the point: this is one struct between
-// two programs in the same repository, not a public API with a compatibility promise.
-func decodeStrict(w http.ResponseWriter, r *http.Request) (protocol.Request, error) {
-	var req protocol.Request
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		return protocol.Request{}, fmt.Errorf("the body must be a Request: %w", err)
+	req, err := decodeStrict(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	// AND NOTHING AFTER IT. `{"x":1,"y":2}{"x":3}` decodes the first object and leaves the second in
-	// the stream; a decoder that stops at the first value would act on half a request.
-	if dec.More() {
-		return protocol.Request{}, fmt.Errorf("the body must be ONE JSON object and it has more " +
-			"after the first")
-	}
-	return req, nil
-}
-
-// respond writes a Response AND MAPS ITS VERDICT ONTO THE STATUS CODE.
-//
-// A REFUSAL IS NOT A 200. The socket transport has no status codes - a refusal is `OK: false` and an
-// `error` string - and this layer inherited that shape literally, so
-//
-//	curl -f  -d '{"x":99999,"y":1}' .../api/click     -> exit 0, body {"ok":true}
-//	curl -f  -d '{"x":1}'            .../api/click     -> exit 0, body {"ok":false,...}
-//
-// THE FIRST LINE IS THE ONE THAT HURT: an impossible coordinate answered 200 because `c.Click` had
-// CLAMPED it into range. THE SECOND IS THE ONE THIS CHANGES: a refusal now arrives as a status a
-// shell, a client library or a person can see without reading a JSON body.
-//
-// 409 for a refusal rather than 400, because the request was well-formed and the MACHINE's state is
-// what it disagreed with (no machine running, a run in progress). A malformed body is a 400 and is
-// raised by the decoder, above.
-func respond(w http.ResponseWriter, r *http.Request, resp protocol.Response) {
-	code := http.StatusOK
-	if !resp.OK {
-		code = http.StatusConflict
-	}
-	writeJSON(w, code, resp)
+	req.Command = protocol.CommandType
+	respond(w, r, d.handle(req))
 }
 
 // handleCommand runs any request the socket would accept.
@@ -451,28 +383,10 @@ func (d *Daemon) handleCommand(w http.ResponseWriter, r *http.Request) {
 	respond(w, r, d.handle(req))
 }
 
-// writeJSON writes one Response, AND A BODY THAT CANNOT BE ENCODED IS NOT A SILENT 200.
-//
-// `_ = json.NewEncoder(w).Encode(v)` is what this was. Every value this function is given is a
-// struct of strings, numbers and pointers, so an encode error is not expected - WHICH IS THE ARGUMENT
-// FOR REPORTING IT, not against: the header has already gone out by the time it happens, so the one
-// thing that can still say something is the log. A caller reading the body would see a truncated
-// document and no explanation.
-//
-// THE STATUS CANNOT BE CHANGED AFTER `WriteHeader`, so this closes the connection instead - a client
-// that gets a broken stream retries or reports, where a client that gets half a JSON document and a
-// 200 does neither.
 func writeJSON(w http.ResponseWriter, code int, v any) {
-	body, err := json.Marshal(v)
-	if err != nil {
-		// NOT `http.Error`: the status has not been written yet, so this one CAN still be a 500.
-		http.Error(w, fmt.Sprintf("this daemon could not encode its own reply: %v", err),
-			http.StatusInternalServerError)
-		return
-	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_, _ = w.Write(append(body, '\n'))
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 // writerOnly is a bytes.Buffer that does not grow the API surface of this file.

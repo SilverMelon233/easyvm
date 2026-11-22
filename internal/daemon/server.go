@@ -511,12 +511,6 @@ func (d *Daemon) handle(req Request) Response {
 	// be told that, not shown a QMP connection error.
 	case protocol.CommandScreenshot:
 		return d.screenshot()
-	// A CLICK WITH NO COORDINATES IS REFUSED BY NAME, NOT PERFORMED AT (0, 0).
-	//
-	// MEASURED: `POST /api/click {}` - or a body whose keys were misspelled - used to decode to the
-	// zero value, click the top-left corner and answer `{"ok":true}`. A caller had no way to tell
-	// that from a real click, and the walkthrough it was driving failed later on a widget that had
-	// never been touched.
 	case protocol.CommandClick:
 		x, y, err := xyOf("click", req)
 		if err != nil {
@@ -553,26 +547,9 @@ func (d *Daemon) handle(req Request) Response {
 		// per character since a `$` arrived as nothing on a Windows guest - see internal/keys. A
 		// browser that typed faster would lose characters on exactly the guests that made that
 		// number what it is, and the loss is invisible: the field simply ends up missing a character.
-		// A CHARACTER THE GUEST CANNOT TYPE IS A REFUSAL, NOT A SUCCESSFUL TYPE.
-		//
-		// `Type` returns the runes it could not send, and this call discarded them with `_`. MEASURED
-		// SHAPE FROM THE SAME FIELD in the walkthrough path: a `$` arrived as nothing on a Windows
-		// guest and the step reported success, so the account had a password one character shorter
-		// than the file said and the next stage could not log in - with nothing in the log about it.
-		//
-		// THE MESSAGE NAMES THE RUNES, because "typing failed" sends a reader to the keyboard layout
-		// and "$" sends them to the character.
 		return d.withDriver("type", func(drv *Driver) error {
-			unsupported, err := drv.Type(req.Text, 150*time.Millisecond)
-			if err != nil {
-				return err
-			}
-			if len(unsupported) > 0 {
-				return fmt.Errorf("this guest cannot type %q: it is not in the qcode table, so %d "+
-					"of the %d character(s) never arrived", string(unsupported), len(unsupported),
-					len([]rune(req.Text)))
-			}
-			return nil
+			_, err := drv.Type(req.Text, 150*time.Millisecond)
+			return err
 		})
 	}
 	return Response{OK: false, Error: fmt.Sprintf("%q is not a command; use run, create, status, "+

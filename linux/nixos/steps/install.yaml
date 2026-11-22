@@ -21,10 +21,8 @@ steps:
   # forty minutes into a run. Every one of these files is declared by this leg's
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
-  require:
+  needs:
   - nixos.iso
-- name: start recording
-  record: nixos-install.mp4
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
@@ -59,7 +57,7 @@ steps:
   - click:
     - 960
     - 640
-    wait_after: 3
+    settle: 3
   - click:
     - 960
     - 640
@@ -87,11 +85,13 @@ steps:
     check:
       name: done
       from: screen
-      mode: says_any
+      mode: text
       words:
       - - welcome
       - - language
       - - keyboard
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: done
 # THE WELCOME PAGE'S `Next` IS GREY ON THE RUNNER UNTIL THE LANGUAGE COMBO COMMITS.
@@ -296,19 +296,19 @@ steps:
   - 741
   - 495
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: users - repeat password
   click:
   - 959
   - 495
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: users - administrator password
   click:
   - 741
   - 609
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: users - administrator repeat password
   click:
   - 959
@@ -472,12 +472,8 @@ steps:
   disk_settle: 180
   disk_min_mb: 1024
   timeout: 3600
-  poll: 20
-  keep_alive: true
 - name: stop the machine
   shutdown: kill
   timeout: 120
 - name: publish the disk
   compress: '{{ out }}'
-- name: stop recording
-  record: false

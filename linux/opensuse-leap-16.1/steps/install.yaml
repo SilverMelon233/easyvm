@@ -348,5 +348,3 @@ steps:
   timeout: 600
 - name: publish the disk
   compress: '{{ out }}'
-- name: stop recording
-  record: false

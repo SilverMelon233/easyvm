@@ -21,10 +21,8 @@ steps:
   # forty minutes into a run. Every one of these files is declared by this leg's
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
-  require:
+  needs:
   - endeavour.iso
-- name: start recording
-  record: endeavouros-install.mp4
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
@@ -38,19 +36,16 @@ steps:
 - name: wait for the live desktop
   desktop: linux/kde
   timeout: 5400
-  poll: 5
-  keep_alive: true
 
 - name: let the desktop settle
-  wait: 15
-  keep_alive: true
+  settle: 15
 
 # THE WELCOME WINDOW IS `Welcome v26.7.2-1 [ISO: 2026.08.15]` AND ITS `Start the Installer` BUTTON IS
 # AT (748, 431), measured on the frame. ONE CLICK: unlike CachyOS Hello's, this opens a dialog rather
 # than needing a second press to take focus.
 - name: start the installer
   click: [748, 431]
-  wait_after: 25
+  settle: 25
 
 # ENDEAVOUROS ASKS FOR AN INSTALL METHOD BEFORE CALAMARES: `Online` or `Offline`.
 #
@@ -59,25 +54,22 @@ steps:
 # either way. The button is at (1084, 591).
 - name: choose the offline method
   click: [1084, 591]
-  wait_after: 30
+  settle: 30
 
 - name: calamares is up
-  ocr:
-    name: cal
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 5
+  see: {name: cal}
 
 - name: the welcome page is in English or needs changing
   check:
     name: seen
     from: cal
-    mode: says_any
+    mode: text
     words:
     - - welcome
     - - 歡迎
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # THE LANGUAGE COMBO IS DRIVEN BY ONE LETTER AND TWO STEPS, MEASURED AND REPRODUCIBLE.
 #
 # A PREFIX IS NOT ENOUGH. Typing `eng` or `american english` does NOT reach the row, because this
@@ -105,92 +97,74 @@ steps:
 # locale list's order.
 - name: open the language list
   click: [980, 661]
-  wait_after: 4
+  settle: 4
 
 - name: jump to the English group
   key: e
-  wait_after: 2
+  settle: 2
 
 - name: step up to British English
   key: up
-  wait_after: 1
+  settle: 1
 
 - name: step up to American English
   key: up
-  wait_after: 1
+  settle: 1
 
 - name: choose it
   key: ret
-  wait_after: 6
+  settle: 6
 
 - name: the installer speaks English
-  ocr:
-    name: english
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 3
+  see: {name: english}
 
 - name: the page is in English
   check:
     name: ok
     from: english
-    mode: says
+    mode: text
     words: [welcome]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # THE FOOTER OF THIS INSTALLER: `Next` IS AT (1410, 878), measured - one row further down than
 # Kubuntu's and CachyOS' (1356, 791), because this Calamares draws its buttons in a different strip.
 #
 # Welcome -> Location
 - name: next from welcome
   click: [1410, 878]
-  wait_after: 9
+  settle: 9
 
 # Location IS LEFT AS IT IS. Location -> Keyboard
 - name: next from location
   click: [1410, 878]
-  wait_after: 9
+  settle: 9
 
 # Keyboard -> Bootloader, where `systemd-boot` is preselected and the walk keeps it: the Summary reads
 # `Install option: systemd-boot`, and the disk this produces boots from it.
 - name: next from keyboard
   click: [1410, 878]
-  wait_after: 9
+  settle: 9
 
 - name: the bootloader page
-  ocr:
-    name: boot
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 3
+  see: {name: boot}
 
 # Bootloader -> Partitions
 - name: next from bootloader
   click: [1410, 878]
-  wait_after: 9
+  settle: 9
 
 - name: the partitions page
-  ocr:
-    name: parts
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 4
+  see: {name: parts}
 
 # THIS MEDIUM PRESELECTS NOTHING HERE, so `Erase disk` has to be clicked. Measured: both radio buttons
 # are empty and the panel under them reads `Unpartitioned space or unknown partition table`.
 - name: select erase disk
   click: [679, 252]
-  wait_after: 8
+  settle: 8
 
 - name: the partitions page with erase selected
-  ocr:
-    name: erase
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 4
+  see: {name: erase}
 
 # AND THIS ONE DEFAULTS TO ext4, WHICH IS A MEASUREMENT RATHER THAN AN ASSUMPTION.
 #
@@ -206,13 +180,15 @@ steps:
   check:
     name: ext4
     from: erase
-    mode: says
+    mode: text
     words: [ext4]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # Partitions -> Users
 - name: next from partitions
   click: [1410, 878]
-  wait_after: 10
+  settle: 10
 
 # THE PAGE HAS TO BE FINISHED BEFORE ANYTHING IS CLICKED INTO IT, AND `ocr:` DOES NOT WAIT.
 #
@@ -242,12 +218,7 @@ steps:
       fact: here
 
 - name: the users page
-  ocr:
-    name: users
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 4
+  see: {name: users}
 
 # THE FIVE FIELDS, AND THE TWO PASSWORD BOXES ARE ON ONE ROW.
 #
@@ -257,30 +228,30 @@ steps:
 - name: the full name
   click: [850, 299]
   type: '{{ user }}'
-  wait_after: 2
+  settle: 2
 
 - name: the login name
   click: [850, 354]
   clear: true
   type: '{{ user }}'
-  wait_after: 2
+  settle: 2
 
 - name: the computer name
   click: [850, 434]
   clear: true
   type: endeavouros
-  wait_after: 2
+  settle: 2
 
 - name: the password
   click: [700, 515]
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 
 - name: the password again
   click: [900, 515]
   clear: true
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 
 # THE ROOT PASSWORD IS REUSED, WHICH IS A CHECKBOX ON THIS INSTALLER AND NOT A DEFAULT.
 #
@@ -331,12 +302,7 @@ steps:
   wait_after: 3
 
 - name: the users page is filled in
-  ocr:
-    name: filled
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 3
+  see: {name: filled}
 
 # THE FORM'S OWN VERDICT IS `OK!` IN A GREEN BOX, AND `Password is too short` IS NOT A REFUSAL.
 #
@@ -347,65 +313,56 @@ steps:
   check:
     name: ok
     from: filled
-    mode: says_without
+    mode: text
     words: [ok]
     without: [match]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # Users -> Summary
 - name: next from users
   click: [1410, 878]
-  wait_after: 10
+  settle: 10
 
 - name: the summary page arrives before install is clicked
   loop:
     max: 30
     do:
-    - wait: 10
-    ocr:
-      name: settle
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
-      wait: 3
+    - settle: 10
+    see: {name: settle}
     check:
       name: here
       from: settle
-      mode: says_any
+      mode: text
       words:
       - - summary
       - - install
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: here
 
 - name: the summary page
-  ocr:
-    name: summary
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 4
+  see: {name: summary}
 
 # THE SUMMARY SAYS ext4 IN WORDS, WHICH IS THE SECOND INDEPENDENT READING OF THE FILESYSTEM.
 - name: the summary names ext4
   check:
     name: ext4
     from: summary
-    mode: says
+    mode: text
     words: [ext4]
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 # Summary -> the confirmation dialog. `Install` IS AT (1392, 881) - the same strip as `Next` but the
 # button itself sits further right, and clicking (1456, 886) landed on its edge and did nothing.
 - name: start the install
   click: [1412, 868]
-  wait_after: 10
+  settle: 10
 
 - name: the confirmation dialog
-  ocr:
-    name: confirm
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 3
+  see: {name: confirm}
 
 # `Install Now` INSIDE THE DIALOG. MEASURED off the live frame: the button's box spans
 # x=680..740, y=352..368 in the 1280-wide view, so its centre is (709, 360) there - (1064, 540) on
@@ -419,25 +376,20 @@ steps:
   disk_settle: 300
   disk_min_mb: 4000
   timeout: 3600
-  poll: 20
-  keep_alive: true
 
 - name: the install is done
   loop:
     max: 80
     do:
-    - wait: 15
-    ocr:
-      name: done
-      region: [0, 0, 1920, 1080]
-      region_at: [1920, 1080]
-      scale: 1
-      wait: 0
+    - settle: 15
+    see: {name: done}
     check:
       name: finished
       from: done
-      mode: says
+      mode: text
       words: [installed]
+      rect: [0, 0, 1920, 1080]
+      rect_at: [1920, 1080]
     until:
       fact: finished
 
@@ -449,5 +401,3 @@ steps:
 
 - name: publish the disk
   compress: '{{ out }}'
-- name: stop recording
-  record: false

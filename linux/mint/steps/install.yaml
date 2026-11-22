@@ -22,10 +22,8 @@ steps:
   # forty minutes into a run. Every one of these files is declared by this leg's
   # `assets:` in its workflow and placed here by `pull-artifact.sh` before
   # `easyvm run` is called; nothing in this file downloads.
-  require:
+  needs:
   - mint.iso
-- name: start recording
-  record: mint-install.mp4
 - name: create the empty disk
   disk: disk.qcow2
   disk_gb: 128
@@ -45,32 +43,27 @@ steps:
 # works at this point - GRUB draws it - so one `ret` is the whole fix, and it is a step of its own
 # so the transcript says the menu was answered rather than that a wait merely succeeded.
 - name: the medium's GRUB menu is up
-  ocr:
-    name: grub
-    region: [0, 0, 1920, 1080]
-    region_at: [1920, 1080]
-    scale: 1
-    wait: 5
+  see: {name: grub}
 - name: that menu names mint
   check:
     name: is_mint
     from: grub
-    mode: says_any
+    mode: text
     words:
     - - start
       - linux
       - mint
     - - linux
       - mint
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: answer the menu, which does not count down
   key: ret
-  wait_after: 20
+  settle: 20
 
 - name: wait for the live desktop
   desktop: linux/cinnamon
   timeout: 5400
-  poll: 5
-  keep_alive: true
 - name: disable the screen saver, its lock and the dpms blank
   run: gsettings set org.cinnamon.desktop.session idle-delay 0; gsettings set org.cinnamon.desktop.screensaver lock-enabled false; gsettings set org.cinnamon.desktop.screensaver idle-activation-enabled false; xrandr --output Virtual-1 --mode 1920x1080
     2>/dev/null || xrandr --output Virtual1 --mode 1920x1080 2>/dev/null || xrandr -s 1920x1080 2>/dev/null || true; xset s off; xset -dpms; xset s noblank; ( for i in $(seq 1 1080); do xdotool mousemove_relative -- 1 0 2>/dev/null; xdotool mousemove_relative
@@ -146,22 +139,22 @@ steps:
   click:
   - 1306
   - 727
-  wait_after: 12
+  settle: 12
 - name: keyboard
   click:
   - 1306
   - 727
-  wait_after: 12
+  settle: 12
 - name: multimedia codecs
   click:
   - 1306
   - 727
-  wait_after: 12
+  settle: 12
 - name: installation type
   click:
   - 1306
   - 727
-  wait_after: 15
+  settle: 15
 # UBIQUITY HAS NO FILESYSTEM SELECTOR, AND THIS DIALOG IS THE ONLY PLACE IT NAMES ONE.
 #
 # MEASURED on this image, verbatim:
@@ -178,60 +171,51 @@ steps:
 # THE RESULTING DISK WAS VERIFIED INDEPENDENTLY: s_magic=0xef53, incompat=0x000002c6,
 # EXTENTS=True, 64BIT=True - the same signature zorin produces, which is the same installer.
 - name: the dialog names the filesystem it will create
-  ocr:
-    name: format
-    region:
-    - 0
-    - 0
-    - 1920
-    - 1080
-    region_at:
-    - 1920
-    - 1080
-    scale: 1
-    wait: 0
+  see: {name: format}
 
 - name: the root partition will be ext4
   check:
     name: ext4
     from: format
-    mode: says
+    mode: text
     words:
     - ext4
 
+    rect: [0, 0, 1920, 1080]
+    rect_at: [1920, 1080]
 - name: write the changes to disks
   click:
   - 1266
   - 663
-  wait_after: 25
+  settle: 25
 - name: installation type - install now, after the modal
   click:
   - 1307
   - 726
-  wait_after: 30
+  settle: 30
 - name: where are you
   click:
   - 1306
   - 727
-  wait_after: 15
+  settle: 15
 - name: who are you - full name
   click:
   - 965
   - 347
   type: '{{ display_name }}'
-  wait_after: 2
+  settle: 2
 - name: who are you - password
   click:
   - 877
   - 458
   type: '{{ password }}'
-  wait_after: 2
+  settle: 2
 - name: who are you - confirm password
   click:
   - 877
   - 492
   type: '{{ password }}'
-  wait_after: 3
+  settle: 3
 - name: who are you
   click:
   - 1306
@@ -280,5 +264,3 @@ steps:
   timeout: 120
 - name: publish the disk
   compress: '{{ out }}'
-- name: stop recording
-  record: false
