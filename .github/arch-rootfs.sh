@@ -34,10 +34,30 @@ set -eu
 #	   xfce  xfce-wayland  cinnamon  lxqt  lxqt-wayland
 #	   qtile  qtile-wayland  enlightenment
 #
-# cinnamon AND enlightenment ARE X11-ONLY HERE: their `-wayland` variants were dropped because
-# their compositors expose no capture protocol this image can read (muffin: no zwlr_screencopy,
-# no Mutter.ScreenCast D-Bus; E: no screencopy in wl_drm). river, weston, kylin, treeland
-# and deepin-wayland were dropped earlier for their own measured reasons.
+# cinnamon-wayland IS BACK, BECAUSE virtio-gpu FIXED THE REASON IT WAS DROPPED. It was removed
+# for a CAPTURE limit on vkms; the record shows the session was stable there and easystream
+# attached and knew the size, but the frame's max pixel was ZERO - the desktop was never
+# painted, because muffin is a Mutter fork and wants a render node AND a KMS output on one
+# card. MEASURED on virtio-gpu: the full desktop paints (mean 107.4, spread 22.3), and its
+# "no video hardware acceleration" notice is the correct state, not a fault. The scanout is
+# the evidence, so no capture protocol is needed.
+#
+# enlightenment-wayland STAYS OUT, AND FOR A DIFFERENT REASON THAT virtio-gpu DOES NOT MOVE.
+# It was dropped for a MODE problem (it picked vkms' 4096x2160 and scanned out black), so it
+# was re-tested here - and the actual blocker is E's own Evas engine, measured from its log:
+#
+#	evas-gl-drm ... _evas_outbuf_egl_setup() OpenGL Driver blacklisted:
+#	Vendor: Mesa
+#	Renderer: llvmpipe (LLVM 23.1.5, 256 bits)
+#	evas_gl_new() Evas GL engine not available.
+#	KMS: DRM_IOCTL_MODE_CREATE_DUMB failed: Permission denied
+#
+# E BLACKLISTS THE SOFTWARE RENDERER, exactly as niri refuses it - and with no virgl in this
+# QEMU that is the only renderer there is. It then falls back to a KMS dumb buffer path that
+# needs DRM master it does not get, and picks 5120x2160 (the largest advertised mode) which is
+# why the frame was black. Two of those three are E's own behaviour, not the device's.
+# river, weston, kylin, treeland and deepin-wayland were dropped earlier for their own
+# measured reasons.
 #
 # NIRI WAS RE-TESTED ON virtio-gpu AND THE ANSWER IS STILL NO, AND NOW IT IS THE GPU'S FAULT
 # RATHER THAN THE CAPTURE PATH'S. It was dropped once for refusing software EGL; the suspicion
@@ -125,12 +145,12 @@ mate|i3|flashback) DESKTOP_FAMILY=x11 ;;
 # other. The `treeland.desktop` that also ships is `Hidden=true` and carries
 # `X-DDE-SINGLE-WAYLAND=true` - it is the no-greeter variant, not a second desktop.
 xfce|cinnamon|lxqt|qtile|enlightenment|deepin) DESKTOP_FAMILY=x11 ;;
-xfce-wayland|lxqt-wayland|qtile-wayland) DESKTOP_FAMILY=wayland ;;
+xfce-wayland|lxqt-wayland|qtile-wayland|cinnamon-wayland) DESKTOP_FAMILY=wayland ;;
 *)
 	echo "DESKTOP=$DESKTOP is not one of: 0 sway hyprland budgie labwc wayfire" >&2
 	echo "  mangowm phosh plasma-mobile plasma-bigscreen" >&2
 	echo "  mate i3 flashback deepin" >&2
-	echo "  dual-stack: xfce xfce-wayland  lxqt lxqt-wayland  qtile qtile-wayland" >&2
+	echo "  dual-stack: xfce xfce-wayland  lxqt lxqt-wayland  qtile qtile-wayland  cinnamon cinnamon-wayland" >&2
 	exit 2
 	;;
 esac
@@ -301,6 +321,11 @@ if [ ! -d "$ROOT/usr" ]; then
 	# GNOME portal backend can screencast muffin WITHOUT a consent dialog - the wlr backend cannot
 	# (muffin has no wlr-screencopy) and grim answered "compositor doesn't support the screen
 	# capture protocol". easystream already falls back to the ScreenCast portal.
+	# CINNAMON'S WAYLAND SESSION runs on MUFFIN, the Mutter fork that is also its X11 window
+	# manager, built with the Wayland backend. It is a Mutter-style compositor, so it wants the
+	# same pair as GNOME - a KMS output AND a render node on one device - which is what vkms
+	# could not give and virtio-gpu does. See the session branch for the measurement.
+	cinnamon-wayland) DESKTOP_PKGS="cinnamon cinnamon-session xdg-desktop-portal xdg-desktop-portal-gnome $DESKTOP_COMMON" ;;
 	lxqt)     DESKTOP_PKGS="lxqt-session lxqt-panel openbox qterminal xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# LXQT'S WAYLAND SESSION IS A SEPARATE PACKAGE, `lxqt-wayland-session`, whose only job is
 	# the `startlxqtwayland` wrapper. MEASURED: `Exec=startlxqtwayland`, and it needs a
@@ -730,6 +755,49 @@ PUP
 			# THE SESSION FILE'S OWN LINE: `Exec=startxfce4 --wayland`. labwc is the compositor
 			# that `--wayland` drives, which is why it is in this variant's package list.
 			SESSION_CMD='exec startxfce4 --wayland'
+		elif [ "$DESKTOP" = "cinnamon-wayland" ]; then
+			# `Exec=cinnamon-session-cinnamon --wayland`, from the session file.
+			#
+			# IT RAN END TO END ON vkms AND STILL DREW NOTHING, AND THAT IS WHY virtio-gpu FIXED
+			# IT. MEASURED on vkms: the session was stable (the marker printed once, no restart
+			# loop) and easystream attached and reported "encoder opened 1024x768", but the
+			# frame's max pixel was 0 - not a capture failure, a DESKTOP THAT WAS NEVER PAINTED.
+			# muffin is a Mutter fork, so it carries GDM's requirement: an EGL device with a
+			# render node AND a KMS output on the same card. vkms had no render node, vgem's
+			# render node had no output, and Mutter-style code ignores a non-primary GPU.
+			#
+			# MEASURED on virtio-gpu: the FULL Cinnamon desktop - wallpaper, bottom panel, clock -
+			# at mean brightness 107.4, spread 22.3. Cinnamon also shows its "running without
+			# video hardware acceleration" notice, which is the CORRECT state here: there is no
+			# virgl, so the renderer is llvmpipe. It proves muffin started and probed the GPU.
+			#
+			# nemo IS THE BACKGROUND PAINTER and cinnamon-session lists it as a RequiredComponent,
+			# so two things were in tension on vkms: without a shim "nemo-autostart respawning too
+			# quickly" tore the session down; with one the session survived but nothing drew.
+			# nemo-desktop is therefore started as an ORDINARY PROCESS by the wrapper, and the
+			# session's required list is cut to the compositor alone.
+			if [ -f "$ROOT/usr/share/cinnamon-session/sessions/cinnamon-wayland.session" ]; then
+				sed -i "s/^RequiredComponents=.*/RequiredComponents=cinnamon-wayland;/" \
+					"$ROOT/usr/share/cinnamon-session/sessions/cinnamon-wayland.session"
+			fi
+			cat > "$ROOT/opt/cinn-nemo.sh" <<'NEMO'
+#!/bin/sh
+i=0
+while [ $i -lt 200 ]; do
+	[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && break
+	i=$((i+1)); sleep 0.1
+done
+sleep 2
+exec /usr/bin/nemo-desktop
+NEMO
+			chmod 0755 "$ROOT/opt/cinn-nemo.sh"
+			cat > "$ROOT/opt/cinn-session.sh" <<'CSESS'
+#!/bin/sh
+/opt/cinn-nemo.sh &
+exec /usr/bin/cinnamon-session-cinnamon --wayland
+CSESS
+			chmod 0755 "$ROOT/opt/cinn-session.sh"
+			SESSION_CMD='exec /opt/cinn-session.sh'
 		elif [ "$DESKTOP" = "lxqt-wayland" ]; then
 			# `Exec=startlxqtwayland`, provided by the separate `lxqt-wayland-session` package.
 			SESSION_CMD='exec startlxqtwayland'
@@ -1040,6 +1108,9 @@ case "$DESKTOP" in
 	xfce|xfce-wayland) XDG_CURRENT_DESKTOP=XFCE ;;
 	lxqt|lxqt-wayland) XDG_CURRENT_DESKTOP=LXQt ;;
 	plasma|plasma-mobile|plasma-bigscreen) XDG_CURRENT_DESKTOP=KDE ;;
+	# CINNAMON'S SESSION NAME IS "X-Cinnamon" IN ITS OWN DESKTOP FILES; muffin forks Mutter's
+	# backend selection and reads this to decide it is a Cinnamon session.
+	cinnamon|cinnamon-wayland) XDG_CURRENT_DESKTOP=X-Cinnamon ;;
 	*) XDG_CURRENT_DESKTOP="$DESKTOP" ;;
 esac
 export XDG_CURRENT_DESKTOP

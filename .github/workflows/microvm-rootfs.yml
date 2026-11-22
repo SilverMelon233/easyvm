@@ -229,6 +229,19 @@ jobs:
             script: .github/arch-rootfs.sh
             desktop: "qtile-wayland"
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          # CINNAMON'S WAYLAND SESSION WAS RE-TESTED ON virtio-gpu AND IT NOW PAINTS.
+          #
+          # It had been dropped for a measured reason: on vkms the session was stable but the
+          # frame's max pixel was ZERO - a desktop that was never painted, because muffin is a
+          # Mutter fork and wants a render node AND a KMS output on one card. MEASURED on
+          # virtio-gpu: the full Cinnamon desktop - wallpaper, bottom panel, clock - at mean
+          # brightness 107.4 with a spread of 22.3, plus Cinnamon's own "running without video
+          # hardware acceleration" notice, which is the CORRECT state here and proves muffin
+          # started and probed the GPU.
+          - tag: rootfs-arch-cinnamon-wayland
+            script: .github/arch-rootfs.sh
+            desktop: "cinnamon-wayland"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
           # THE FULL GNOME STACK: GDM AS THE DISPLAY MANAGER, THEN gnome-shell ON WAYLAND, ON A
           # virtio-gpu DISPLAY OVER PCIe. Verified locally: GDM started, autologin ran, the shell
           # painted its desktop at 1024x768, and qemu's screendump of that scanout was a full
