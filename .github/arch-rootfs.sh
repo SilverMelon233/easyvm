@@ -317,7 +317,9 @@ if [ ! -d "$ROOT/usr" ]; then
 	# `xfce-wayland.desktop` and it runs on `labwc` as its compositor, which is why labwc is
 	# a dependency here and not a separate variant.
 	xfce-wayland)     DESKTOP_PKGS="xfce4 xfce4-terminal xfce4-session labwc $DESKTOP_COMMON" ;;
-	cinnamon) DESKTOP_PKGS="cinnamon cinnamon-session xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
+	# DCONF IS HERE BECAUSE THE WALLPAPER FIX IS A DCONF KEY. See the background note in the
+	# session block: cinnamon's schema default points at a .jxl this image cannot decode.
+	cinnamon) DESKTOP_PKGS="cinnamon cinnamon-session dconf xorg-server xorg-xinit xorg-server-xvfb $DESKTOP_COMMON" ;;
 	# CINNAMON'S WAYLAND SESSION RUNS ON `muffin` AS ITS OWN COMPOSITOR - the same binary that
 	# is its X11 window manager, built with the Wayland backend.
 	# xdg-desktop-portal-gnome FUNNELS THROUGH org.gnome.Mutter.ScreenCast, WHICH MUFFIN IMPLEMENTS.
@@ -1559,6 +1561,55 @@ exec /usr/lib/Xorg :0 -keeptty -novtswitch -ac -nolisten tcp -logfile /tmp/Xorg.
 SESSION
 		chmod 0755 "$ROOT/opt/session.sh"
 
+		# CINNAMON'S DESKTOP WAS BLACK BECAUSE ITS WALLPAPER COULD NOT BE DECODED, AND THE
+		# COMPOSITOR WAS NEVER THE PROBLEM. MEASURED, and this replaces an earlier guess:
+		#
+		#   * `muffin` runs fine. Started by hand in the guest it creates an llvmpipe GLX
+		#     context (GL_RENDERER: llvmpipe, GL_VERSION 4.6) and reaches its drawing loop. The
+		#     "Refusing to try glamor on llvmpipe" line is Xorg declining to accelerate ITS
+		#     drawing; it does not stop the X11 compositor, because that compositor uses GLX,
+		#     not glamor.
+		#   * `_NET_WM_CM_S0` was NOT set in the running session, so the frame really was
+		#     background-less - but the reason is the load, not the compositing.
+		#
+		# THE LOAD, from cinnamon-background-daemon's own journal line:
+		#
+		#	Failed to load background pixbuf from /usr/share/backgrounds/gnome/adwaita-l.jxl:
+		#	glycin-loaders/glycin-jxl/src/main.rs:69:61: Generic Error. Please build `libjxl`
+		#	from source (using `vendored` feature) ...
+		#
+		# The schema's default background is a .jxl, and gdk-pixbuf now decodes images through
+		# glycin, whose jxl loader assumes a vendored libjxl that Arch does not ship. The .svg
+		# backgrounds DO decode - MEASURED with GdkPixbuf in the guest, both load at 4096x4096 -
+		# but the background daemon fails them too, with `glycin-svg.rs:129:10: rendering error:
+		# NoMemory`, because a 4096x4096 render does not fit the sandbox's budget.
+		#
+		# SO THE DESKTOP ASKS FOR NO IMAGE AT ALL and paints a solid colour, which is the one
+		# path that needs no decoder and no sandbox. MEASURED after setting this in a live
+		# session: zero "Failed to load background pixbuf" lines, and the captured frame went
+		# from mean 6.4 to mean 68.2 with #2f4f6f as 661081 of its pixels - a real background
+		# under the panel and icons.
+		#
+		# `picture-uri-list` IS THE KEY THAT WINS, not `picture-uri`. MEASURED: setting
+		# picture-uri alone left the frame unchanged, because cinnamon reads the list first and
+		# its schema default already populates it. The list entry carries the colour itself.
+		if [ "$DESKTOP" = "cinnamon" ]; then
+			mkdir -p "$ROOT/etc/dconf/db/local.d" "$ROOT/etc/dconf/profile"
+			cat > "$ROOT/etc/dconf/profile/user" <<'DPROFILE'
+user-db:user
+system-db:local
+DPROFILE
+			cat > "$ROOT/etc/dconf/db/local.d/00-wallpaper" <<'DWALL'
+[org/cinnamon/desktop/background]
+picture-uri-list=[{'picture-uri': <'file:///nonexistent.png'>, 'picture-options': <'none'>, 'primary-color': <'#2f4f6f'>, 'color-shading-type': <'solid'>}]
+DWALL
+			# THE COMPILED DB IS WHAT DCONF ACTUALLY READS, and it is built here rather than
+			# left to a package hook because nothing else would run one on this file.
+			if command -v dconf >/dev/null 2>&1; then
+				dconf compile "$ROOT/etc/dconf/db/local" "$ROOT/etc/dconf/db/local.d"
+			fi
+		fi
+
 		case "$DESKTOP" in
 		xfce)     SESSION_EXEC=/usr/bin/xfce4-session ;;
 		cinnamon) SESSION_EXEC=/usr/bin/cinnamon-session ;;
@@ -1662,33 +1713,27 @@ fi
 # drawn desktop rather than a dead one, and it costs one process that exits immediately.
 xsetroot -solid '#2f4f6f' 2>/dev/null || true
 
-# AND AGAIN AFTER THE SESSION MANAGER HAS TAKEN OVER, because two desktops overwrite it.
-#
-# MEASURED, cinnamon: it draws a GL-composited background through org.Cinnamon.Background,
-# and on this Xorg that fails with
-#
-#	Could not get DRI3 device
-#	Ensure your X server supports DRI3 to get accelerated rendering
-#
-# - the DRI3 device needs virgl, which this QEMU does not have - so the root window is left
-# black and the panel and icons float on it (mean 6.4). The desktop is otherwise complete.
-# Re-applying the solid colour after a delay puts a real background under it without
-# fighting the compositor: anything that CAN draw its own wins, and this fills the gap when
-# nothing did.
+# AND AGAIN AFTER THE SESSION MANAGER HAS TAKEN OVER, because a desktop that owns the root
+# window overwrites it. Re-applying the colour after a delay puts a real background under the
+# panel and icons without fighting anything: a desktop that CAN draw its own still wins, and
+# this fills the gap for one that cannot.
 (
-	# AND IT CANNOT HELP CINNAMON, WHICH IS RECORDED RATHER THAN HIDDEN. MEASURED: `xsetroot
-	# -solid` returns 0 in a running cinnamon session and the frame stays at mean 6.4, and
-	# setting org.cinnamon.desktop.background to a solid colour changes nothing either -
-	# cinnamon owns the root window and paints it through its GL compositor, which on this Xorg
-	# cannot start:
+	# AND IT IS NOT WHAT LEFT CINNAMON'S DESKTOP BLACK. That turned out to be a decoder, not
+	# glamor - see the wallpaper note in the session block: the schema's default background is a
+	# .jxl that glycin's Arch build cannot decode. The xsetroot retries below are still worth
+	# running, because they cost a process that exits and they fill the root window for any
+	# desktop that never paints it.
 	#
-	#	Could not get DRI3 device
-	#	Ensure your X server supports DRI3 to get accelerated rendering
+	# THE GLAMOR FACTS, kept because they are true and because the next person will look here
+	# first: `AccelMethod "glamor"` loads, gets an OpenGL 4.6 context, and Xorg then says
 	#
-	# DRI3 here needs virgl, and this QEMU has none. So cinnamon's desktop is COMPLETE - panel,
-	# icons, menus, clock, its own "no video hardware acceleration" notice - over a black
-	# background, and that is its ceiling on this image rather than a session fault.
+	#	(II) modeset(0): Refusing to try glamor on llvmpipe
+	#	(II) modeset(0): glamor initialization failed
 	#
+	# because xorg-server's glamor/glamor_egl.c refuses llvmpipe on purpose (commit 0a9415cf79:
+	# "the downside of this change is that you lose DRI3 support"), and this guest has no virgl.
+	# That costs DRI3 and hardware acceleration; it does NOT stop an X11 compositor, which uses
+	# GLX instead - MEASURED: muffin runs and draws on this exact server.
 	# The two attempts still matter for the desktops that leave the root window untouched.
 	for delay in 12 25 45; do
 		sleep \$delay
