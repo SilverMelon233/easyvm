@@ -1628,8 +1628,24 @@ xsetroot -solid '#2f4f6f' 2>/dev/null || true
 # fighting the compositor: anything that CAN draw its own wins, and this fills the gap when
 # nothing did.
 (
-	sleep 12
-	xsetroot -solid '#2f4f6f' 2>/dev/null || true
+	# AND IT CANNOT HELP CINNAMON, WHICH IS RECORDED RATHER THAN HIDDEN. MEASURED: `xsetroot
+	# -solid` returns 0 in a running cinnamon session and the frame stays at mean 6.4, and
+	# setting org.cinnamon.desktop.background to a solid colour changes nothing either -
+	# cinnamon owns the root window and paints it through its GL compositor, which on this Xorg
+	# cannot start:
+	#
+	#	Could not get DRI3 device
+	#	Ensure your X server supports DRI3 to get accelerated rendering
+	#
+	# DRI3 here needs virgl, and this QEMU has none. So cinnamon's desktop is COMPLETE - panel,
+	# icons, menus, clock, its own "no video hardware acceleration" notice - over a black
+	# background, and that is its ceiling on this image rather than a session fault.
+	#
+	# The two attempts still matter for the desktops that leave the root window untouched.
+	for delay in 12 25 45; do
+		sleep \$delay
+		xsetroot -solid '#2f4f6f' 2>/dev/null || true
+	done
 ) &
 
 echo "ARCH-SESSION-STARTING: $DESKTOP"
