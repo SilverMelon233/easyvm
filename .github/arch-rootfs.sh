@@ -1021,26 +1021,26 @@ GENV
 			#
 			# kwin runs the session, so the setting is applied from inside it once the
 			# compositor is up. Space is a long way off, but a guest has no input to wake.
-			cat > "$ROOT/opt/kde-no-dpms.sh" <<'NODPMS'
-#!/bin/sh
-# Wait for kwin's session bus, then keep the output on.
-i=0
-while [ $i -lt 600 ]; do
-	kscreen-doctor --dpms on >/dev/null 2>&1 && break
-	i=$((i + 1)); sleep 0.1
-done
-# Plasma can re-arm DPMS; keep asserting it is on for as long as the session lives.
-while :; do
-	kscreen-doctor --dpms on >/dev/null 2>&1
-	sleep 20
-done
-NODPMS
-			chmod 0755 "$ROOT/opt/kde-no-dpms.sh"
-			# The keeper goes in the background FIRST, then the session replaces this shell -
-			# `exec a & exec b` would never run b, because the first exec replaces the shell.
+			# DPMS OFF BY CONFIG, NOT BY A COMMAND. Two other attempts were MEASURED and
+			# both fail on this image:
+			#   * `kscreen-doctor --dpms on` called before the session's bus is up does not
+			#     fail politely - it ABORTS ("Aborted (core dumped)"), and the screen stays off;
+			#   * writing /sys/class/drm/card0-Virtual-1/dpms directly is not permitted to
+			#     vmuser (MEASURED: the attribute is not writable by the session user), even
+			#     though it READS "Off" once Plasma has powered the output down.
+			#
+			# Plasma's own power settings are the supported lever, and they are files under
+			# the user's config directory, so a headless image can simply ship "never turn the
+			# screen off". Space keeps it out of DPMS for the life of the session.
 			cat > "$ROOT/opt/kde-session.sh" <<'KSESS'
 #!/bin/sh
-/opt/kde-no-dpms.sh &
+# Never dim or blank: a headless guest has no input to wake the display, and the portal
+# captures exactly what is scanned out - so a powered-down output is a black frame.
+kwriteconfig6 --file powermanagementprofilesrc --group AC --group DimDisplay --key idleTime 0 2>/dev/null
+kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key idleTime 0 2>/dev/null
+kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key mode 0 2>/dev/null
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false 2>/dev/null
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 0 2>/dev/null
 exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland
 KSESS
 			chmod 0755 "$ROOT/opt/kde-session.sh"
@@ -1106,12 +1106,15 @@ KSESS
 			# SO THE ONLY WAY LEFT FOR PLASMA IS ONE HUMAN CLICK on the consent dialog - either
 			# once by hand to mint a restore token, or with an input device in the guest. A headless
 			# boot cannot supply it, and this image cannot forge the token without that first grant.
-			# DPMS OFF, for the reason spelled out under the plasma branch: Plasma powers the
-			# output down on idle and every portal frame is then uniformly black while the
-			# stream itself reports healthy.
+			# DPMS OFF BY CONFIG - see the plasma branch for the two measured failures of
+			# the alternatives. Same settings, different session command.
 			cat > "$ROOT/opt/kde-session.sh" <<'KSESS_plasma_mobile'
 #!/bin/sh
-/opt/kde-no-dpms.sh &
+kwriteconfig6 --file powermanagementprofilesrc --group AC --group DimDisplay --key idleTime 0 2>/dev/null
+kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key idleTime 0 2>/dev/null
+kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key mode 0 2>/dev/null
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false 2>/dev/null
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 0 2>/dev/null
 exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile
 KSESS_plasma_mobile
 			chmod 0755 "$ROOT/opt/kde-session.sh"
@@ -1121,12 +1124,15 @@ KSESS_plasma_mobile
 			# apply to the scanout. MEASURED on this image: the TV launcher grid - the clock and
 			# date, the tool row, and the application tiles - at 1024x768, mean brightness 57.1
 			# with a mean deviation of 23.4. Captured by `read`, like its two siblings.
-			# DPMS OFF, for the reason spelled out under the plasma branch: Plasma powers the
-			# output down on idle and every portal frame is then uniformly black while the
-			# stream itself reports healthy.
+			# DPMS OFF BY CONFIG - see the plasma branch for the two measured failures of
+			# the alternatives. Same settings, different session command.
 			cat > "$ROOT/opt/kde-session.sh" <<'KSESS_plasma_bigscreen'
 #!/bin/sh
-/opt/kde-no-dpms.sh &
+kwriteconfig6 --file powermanagementprofilesrc --group AC --group DimDisplay --key idleTime 0 2>/dev/null
+kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key idleTime 0 2>/dev/null
+kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key mode 0 2>/dev/null
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false 2>/dev/null
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 0 2>/dev/null
 exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland
 KSESS_plasma_bigscreen
 			chmod 0755 "$ROOT/opt/kde-session.sh"
