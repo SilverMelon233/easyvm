@@ -562,6 +562,88 @@ if [ "$DESKTOP_FAMILY" != "none" ]; then
 		log "easystream: all libraries resolve"
 	fi
 
+	# --- 3b-ii. THE KDE PORTAL'S CONSENT DIALOG, ANSWERED IN ADVANCE --------------------
+	#
+	# THE PROBLEM. KWin implements neither wlr-screencopy nor ext-image-copy-capture, so a
+	# Plasma variant can only be captured through xdg-desktop-portal-kde's ScreenCast - and
+	# that backend's Start() ends in
+	#
+	#	portal: SelectDevices ok
+	#	portal: no Response for /org/freedesktop/portal/desktop/request/1_51/est1
+	#
+	# because it waits for a human to click a consent dialog. A headless boot has nobody.
+	#
+	# THE ANSWER IS THE BACKEND'S OWN MECHANISM, not a workaround invented here. MEASURED
+	# from xdg-desktop-portal-kde/src/remotedesktop.cpp, which documents
+	#
+	#	// Mega-authorization is a permission system specific to the KDE portal
+	#	// implementation. A mega-authorized application is one that has been granted
+	#	// permissions to access all (remote desktop) features **without** any further user
+	#	// interaction. Particularly useful for headless setups and when the user is not
+	#	// physically at the machine.
+	#
+	# and whose Start() is
+	#
+	#	if (restored || isAppMegaAuthorized(app_id)) { continueStart(session); }  // no dialog
+	#	else if (!isAppMegaAuthorized(app_id))       { new RemoteDesktopDialog(...); }
+	#
+	# So one row in the permission store's `kde-authorized` / `remote-desktop` table, keyed
+	# by the EMPTY app id (which the source says means "a host application" - a non-flatpak
+	# binary, which easystream is), makes Start answer with no dialog at all.
+	#
+	# MEASURED end to end on Plasma Wayland over virtio-gpu, with this row present:
+	#
+	#	portal: SelectDevices ok
+	#	portal: stream state=streaming error=(none)
+	#	portal: negotiated 1024x768 format=8
+	#	portal: frame #1 1024x768 stride=4096 size=3145728
+	#
+	# THE WRITE RUNS AT BOOT, NOT BUILD TIME, because the permission store is a service on
+	# the session bus and keeps its table in the user's runtime state. A unit does it as
+	# vmuser, before the session's capture unit asks for a stream.
+	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
+		cat > "$ROOT/opt/kde-mega-auth.sh" <<'KMEGA'
+#!/bin/sh
+# Grant this desktop's portal permission to capture without a consent dialog, using the
+# backend's own mega-authorisation table. See the long note in arch-rootfs.sh.
+set -u
+TABLE=kde-authorized
+ID=remote-desktop
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+
+# The portal's stores come up with the session bus; wait rather than fail.
+i=0
+while [ $i -lt 300 ]; do
+	busctl --user status org.freedesktop.impl.portal.PermissionStore >/dev/null 2>&1 && break
+	i=$((i + 1)); sleep 0.1
+done
+if ! busctl --user status org.freedesktop.impl.portal.PermissionStore >/dev/null 2>&1; then
+	# NOT AN ERROR ON A NON-KDE SESSION: GNOME's backend has no such table and never
+	# consults one, so there is nothing to write and nothing to complain about.
+	echo "kde-mega-auth: no KDE permission store on this session; nothing to grant" >&2
+	exit 0
+fi
+
+gdbus call --session \
+	--dest org.freedesktop.impl.portal.PermissionStore \
+	--object-path /org/freedesktop/impl/portal/PermissionStore \
+	--method org.freedesktop.impl.portal.PermissionStore.Set \
+	"$TABLE" true "$ID" '{"": ["yes"]}' '<@v <@ay []>>' >/dev/null 2>&1
+
+if gdbus call --session \
+	--dest org.freedesktop.impl.portal.PermissionStore \
+	--object-path /org/freedesktop/impl/portal/PermissionStore \
+	--method org.freedesktop.impl.portal.PermissionStore.Lookup \
+	"$TABLE" "$ID" 2>/dev/null | grep -q "'yes'"; then
+	echo "kde-mega-auth: $TABLE/$ID grants the empty app id -> Start will not ask"
+else
+	echo "kde-mega-auth: FAILED to write $TABLE/$ID" >&2
+fi
+KMEGA
+		chmod 0755 "$ROOT/opt/kde-mega-auth.sh"
+	fi
+
 	# --- 3b. THE GPU ------------------------------------------------------------------
 	#
 	# VIRTIO-GPU, NOT VKMS. The display device is the one QEMU attaches as virtio-gpu-pci,
@@ -928,7 +1010,41 @@ GENV
 			# Plasma desktop (wallpaper, bottom panel, clock, tray) at 1024x768, mean brightness
 			# 128.6 with a mean deviation of 37.0. That is the evidence this variant ships, and it
 			# is the same one the GNOME variant uses.
-			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland'
+			# DPMS MUST BE OFF, OR THE CAPTURE IS A BLACK FRAME.
+			#
+			# MEASURED on this image: Plasma's power management turns the output off after its
+			# idle timeout, /sys/class/drm/card0-Virtual-1/dpms reads "Off", and every portal
+			# frame is then uniformly black - the stream itself is healthy ("stream
+			# state=streaming", "frame #1 1024x768"), which is what makes this easy to
+			# misdiagnose as a portal failure. With DPMS forced on the same capture jumps from
+			# ~3 KB frames to 260 KB.
+			#
+			# kwin runs the session, so the setting is applied from inside it once the
+			# compositor is up. Space is a long way off, but a guest has no input to wake.
+			cat > "$ROOT/opt/kde-no-dpms.sh" <<'NODPMS'
+#!/bin/sh
+# Wait for kwin's session bus, then keep the output on.
+i=0
+while [ $i -lt 600 ]; do
+	kscreen-doctor --dpms on >/dev/null 2>&1 && break
+	i=$((i + 1)); sleep 0.1
+done
+# Plasma can re-arm DPMS; keep asserting it is on for as long as the session lives.
+while :; do
+	kscreen-doctor --dpms on >/dev/null 2>&1
+	sleep 20
+done
+NODPMS
+			chmod 0755 "$ROOT/opt/kde-no-dpms.sh"
+			# The keeper goes in the background FIRST, then the session replaces this shell -
+			# `exec a & exec b` would never run b, because the first exec replaces the shell.
+			cat > "$ROOT/opt/kde-session.sh" <<'KSESS'
+#!/bin/sh
+/opt/kde-no-dpms.sh &
+exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland
+KSESS
+			chmod 0755 "$ROOT/opt/kde-session.sh"
+			SESSION_CMD='exec /opt/kde-session.sh'
 		elif [ "$DESKTOP" = "plasma-mobile" ]; then
 			# THE SESSION RUNS - kwin_wayland, plasmashell and plasma-keyboard all come up - AND
 			# EASYSTREAM GETS NO FRAME FROM IT.
@@ -990,13 +1106,31 @@ GENV
 			# SO THE ONLY WAY LEFT FOR PLASMA IS ONE HUMAN CLICK on the consent dialog - either
 			# once by hand to mint a restore token, or with an input device in the guest. A headless
 			# boot cannot supply it, and this image cannot forge the token without that first grant.
-			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile'
+			# DPMS OFF, for the reason spelled out under the plasma branch: Plasma powers the
+			# output down on idle and every portal frame is then uniformly black while the
+			# stream itself reports healthy.
+			cat > "$ROOT/opt/kde-session.sh" <<'KSESS_plasma_mobile'
+#!/bin/sh
+/opt/kde-no-dpms.sh &
+exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile
+KSESS_plasma_mobile
+			chmod 0755 "$ROOT/opt/kde-session.sh"
+			SESSION_CMD='exec /opt/kde-session.sh'
 		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
 			# THE SAME KWIN AS plasma-mobile, AND THE SAME ANSWER: the protocol limits do not
 			# apply to the scanout. MEASURED on this image: the TV launcher grid - the clock and
 			# date, the tool row, and the application tiles - at 1024x768, mean brightness 57.1
 			# with a mean deviation of 23.4. Captured by `read`, like its two siblings.
-			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland'
+			# DPMS OFF, for the reason spelled out under the plasma branch: Plasma powers the
+			# output down on idle and every portal frame is then uniformly black while the
+			# stream itself reports healthy.
+			cat > "$ROOT/opt/kde-session.sh" <<'KSESS_plasma_bigscreen'
+#!/bin/sh
+/opt/kde-no-dpms.sh &
+exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland
+KSESS_plasma_bigscreen
+			chmod 0755 "$ROOT/opt/kde-session.sh"
+			SESSION_CMD='exec /opt/kde-session.sh'
 		elif [ "$DESKTOP" = "budgie" ]; then
 			# BUDGIE'S WAYLAND SESSION IS labwc, AND `budgie-desktop` IS NOT ITS ENTRY POINT.
 			#
@@ -1629,6 +1763,30 @@ WantedBy=multi-user.target
 UNIT
 		ln -sf /etc/systemd/system/desktop.service \
 			"$ROOT/etc/systemd/system/multi-user.target.wants/desktop.service"
+	fi
+
+	# THE KDE CONSENT DIALOG IS ANSWERED BEFORE THE CAPTURE UNIT ASKS. A oneshot user unit
+	# writes the backend's mega-authorisation row (see 3b-ii); easystream then orders after it,
+	# so the first portal Start already finds the grant and never opens a dialog. On a
+	# non-KDE session the script finds no permission store and exits 0, which is why this is
+	# installed for every Wayland desktop rather than only the Plasma ones.
+	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
+		cat > "$ROOT/etc/systemd/user/kde-mega-auth.service" <<'KAUTH'
+[Unit]
+Description=grant the portal permission to capture without a consent dialog
+Before=easystream.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/kde-mega-auth.sh
+StandardOutput=journal+console
+StandardError=journal+console
+[Install]
+WantedBy=default.target
+KAUTH
+		mkdir -p "$ROOT/etc/systemd/user/default.target.wants"
+		ln -sf /etc/systemd/user/kde-mega-auth.service \
+			"$ROOT/etc/systemd/user/default.target.wants/kde-mega-auth.service"
 	fi
 
 	# EASYSTREAM IS ITS OWN UNIT, WITH ITS OWN RESTART POLICY. It is joined to the session by
