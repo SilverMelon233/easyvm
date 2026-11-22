@@ -1604,9 +1604,15 @@ DPROFILE
 picture-uri-list=[{'picture-uri': <'file:///nonexistent.png'>, 'picture-options': <'none'>, 'primary-color': <'#2f4f6f'>, 'color-shading-type': <'solid'>}]
 DWALL
 			# THE COMPILED DB IS WHAT DCONF ACTUALLY READS, and it is built here rather than
-			# left to a package hook because nothing else would run one on this file.
-			if command -v dconf >/dev/null 2>&1; then
-				dconf compile "$ROOT/etc/dconf/db/local" "$ROOT/etc/dconf/db/local.d"
+			# left to a package hook because nothing else runs one on a hand-written file.
+			# MEASURED: the BUILD HOST has no `dconf`, so `command -v dconf` was false and the
+			# db was never compiled - the .d file alone is inert. The binary that exists is the
+			# one just installed into $ROOT, so it is run from there under chroot.
+			if [ -x "$ROOT/usr/bin/dconf" ]; then
+				chroot "$ROOT" /usr/bin/dconf compile /etc/dconf/db/local /etc/dconf/db/local.d || {
+					echo "arch-rootfs: dconf compile failed for the cinnamon wallpaper" >&2
+					exit 1
+				}
 			fi
 		fi
 
