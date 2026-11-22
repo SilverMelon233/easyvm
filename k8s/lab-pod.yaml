@@ -25,6 +25,9 @@ spec:
     image: ghcr.io/silvermelon233/easyvm:latest
     imagePullPolicy: Always
     env:
+    # WHICH DESKTOP THIS POD SERVES. The per-desktop directories live at the PVC root
+    # (`/disks/cin`, `/disks/plasma`, ...); the command stages the three files of this one.
+    - {name: EASYVM_GUEST, value: "cin"}
     # THE GUEST'S TCP GOES THROUGH mihomo, AND IT IS THE DIFFERENCE BETWEEN MINUTES AND HOURS.
     #
     # MEASURED inside the guest, same file (`dists/trixie/main/binary-amd64/Packages.xz`):
@@ -69,8 +72,16 @@ spec:
       - -c
       - |
         set -e
-        cp /guest/debian-vmlinuz /guest/debian-initramfs /guest/debian.qcow2 /work/
-        cp /disks/xfce.walk /work/ 2>/dev/null || true
+        # THE GUEST FILES COME FROM THE PVC, AND THE `lab/xfce-guest` SUBPATH WAS EMPTY.
+        # MEASURED with busybox on the same claim: `/disks/lab/xfce-guest` lists nothing, so
+        # the three `cp /guest/debian-*` lines this replaced failed at every pod start and the
+        # pod never reached `easyvm serve`. The images that DO exist are the per-desktop
+        # directories this branch pushes there (`/disks/cin`, `/disks/plasma`, ...), so the
+        # pod stages the one it is meant to serve and the walk that drives it.
+        for f in arch-vmlinuz arch-initramfs arch.qcow2; do
+          [ -f "/disks/${EASYVM_GUEST:-cin}/$f" ] && cp "/disks/${EASYVM_GUEST:-cin}/$f" /work/
+        done
+        cp "/disks/${EASYVM_GUEST:-cin}/steps.walk" /work/guest.walk 2>/dev/null || true
         exec /disks/bin-easyvm serve --work /work --http :8080
     volumeMounts:
     # TWO DIRECTORIES WITH TWO JOBS, WHICH IS WHY THEY ARE SEPARATE.
@@ -81,7 +92,6 @@ spec:
     #           over its disk - the base is never written, and a read-only mount makes that a property
     #           of the filesystem rather than a promise.
     - {name: work, mountPath: /work}
-    - {name: guest, mountPath: /guest, readOnly: true, subPath: lab/xfce-guest}
     - {name: disks, mountPath: /disks}
     - {name: kvm, mountPath: /dev/kvm}
     - {name: tun, mountPath: /dev/net/tun}

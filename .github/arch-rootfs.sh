@@ -1504,9 +1504,51 @@ SESSION
 		# `-ac` disables access control: the display is reachable from nowhere but this machine
 		# and both sides run as the same uid. `-novtswitch`/`-keeptty` keep Xorg on the VT it was
 		# given instead of hunting for another one.
+		# DRI3 NEEDS GLAMOR, AND GLAMOR NEEDS TO BE ASKED FOR. MEASURED: without a config the
+		# modesetting driver comes up WITHOUT DRI3, and every GL client says
+		#
+		#	Could not get DRI3 device
+		#	Ensure your X server supports DRI3 to get accelerated rendering
+		#
+		# which is what leaves cinnamon's GL-painted wallpaper black. DRI3 IS BUILT INTO the
+		# Xorg binary (`dri3_screen_init` is in /usr/lib/Xorg), so nothing is missing from the
+		# package - the extension simply is not initialised until glamor is enabled on a DRM
+		# device. The config below is the documented way to ask for it.
+		# THE PATH IS /usr/share, NOT /etc. MEASURED from this image's own Xorg output:
+		#
+		#	(==) Using system config directory "/usr/share/X11/xorg.conf.d"
+		#	"/etc/X11/xorg.conf.d"          <- reported as unusable
+		#
+		# so a file under /etc is read only if the server is allowed there, and here it is not.
+		mkdir -p "$ROOT/usr/share/X11/xorg.conf.d"
+		cat > "$ROOT/usr/share/X11/xorg.conf.d/20-glamor.conf" <<'XCONF'
+Section "Device"
+    Identifier  "virtio-gpu"
+    Driver      "modesetting"
+    Option      "AccelMethod" "glamor"
+EndSection
+
+# THE DEPTH IS PART OF THE SAME FIX. MEASURED from the modesetting driver's own strings:
+#
+#	Cannot use glamor with 24bpp packed fb
+#
+# and a screen that defaults to depth 24 hands glamor exactly that. Depth 24 with a 32bpp
+# XRGB visual is what virtio-gpu's framebuffer actually offers (`virtio_gpudrmfb` formats
+# on XRGB8888), so the screen is asked for 24 depth at 32bpp rather than left to default.
+Section "Screen"
+    Identifier  "virtio-screen"
+    Device      "virtio-gpu"
+    DefaultDepth 24
+    SubSection "Display"
+        Depth 24
+        Modes "1024x768"
+    EndSubSection
+EndSection
+XCONF
 		cat > "$ROOT/opt/session.sh" <<'SESSION'
 #!/bin/sh
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
+# `-configdir` is the default; the file above is what turns glamor (and therefore DRI3) on.
 exec /usr/lib/Xorg :0 -keeptty -novtswitch -ac -nolisten tcp vt1
 SESSION
 		chmod 0755 "$ROOT/opt/session.sh"
