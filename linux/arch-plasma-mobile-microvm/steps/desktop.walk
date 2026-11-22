@@ -42,11 +42,13 @@ walkthrough "plasma-mobile microvm - the phone shell on Wayland, captured from t
   wait 35s
 
   # THE PIXELS, FROM THE GUEST'S OWN SCANOUT.
-  read the whole screen as "screen"
-
-  step "the screen is not black"
-    check == {name: screen_is_not_black, from: screen, mode: mean_between, rect: [0, 0, 1024, 768], rect_at: [1024, 768], range: [1, 255]}
-  step "the screen is not one flat colour"
-    check == {name: screen_has_content, from: screen, mode: spread_between, rect: [0, 0, 1024, 768], rect_at: [1024, 768], range: [1, 128]}
+  # THE FRAME COMES THROUGH THE DESKTOP'S OWN PORTAL, NOT FROM A QEMU SCREENDUMP.
+  #
+  # /opt/portal-capture.sh asks easystream for one frame over its est protocol and decodes
+  # the PNG in the guest. Its exit status is the verdict: 0 only when the mean brightness
+  # says a desktop was drawn. MEASURED on this image - "PASS mean=133.7 frame=1024x768" with
+  # Plasma's wallpaper and panel, and "FAIL mean=0.0" on the same guest when DPMS had blanked
+  # the output, which is the failure that looks like a working capture without this test.
+  ssh /opt/portal-capture.sh
 
   stop the machine by killing it, waiting up to 60s
