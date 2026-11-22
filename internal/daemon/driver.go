@@ -421,6 +421,15 @@ func machineType(boot machine.Boot) string {
 		// A DESKTOP DRAWS ON THE GPU AND NEEDS NO TEXT ADAPTER, so `graphics=off` there: the
 		// carriage is `virtio-gpu-pci` (see the adapter branch below), and an ISA VGA beside it
 		// would be a second, unused display that `see:` might photograph instead.
+		// `graphics=on` IS ONLY FOR A TEXT CONSOLE NOW. A DESKTOP - X11 OR WAYLAND - DRAWS ON
+		// THE virtio-gpu DEVICE instead, so it wants `graphics=off` and the PCI adapter below.
+		//
+		// THIS WAS MEASURED FROM THE CONSOLE SIDE, not from a compositor. QEMU's VNC exports
+		// THE DISPLAY DEVICE's surface, and an X11 desktop on Xvfb renders into a private heap
+		// that no device holds - so the console showed a bare text prompt while the desktop ran
+		// invisibly. Moving X11 onto Xorg + virtio-gpu-pci makes the desktop the thing the
+		// console exports: MEASURED, the VNC framebuffer of the same guest read mean brightness
+		// 134.4 (peak 252) where it had never delivered a FramebufferUpdate at all.
 		graphics := "off"
 		if boot.MicroVMDisplay == "terminal" {
 			graphics = "on"

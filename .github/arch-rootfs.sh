@@ -679,7 +679,7 @@ KMEGA
 	# because this QEMU has no virgl (`-device help` lists only virtio-gpu-pci/-device, no
 	# virtio-gpu-gl-pci), and niri refuses a software EGL device outright. See the note beside
 	# the removed niri entry above.
-	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
+	if [ "$DESKTOP_FAMILY" = "wayland" ] || [ "$DESKTOP_FAMILY" = "x11" ]; then
 		VG_SRC="$ROOT/usr/lib/modules/$KVER/kernel/drivers/gpu/drm/virtio/virtio-gpu.ko.zst"
 		if [ ! -f "$VG_SRC" ]; then
 			log "ERROR: no virtio-gpu module in the kernel package; the desktop could never start"
@@ -695,6 +695,16 @@ KMEGA
 			id -nG vmuser | grep -qw video || usermod -aG video vmuser
 			id -nG vmuser | grep -qw render || usermod -aG render vmuser
 		' 2>&1 | tail -2 || true
+
+		# XORG NEEDS THE TTY GROUP, and only the X11 family runs Xorg. MEASURED: without it
+		# `xf86OpenConsole: Cannot open virtual console 5 (Permission denied)` and the server
+		# exits, because /dev/tty1 is root:tty 0620.
+		if [ "$DESKTOP_FAMILY" = "x11" ]; then
+			chroot "$ROOT" /bin/sh -c '
+				groupadd -f tty
+				id -nG vmuser | grep -qw tty || usermod -aG tty vmuser
+			' 2>&1 | tail -1 || true
+		fi
 
 		# A ROOT ONESHOT: the compositor is vmuser and has no CAP_SYS_MODULE, and udev may not
 		# have made the nodes yet when the session starts. The mknod fallback removes that race.
@@ -1450,19 +1460,28 @@ SESSION
 	else
 		# --- THE X11 FAMILY ------------------------------------------------------------
 		#
-		# AN X SERVER IN MEMORY, BECAUSE A MICROVM HAS NO GPU. Xvfb needs no DRM node, no
-		# framebuffer and no firmware - it draws into its own heap - which is why the whole
-		# X11 family works on a machine that cannot run Xorg.
+		# XORG ON THE REAL GPU, NOT Xvfb IN MEMORY.
 		#
-		# MEASURED, and it is the same choice the Debian image makes for its XFCE variant.
-		# The X socket is 0600 under /tmp/.X11-unix by default; server and clients are both
-		# vmuser, so there is no cookie dance.
+		# Xvfb was the right answer when a microvm had no GPU: it drew into its own heap and
+		# needed no DRM node. It has one cost that matters more than the speed it bought -
+		# QEMU's VNC exports THE DISPLAY DEVICE, and an X server that renders in a private heap
+		# is not on that device, so the console showed a text prompt while the desktop ran
+		# somewhere nobody could see.
+		#
+		# MEASURED on the virtio-gpu display: `modesetting: Driver for Modesetting Kernel
+		# Drivers: kms` loads and finds card0; what stopped it was `xf86OpenConsole: Cannot open
+		# virtual console 5 (Permission denied)`, because /dev/tty1 is root:tty 0620 and vmuser
+		# was not in `tty`. With the group and a logind seat (TTYPath= on session.service, which
+		# this family already had) Xorg takes the VT and draws on the scanned-out framebuffer -
+		# so the same pixels the console exports are the desktop.
+		#
+		# `-ac` disables access control: the display is reachable from nowhere but this machine
+		# and both sides run as the same uid. `-novtswitch`/`-keeptty` keep Xorg on the VT it was
+		# given instead of hunting for another one.
 		cat > "$ROOT/opt/session.sh" <<'SESSION'
 #!/bin/sh
-# Xvfb, then the session manager on it. `-ac` disables access control: the display is
-# reachable from nowhere but this machine, and both sides run as the same uid.
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
-exec Xvfb :0 -screen 0 1024x768x24 -ac -nolisten tcp
+exec /usr/lib/Xorg :0 -keeptty -novtswitch -ac -nolisten tcp vt1
 SESSION
 		chmod 0755 "$ROOT/opt/session.sh"
 
