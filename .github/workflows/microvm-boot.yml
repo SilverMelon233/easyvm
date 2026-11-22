@@ -204,6 +204,9 @@ jobs:
           - tag: rootfs-arch-qtile-wayland
             walk: linux/arch-qtile-wayland-microvm/steps/desktop.walk
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-cinnamon-wayland
+            walk: linux/arch-cinnamon-wayland-microvm/steps/desktop.walk
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
           - tag: rootfs-arch-gnome
             walk: linux/arch-gnome-microvm/steps/desktop.walk
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
