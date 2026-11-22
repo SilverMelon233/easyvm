@@ -1,13 +1,20 @@
-# AN ARCH LINUX MICROVM RUNNING MATE ON AN X SERVER IN MEMORY.
+# AN ARCH LINUX MICROVM RUNNING MATE ON XORG, ON A virtio-gpu DISPLAY.
 #
-# X11 FAMILY: the display server is `Xvfb` and the capture path is XSHM rather than
-# wlr-screencopy. This variant takes no GPU at all; Xorg's modesetting driver would need a DRM
-# node, so `Xvfb` renders into its own process memory instead. MEASURED: this session reaches a real desktop and
-# easystream captures it at 1024x768.
+# THE DISPLAY SERVER IS XORG ON THE REAL GPU, NOT Xvfb IN MEMORY.
 #
-# THE SESSION BUS IS EXPLICIT. `dbus-daemon --session` with a named socket in the runtime
-# directory, started by the session script; MEASURED without it a desktop draws "Unable to
-# contact settings server" because nothing had a bus to talk to.
+# Xvfb was the choice while a microvm had no GPU: it drew into its own heap and needed no DRM
+# node. THE COST WAS THE CONSOLE. QEMU's VNC exports the DISPLAY DEVICE's surface, and pixels
+# that live in a process heap are not on that device - so EasyVM's noVNC console showed a text
+# prompt while the desktop ran where nobody could see it. MEASURED: the VNC framebuffer never
+# delivered a single FramebufferUpdate for an Xvfb guest.
+#
+# MEASURED on virtio-gpu: `modesetting: Driver for Modesetting Kernel Drivers: kms` loads and
+# finds card0; what stopped it was `xf86OpenConsole: Cannot open virtual console 5 (Permission
+# denied)`, because /dev/tty1 is root:tty 0620 and vmuser was not in `tty`. With the group and
+# the logind seat session.service already provided, Xorg takes the VT and draws on the
+# scanned-out framebuffer - so the desktop IS what the console exports.
+#
+# THE CAPTURE IS THEREFORE THE SCANOUT, like every Wayland variant's.
 
 walkthrough "mate microvm - MATE captured from the console assertion"
   resolution 1024x768
@@ -16,7 +23,7 @@ walkthrough "mate microvm - MATE captured from the console assertion"
   needs arch-vmlinuz arch-initramfs arch.qcow2
   disk arch.qcow2
 
-  boot as a microvm from kernel "arch-vmlinuz" and initramfs "arch-initramfs" with "console=ttyS0 root=/dev/vda rw rootfstype=ext4" without a display with memory 1536, waiting up to 240s
+  boot as a microvm from kernel "arch-vmlinuz" and initramfs "arch-initramfs" with "console=ttyS0 root=/dev/vda rw rootfstype=ext4" with a desktop with memory 1536, waiting up to 240s
 
   # THE KERNEL FOUND THE DISK AND USERSPACE STARTED.
   the console will say "login"
@@ -28,5 +35,23 @@ walkthrough "mate microvm - MATE captured from the console assertion"
   the console will say "ARCH-SESSION-STARTING: mate"
 
   wait 20s
+
+  # TWENTY SECONDS AT A DESKTOP, so the capture is a machine that stayed up.
+  wait 20s
+
+  # AND THE PIXELS, FROM THE DEVICE THE CONSOLE EXPORTS. `read:` is qemu's screendump of the
+  # framebuffer virtio-gpu put on the PCIe bus - the same surface EasyVM's noVNC shows. An
+  # X server that started but drew nothing, or that never took the VT, leaves a uniform frame
+  # and fails the checks below.
+  read the whole screen as "screen"
+
+  # TWO QUESTIONS ABOUT ONE FRAME, BECAUSE "NOT BLACK" HAS TWO FAILURE SHAPES. A guest with no
+  # device records a uniformly BLACK frame; a server that never drew records a uniformly
+  # COLOURED one, which is not black but is equally empty. MEASURED: a dead frame is mean 0.0
+  # with a mean deviation of 0.03, while the desktops here measure mean 2.6..134.
+  step "the screen is not black"
+    check == {name: screen_is_not_black, from: screen, mode: mean_between, rect: [0, 0, 1024, 768], rect_at: [1024, 768], range: [1, 255]}
+  step "the screen is not one flat colour"
+    check == {name: screen_has_content, from: screen, mode: spread_between, rect: [0, 0, 1024, 768], rect_at: [1024, 768], range: [1, 128]}
 
   stop the machine by killing it, waiting up to 60s

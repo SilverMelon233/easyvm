@@ -421,6 +421,13 @@ func machineType(boot machine.Boot) string {
 		// A DESKTOP DRAWS ON THE GPU AND NEEDS NO TEXT ADAPTER, so `graphics=off` there: the
 		// carriage is `virtio-gpu-pci` (see the adapter branch below), and an ISA VGA beside it
 		// would be a second, unused display that `see:` might photograph instead.
+		//
+		// THE X11 FAMILY JOINED THEM, AND THE REASON IS THE CONSOLE. QEMU's VNC exports THE
+		// DISPLAY DEVICE's surface, so an X11 guest on Xvfb - which renders into a private heap
+		// no device holds - showed a text prompt on EasyVM's noVNC console while its desktop ran
+		// somewhere nobody could see. MEASURED: that VNC framebuffer never delivered a single
+		// FramebufferUpdate. On virtio-gpu the same guest reads mean 56.9 with peak 255, and the
+		// frame is the whole desktop. So `graphics=off` covers every desktop family now.
 		graphics := "off"
 		if boot.MicroVMDisplay == "terminal" {
 			graphics = "on"
