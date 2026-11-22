@@ -254,7 +254,11 @@ if [ ! -d "$ROOT/usr" ]; then
 	# THE SHARED SET is what a screen needs regardless of who draws it: fonts, a terminal (a
 	# session with no window shows a background and nothing else, which is a weak thing to
 	# assert on), Mesa for the software rasteriser, and easystream's own links.
-	DESKTOP_COMMON="libyuv x264 opus pipewire ttf-dejavu ttf-liberation mesa"
+	# `xorg-xsetroot` IS HERE FOR THE X11 FAMILY'S BACKGROUND. On Xorg no session manager
+	# paints the root window by itself (Xvfb-era guests hid this because nobody could see the
+	# screen); without it the desktop is a black field with a panel floating on it. MEASURED on
+	# cinnamon and lxqt: mean 6.4 and 9.6, both with their panel drawn and no wallpaper.
+	DESKTOP_COMMON="libyuv x264 opus pipewire ttf-dejavu ttf-liberation mesa xorg-xsetroot"
 	case "$DESKTOP" in
 	sway)     DESKTOP_PKGS="sway foot $DESKTOP_COMMON" ;;
 	hyprland) DESKTOP_PKGS="hyprland foot $DESKTOP_COMMON" ;;
@@ -695,6 +699,28 @@ KMEGA
 			id -nG vmuser | grep -qw video || usermod -aG video vmuser
 			id -nG vmuser | grep -qw render || usermod -aG render vmuser
 		' 2>&1 | tail -2 || true
+
+		# GETTY MUST NOT SIT ON THE VT XORG TAKES, AND THAT IS A RACE RATHER THAN A RULE.
+		#
+		# MEASURED on the mate variant, and it is the one X11 desktop that lost it: systemd's
+		# autovt@ starts `Getty on tty1` as the graphical target comes up, and when it wins the
+		# race Xorg answers
+		#
+		#	Fatal server error:
+		#	(EE) xf86OpenConsole: Switching VT failed
+		#
+		# and exits - repeatedly, so the console shows a black field with a session marker and
+		# nothing else. The other X11 variants happened to start Xorg first, which is why this
+		# looked like a mate-specific fault.
+		#
+		# A guest whose desktop OWNS tty1 has no reason to run a login prompt on it: the serial
+		# console on ttyS0 is where a person logs in, and it is untouched by this.
+		# MASKED, NOT MERELY DISABLED: `ln -sf /dev/null` is systemd's own way of saying a unit
+		# does not exist here, and it beats both `systemctl disable` (which only removes a want
+		# link) and a Condition= (which still lets something else pull it in).
+		rm -f "$ROOT/etc/systemd/system/getty.target.wants/getty@tty1.service"
+		ln -sf /dev/null "$ROOT/etc/systemd/system/getty@tty1.service"
+		ln -sf /dev/null "$ROOT/etc/systemd/system/autovt@tty1.service"
 
 		# XORG NEEDS THE TTY GROUP, and only the X11 family runs Xorg. MEASURED: without it
 		# `xf86OpenConsole: Cannot open virtual console 5 (Permission denied)` and the server
@@ -1577,6 +1603,51 @@ fi
 # and immediately before the session manager is exec'd. A machine that never got this far does
 # not print it, so it is still a real assertion - it just does not depend on the desktop's own
 # logging habits. The name is the image's, not the session's.
+# THE ROOT WINDOW, BEFORE THE SESSION MANAGER TAKES OVER.
+#
+# MEASURED, and it is a hole the Xvfb era hid: on Xorg nothing paints the desktop background
+# by itself, so a guest showed its panel and icons over a BLACK field - cinnamon measured mean
+# 6.4 and lxqt 9.6, both visibly missing the wallpaper. Xvfb had the same hole; it was simply
+# invisible when the console could not show the screen at all.
+#
+# A flat colour is deliberate: it needs no image file, it makes the frame unambiguously a
+# drawn desktop rather than a dead one, and it costs one process that exits immediately.
+xsetroot -solid '#2f4f6f' 2>/dev/null || true
+
+# AND AGAIN AFTER THE SESSION MANAGER HAS TAKEN OVER, because two desktops overwrite it.
+#
+# MEASURED, cinnamon: it draws a GL-composited background through org.Cinnamon.Background,
+# and on this Xorg that fails with
+#
+#	Could not get DRI3 device
+#	Ensure your X server supports DRI3 to get accelerated rendering
+#
+# - the DRI3 device needs virgl, which this QEMU does not have - so the root window is left
+# black and the panel and icons float on it (mean 6.4). The desktop is otherwise complete.
+# Re-applying the solid colour after a delay puts a real background under it without
+# fighting the compositor: anything that CAN draw its own wins, and this fills the gap when
+# nothing did.
+(
+	# AND IT CANNOT HELP CINNAMON, WHICH IS RECORDED RATHER THAN HIDDEN. MEASURED: `xsetroot
+	# -solid` returns 0 in a running cinnamon session and the frame stays at mean 6.4, and
+	# setting org.cinnamon.desktop.background to a solid colour changes nothing either -
+	# cinnamon owns the root window and paints it through its GL compositor, which on this Xorg
+	# cannot start:
+	#
+	#	Could not get DRI3 device
+	#	Ensure your X server supports DRI3 to get accelerated rendering
+	#
+	# DRI3 here needs virgl, and this QEMU has none. So cinnamon's desktop is COMPLETE - panel,
+	# icons, menus, clock, its own "no video hardware acceleration" notice - over a black
+	# background, and that is its ceiling on this image rather than a session fault.
+	#
+	# The two attempts still matter for the desktops that leave the root window untouched.
+	for delay in 12 25 45; do
+		sleep \$delay
+		xsetroot -solid '#2f4f6f' 2>/dev/null || true
+	done
+) &
+
 echo "ARCH-SESSION-STARTING: $DESKTOP"
 exec $SESSION_EXEC
 DESKTOP
