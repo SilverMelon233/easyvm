@@ -36,8 +36,28 @@ set -eu
 #
 # cinnamon AND enlightenment ARE X11-ONLY HERE: their `-wayland` variants were dropped because
 # their compositors expose no capture protocol this image can read (muffin: no zwlr_screencopy,
-# no Mutter.ScreenCast D-Bus; E: no screencopy in wl_drm). niri, river, weston, kylin, treeland
+# no Mutter.ScreenCast D-Bus; E: no screencopy in wl_drm). river, weston, kylin, treeland
 # and deepin-wayland were dropped earlier for their own measured reasons.
+#
+# NIRI WAS RE-TESTED ON virtio-gpu AND THE ANSWER IS STILL NO, AND NOW IT IS THE GPU'S FAULT
+# RATHER THAN THE CAPTURE PATH'S. It was dropped once for refusing software EGL; the suspicion
+# was that this image's old vkms DRM device was the reason. Rebuilt with virtio-gpu over PCIe -
+# the guest reports `virtio-gpu: by-path card0 renderD128` and niri's own log confirms it picks
+# that device (`using as the render node: "/dev/dri/renderD128"`, `this is the primary node`) -
+# and it stops anyway:
+#
+#	niri::backend::tty: failed to initialize renderer, falling back to primary gpu:
+#	                    software EGL renderers are skipped
+#	niri::backend::tty: error adding primary node device, display-only devices may not work:
+#	                    no allocator available for device
+#
+# The check is `ensure!(!egl_device.is_software())` in its src/backend/tty.rs, and it is not
+# configurable - `strings niri` has no env switch to bypass it. The EGL device really IS
+# software because THIS QEMU HAS NO VIRGL: `-device help` lists `virtio-gpu-pci` and
+# `virtio-gpu-device` only, with no `virtio-gpu-gl-pci`, so Mesa falls back to llvmpipe for a
+# virtio-gpu that offers no 3D. Nothing this image can write changes that: it would take a
+# QEMU built with virgl on the host. When that exists, niri is one package line away - the
+# session entry is `wayland-sessions/niri.desktop` -> `niri-session`.
 #
 # THE LIST IS EXHAUSTIVE, TAKEN FROM ARCH'S OWN FILE DATABASE rather than from memory.
 # `extra.files.tar.gz` lists every file each package owns, so grepping it for
@@ -534,6 +554,24 @@ if [ "$DESKTOP_FAMILY" != "none" ]; then
 	# `-device virtio-gpu-pci` produces
 	#   [drm] Initialized virtio_gpu 0.1.0 for 0000:00:02.0 on minor 0
 	# and /sys/class/drm lists card0, card0-Virtual-1 and renderD128.
+	#
+	# EXACTLY TWO NODES, AND THAT IS THE WHOLE OF IT: one card0 that carries BOTH the scanout and
+	# the render side, and renderD128 as its render node. There is no separate card1, no "gpu0"
+	# and no second device - and none of the desktops here want one. All twenty-one variants were
+	# checked from CI's own console logs and every Wayland one reports the same line
+	#
+	#	virtio-gpu: by-path card0 renderD128
+	#
+	# while every X11 one boots `without a display` and reports nothing, because it renders into
+	# Xvfb's memory and never opens a DRM node.
+	#
+	# WHAT THE PAIR IS AND IS NOT ENOUGH FOR, MEASURED. Enough for: Mutter (GDM + gnome-shell),
+	# KWin (all three Plasma shells), wlroots' EGL path (sway, labwc, wayfire, hyprland, budgie,
+	# mangowm, phosh, xfce-wayland, lxqt-wayland, qtile-wayland) and every X11 session. Not
+	# enough for niri, and NOT because the nodes are wrong: its EGL device is classified SOFTWARE
+	# because this QEMU has no virgl (`-device help` lists only virtio-gpu-pci/-device, no
+	# virtio-gpu-gl-pci), and niri refuses a software EGL device outright. See the note beside
+	# the removed niri entry above.
 	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
 		VG_SRC="$ROOT/usr/lib/modules/$KVER/kernel/drivers/gpu/drm/virtio/virtio-gpu.ko.zst"
 		if [ ! -f "$VG_SRC" ]; then
