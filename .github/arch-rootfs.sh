@@ -1800,6 +1800,32 @@ UNIT
 			"$ROOT/etc/systemd/system/multi-user.target.wants/desktop.service"
 	fi
 
+	# THE PORTAL FRONTEND MUST KNOW IT IS RUNNING ON KDE, OR IT LOADS NO KDE BACKEND.
+	#
+	# MEASURED, and this is the fault that survived every other fix: the frontend exposes
+	# RemoteDesktop and ScreenCast ONLY when it has selected a backend that provides them,
+	# and /usr/share/xdg-desktop-portal/portals/kde.portal is gated by `UseIn=KDE`. The
+	# frontend is a systemd user unit, and on this image it starts before the session has
+	# exported XDG_CURRENT_DESKTOP, so it chooses nothing and easystream then gets
+	#
+	#	portal CreateSession: No such interface "org.freedesktop.portal.RemoteDesktop"
+	#	                        on object at path /org/freedesktop/portal/desktop
+	#
+	# while the KDE backend itself is active and healthy on the bus. Restarting the frontend
+	# with XDG_CURRENT_DESKTOP=KDE in its environment makes both interfaces appear and the
+	# capture work - MEASURED: mean brightness 128.6 through the portal, the same as the
+	# scanout. So the variable goes on the UNIT, which is the only place that survives the
+	# unit's own early start.
+	if [ "$DESKTOP_FAMILY" = "wayland" ] && [ "$DESKTOP" != "gnome" ]; then
+		mkdir -p "$ROOT/etc/systemd/user/xdg-desktop-portal.service.d"
+		cat > "$ROOT/etc/systemd/user/xdg-desktop-portal.service.d/20-desktop.conf" <<PORTALENV
+[Service]
+# The KDE portal file is UseIn=KDE; without this the frontend loads no backend and
+# RemoteDesktop/ScreenCast are simply absent from the bus.
+Environment=XDG_CURRENT_DESKTOP=$([ "$DESKTOP" = "plasma" -o "$DESKTOP" = "plasma-mobile" -o "$DESKTOP" = "plasma-bigscreen" ] && echo KDE || echo "$DESKTOP")
+PORTALENV
+	fi
+
 	# THE KDE CONSENT DIALOG IS ANSWERED BEFORE THE CAPTURE UNIT ASKS. A oneshot user unit
 	# writes the backend's mega-authorisation row (see 3b-ii); easystream then orders after it,
 	# so the first portal Start already finds the grant and never opens a dialog. On a
@@ -1889,7 +1915,17 @@ DROPIN
 		cat > "$ROOT/opt/easystream-run.sh" <<'ESRUN'
 #!/bin/sh
 # Load the compositor's socket name, then become the daemon.
+#
+# WAIT FOR THE FILE, DO NOT JUST TRY IT. MEASURED: easystream ran at 06:30:22 on a boot
+# where session.sh had not written wl-session.env yet, this wrapper read nothing, and the
+# daemon fell back - its log said so in as many words. The unit's ExecStartPre only waits
+# for a socket to EXIST; the file that names it is written by session.sh a moment later.
 ENVF=/run/user/$(id -u)/wl-session.env
+i=0
+while [ $i -lt 1200 ]; do
+	[ -s "$ENVF" ] && break
+	i=$((i + 1)); sleep 0.1
+done
 if [ -r "$ENVF" ]; then
 	# The file is KEY=VALUE lines written by session.sh; exporting it as-is is the point.
 	set -a
@@ -1897,7 +1933,7 @@ if [ -r "$ENVF" ]; then
 	set +a
 fi
 if [ -z "${WAYLAND_DISPLAY:-}" ]; then
-	echo "easystream-run: no WAYLAND_DISPLAY in $ENVF; the capture probe will fall back" >&2
+	echo "easystream-run: no WAYLAND_DISPLAY in $ENVF after 120s; the probe will fall back" >&2
 fi
 # DISPLAY MUST NOT WIN THE PROBE. easystream picks X11 when DISPLAY is set and the Wayland
 # socket is not, and its X11 path reads Xvfb - which this desktop does not have - so the
