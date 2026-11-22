@@ -1549,7 +1549,13 @@ XCONF
 #!/bin/sh
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 # `-configdir` is the default; the file above is what turns glamor (and therefore DRI3) on.
-exec /usr/lib/Xorg :0 -keeptty -novtswitch -ac -nolisten tcp vt1
+#
+# THE LOG GOES TO A FILE AS WELL AS THE CONSOLE, because the questions that matter here -
+# did modesetting load, did glamor initialise, was DRI3 registered - are answered in the
+# server's own log and are NOT echoed to the console at the default verbosity. MEASURED: the
+# console showed only "Using system config directory" and no glamor line at all, which is
+# indistinguishable from "config not read" without this file.
+exec /usr/lib/Xorg :0 -keeptty -novtswitch -ac -nolisten tcp -logfile /tmp/Xorg.0.log vt1
 SESSION
 		chmod 0755 "$ROOT/opt/session.sh"
 
