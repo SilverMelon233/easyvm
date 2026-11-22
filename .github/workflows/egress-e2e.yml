@@ -351,30 +351,36 @@ jobs:
           # `if` RATHER THAN `grep && fail`, BECAUSE `set -e` TREATS A FAILED `grep` AS FATAL. Written
           # the short way, the FIRST assertion would kill the step when it did not match - which is the
           # opposite of what it should do, and would report a passing test as a crash.
-          echo "$P" | grep -q '203\.0\.113\.10' \
-            || fail "proxy:primary did not carry 203.0.113.10 - primary's log has no such line"
-          echo "$B" | grep -q '203\.0\.113\.20' \
-            || fail "proxy:backup did not carry 203.0.113.20 - backup's log has no such line"
+          # CAPTURED FIRST, THEN MATCHED WITH `case`. `echo | grep -q` lets grep close the pipe
+          # on its first match, echo takes SIGPIPE, and `set -euo pipefail` fails a check that
+          # succeeded. A here-string would do the same job but is bash-only, and a container job's
+          # steps run under dash.
+          case "$P" in *"203.0.113.10"*) ;; *) fail "proxy:primary did not carry 203.0.113.10 - primary's log has no such line" ;; esac
+          case "$B" in *"203.0.113.20"*) ;; *) fail "proxy:backup did not carry 203.0.113.20 - backup's log has no such line" ;; esac
 
           # AND THE CROSS-CHECK, WHICH IS THE HALF THAT PROVES THE RULE DECIDED. Without it, a bug that
           # sent everything to primary would satisfy the first assertion.
-          if echo "$B" | grep -q '203\.0\.113\.10'; then
+          case "$B" in *"203.0.113.10"*)
             fail "203.0.113.10 was carried by BACKUP as well as primary"
-          fi
-          if echo "$P" | grep -q '203\.0\.113\.20'; then
+            ;;
+          esac
+          case "$P" in *"203.0.113.20"*)
             fail "203.0.113.20 was carried by PRIMARY as well as backup"
-          fi
+            ;;
+          esac
 
           # DIRECT LEAVES NO TRACE, BY DEFINITION: a direct connection does not touch a proxy, so its
           # ABSENCE from both logs is the evidence that it went direct rather than through one.
-          if echo "$P$B" | grep -q '203\.0\.113\.30'; then
+          case "$P$B" in *"203.0.113.30"*)
             fail "a direct destination appears in a proxy log"
-          fi
+            ;;
+          esac
 
           # THE BLOCKED DESTINATION REACHED NOBODY.
-          if echo "$P$B" | grep -q '203\.0\.113\.40'; then
+          case "$P$B" in *"203.0.113.40"*)
             fail "a blocked destination reached a proxy"
-          fi
+            ;;
+          esac
 
           echo "all four outcomes took the path the rules chose"
 

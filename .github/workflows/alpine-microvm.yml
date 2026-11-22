@@ -169,7 +169,8 @@ jobs:
           ./ci/socks5-udp-echo/echo :7891 >/tmp/echo.log 2>&1 &
           echo $! > /tmp/echo.pid
           for i in $(seq 1 30); do
-            if ss -lnt 2>/dev/null | grep -q ':7891 '; then break; fi
+            listening="$(ss -lnt 2>/dev/null || true)"
+            case "$listening" in *":7891 "*) break ;; esac
             sleep 1
           done
           ss -lnt | grep ':7891 '
@@ -234,7 +235,8 @@ jobs:
           # for that line is waiting for readiness rather than sleeping. Sixty seconds because the
           # first start in a cold image makes every syscall for the first time.
           for i in $(seq 1 60); do
-            if docker logs easyvm 2>&1 | grep -q 'listening on'; then break; fi
+            logs="$(docker logs easyvm 2>&1 || true)"
+            case "$logs" in *"listening on"*) break ;; esac
             sleep 1
           done
           docker logs easyvm 2>&1 | tail -20
@@ -271,9 +273,16 @@ jobs:
           docker exec easyvm ip link show easyvm-udp
           # UP IS NOT ENOUGH ON ITS OWN: a device that is UP but has no address would still accept the
           # route and blackhole everything it captured. Both are checked.
-          docker exec easyvm ip -4 addr show easyvm-udp | grep -q '10.99.0.1/24'
-          docker exec easyvm ip link show easyvm-udp | grep -q 'state UP\|,UP'
-          docker exec easyvm ip route show table 511 | grep -q 'default dev easyvm-udp'
+          # CAPTURED FIRST, THEN MATCHED WITH `case`. A pipe into `grep -q` lets grep close the
+          # pipe on its first match; the writer takes SIGPIPE and `set -euo pipefail` fails a check
+          # that succeeded. A here-string would do the same job but is bash-only, and a container
+          # job's steps run under dash.
+          addr="$(docker exec easyvm ip -4 addr show easyvm-udp)"
+          case "$addr" in *"10.99.0.1/24"*) ;; *) echo "::error::easyvm-udp has no 10.99.0.1/24"; exit 1 ;; esac
+          link="$(docker exec easyvm ip link show easyvm-udp)"
+          case "$link" in *"state UP"*|*",UP"*) ;; *) echo "::error::easyvm-udp is not UP"; exit 1 ;; esac
+          route="$(docker exec easyvm ip route show table 511)"
+          case "$route" in *"default dev easyvm-udp"*) ;; *) echo "::error::table 511 has no default dev easyvm-udp"; exit 1 ;; esac
 
       # THE POLICY RULE IS THE HALF THAT KEEPS TCP OFF THIS DEVICE. Without `ipproto udp` every guest
       # connection would arrive in the tun instead of at the CONNECT proxy that already carries it, and
@@ -314,10 +323,12 @@ jobs:
             echo "::error::the tun device outlived the machine"
             exit 1
           fi
-          if docker exec easyvm ip rule show | grep -q 'lookup 511'; then
+          rules="$(docker exec easyvm ip rule show || true)"
+          case "$rules" in *"lookup 511"*)
             echo "::error::the policy rule outlived the machine"
             exit 1
-          fi
+            ;;
+          esac
 
       - name: the relay did not report a failure
         run: |

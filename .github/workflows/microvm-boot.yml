@@ -319,7 +319,8 @@ jobs:
           # `serve` PRINTS ITS READY LINE ONLY AFTER IT HAS THE LOCK, so this waits for readiness
           # rather than sleeping a fixed number of seconds.
           for i in $(seq 1 60); do
-            if docker logs easyvm 2>&1 | grep -q 'listening on'; then break; fi
+            logs="$(docker logs easyvm 2>&1 || true)"
+            case "$logs" in *"listening on"*) break ;; esac
             sleep 1
           done
           docker logs easyvm 2>&1 | tail -10
