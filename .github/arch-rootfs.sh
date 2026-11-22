@@ -562,6 +562,88 @@ if [ "$DESKTOP_FAMILY" != "none" ]; then
 		log "easystream: all libraries resolve"
 	fi
 
+	# --- 3b-ii. THE KDE PORTAL'S CONSENT DIALOG, ANSWERED IN ADVANCE --------------------
+	#
+	# THE PROBLEM. KWin implements neither wlr-screencopy nor ext-image-copy-capture, so a
+	# Plasma variant can only be captured through xdg-desktop-portal-kde's ScreenCast - and
+	# that backend's Start() ends in
+	#
+	#	portal: SelectDevices ok
+	#	portal: no Response for /org/freedesktop/portal/desktop/request/1_51/est1
+	#
+	# because it waits for a human to click a consent dialog. A headless boot has nobody.
+	#
+	# THE ANSWER IS THE BACKEND'S OWN MECHANISM, not a workaround invented here. MEASURED
+	# from xdg-desktop-portal-kde/src/remotedesktop.cpp, which documents
+	#
+	#	// Mega-authorization is a permission system specific to the KDE portal
+	#	// implementation. A mega-authorized application is one that has been granted
+	#	// permissions to access all (remote desktop) features **without** any further user
+	#	// interaction. Particularly useful for headless setups and when the user is not
+	#	// physically at the machine.
+	#
+	# and whose Start() is
+	#
+	#	if (restored || isAppMegaAuthorized(app_id)) { continueStart(session); }  // no dialog
+	#	else if (!isAppMegaAuthorized(app_id))       { new RemoteDesktopDialog(...); }
+	#
+	# So one row in the permission store's `kde-authorized` / `remote-desktop` table, keyed
+	# by the EMPTY app id (which the source says means "a host application" - a non-flatpak
+	# binary, which easystream is), makes Start answer with no dialog at all.
+	#
+	# MEASURED end to end on Plasma Wayland over virtio-gpu, with this row present:
+	#
+	#	portal: SelectDevices ok
+	#	portal: stream state=streaming error=(none)
+	#	portal: negotiated 1024x768 format=8
+	#	portal: frame #1 1024x768 stride=4096 size=3145728
+	#
+	# THE WRITE RUNS AT BOOT, NOT BUILD TIME, because the permission store is a service on
+	# the session bus and keeps its table in the user's runtime state. A unit does it as
+	# vmuser, before the session's capture unit asks for a stream.
+	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
+		cat > "$ROOT/opt/kde-mega-auth.sh" <<'KMEGA'
+#!/bin/sh
+# Grant this desktop's portal permission to capture without a consent dialog, using the
+# backend's own mega-authorisation table. See the long note in arch-rootfs.sh.
+set -u
+TABLE=kde-authorized
+ID=remote-desktop
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+
+# The portal's stores come up with the session bus; wait rather than fail.
+i=0
+while [ $i -lt 300 ]; do
+	busctl --user status org.freedesktop.impl.portal.PermissionStore >/dev/null 2>&1 && break
+	i=$((i + 1)); sleep 0.1
+done
+if ! busctl --user status org.freedesktop.impl.portal.PermissionStore >/dev/null 2>&1; then
+	# NOT AN ERROR ON A NON-KDE SESSION: GNOME's backend has no such table and never
+	# consults one, so there is nothing to write and nothing to complain about.
+	echo "kde-mega-auth: no KDE permission store on this session; nothing to grant" >&2
+	exit 0
+fi
+
+gdbus call --session \
+	--dest org.freedesktop.impl.portal.PermissionStore \
+	--object-path /org/freedesktop/impl/portal/PermissionStore \
+	--method org.freedesktop.impl.portal.PermissionStore.Set \
+	"$TABLE" true "$ID" '{"": ["yes"]}' '<@v <@ay []>>' >/dev/null 2>&1
+
+if gdbus call --session \
+	--dest org.freedesktop.impl.portal.PermissionStore \
+	--object-path /org/freedesktop/impl/portal/PermissionStore \
+	--method org.freedesktop.impl.portal.PermissionStore.Lookup \
+	"$TABLE" "$ID" 2>/dev/null | grep -q "'yes'"; then
+	echo "kde-mega-auth: $TABLE/$ID grants the empty app id -> Start will not ask"
+else
+	echo "kde-mega-auth: FAILED to write $TABLE/$ID" >&2
+fi
+KMEGA
+		chmod 0755 "$ROOT/opt/kde-mega-auth.sh"
+	fi
+
 	# --- 3b. THE GPU ------------------------------------------------------------------
 	#
 	# VIRTIO-GPU, NOT VKMS. The display device is the one QEMU attaches as virtio-gpu-pci,
@@ -928,7 +1010,58 @@ GENV
 			# Plasma desktop (wallpaper, bottom panel, clock, tray) at 1024x768, mean brightness
 			# 128.6 with a mean deviation of 37.0. That is the evidence this variant ships, and it
 			# is the same one the GNOME variant uses.
-			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland'
+			# DPMS MUST BE OFF, OR THE CAPTURE IS A BLACK FRAME.
+			#
+			# MEASURED on this image: Plasma's power management turns the output off after its
+			# idle timeout, /sys/class/drm/card0-Virtual-1/dpms reads "Off", and every portal
+			# frame is then uniformly black - the stream itself is healthy ("stream
+			# state=streaming", "frame #1 1024x768"), which is what makes this easy to
+			# misdiagnose as a portal failure. With DPMS forced on the same capture jumps from
+			# ~3 KB frames to 260 KB.
+			#
+			# kwin runs the session, so the setting is applied from inside it once the
+			# compositor is up. Space is a long way off, but a guest has no input to wake.
+			# DPMS MUST BE TURNED ON, AND `kscreen-doctor` IS WHAT TURNS IT, ONCE THE SESSION
+			# IS UP. Three attempts were MEASURED before this one worked:
+			#
+			#  1. `kscreen-doctor --dpms on` called as the session STARTS: it does not fail
+			#     politely, it ABORTS - "Aborted (core dumped) kscreen-doctor --dpms on" fills
+			#     the console and the screen stays off;
+			#  2. writing /sys/class/drm/card0-Virtual-1/dpms directly: not writable by vmuser
+			#     (it reads "Off" fine, and writing it is refused);
+			#  3. Plasma's power settings (powermanagementprofilesrc, both the Plasma-5
+			#     DPMSControl keys and the Plasma-6 Display/turnOffDisplayWhenIdle keys): the
+			#     file is written correctly and powerdevil is restarted, and `dpms` still
+			#     reads "Off" afterwards.
+			#
+			# What DOES work, MEASURED: the same kscreen-doctor call, issued once the session
+			# has settled. It flips dpms to "On" immediately, and a portal capture taken after
+			# it is the real desktop - mean brightness 128.6, identical to the scanout, where
+			# the same capture was 0.0 with the display off.
+			#
+			# So the session wrapper waits for kwin's own socket, then asserts DPMS on, then
+			# re-asserts it periodically because Plasma can re-arm its idle timer.
+			cat > "$ROOT/opt/kde-session.sh" <<'KSESS'
+#!/bin/sh
+# Keep the output awake, then run the session. A headless guest has no input to wake a
+# blanked screen, and the portal captures exactly what is scanned out - so DPMS off is a
+# black frame from a stream that insists it is healthy.
+(
+	i=0
+	# Wait for kwin to own the session bus; kscreen-doctor aborts if it is too early.
+	while [ $i -lt 1200 ]; do
+		if kscreen-doctor --dpms on >/dev/null 2>&1; then break; fi
+		i=$((i + 1)); sleep 0.1
+	done
+	while :; do
+		kscreen-doctor --dpms on >/dev/null 2>&1
+		sleep 10
+	done
+) &
+exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland
+KSESS
+			chmod 0755 "$ROOT/opt/kde-session.sh"
+			SESSION_CMD='exec /opt/kde-session.sh'
 		elif [ "$DESKTOP" = "plasma-mobile" ]; then
 			# THE SESSION RUNS - kwin_wayland, plasmashell and plasma-keyboard all come up - AND
 			# EASYSTREAM GETS NO FRAME FROM IT.
@@ -990,13 +1123,49 @@ GENV
 			# SO THE ONLY WAY LEFT FOR PLASMA IS ONE HUMAN CLICK on the consent dialog - either
 			# once by hand to mint a restore token, or with an input device in the guest. A headless
 			# boot cannot supply it, and this image cannot forge the token without that first grant.
-			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile'
+			# DPMS ON - see the plasma branch for the three measured failures before
+			# kscreen-doctor-after-settle turned out to be the one that works.
+			cat > "$ROOT/opt/kde-session.sh" <<'KSESS_plasma_mobile'
+#!/bin/sh
+(
+	i=0
+	while [ $i -lt 1200 ]; do
+		if kscreen-doctor --dpms on >/dev/null 2>&1; then break; fi
+		i=$((i + 1)); sleep 0.1
+	done
+	while :; do
+		kscreen-doctor --dpms on >/dev/null 2>&1
+		sleep 10
+	done
+) &
+exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile
+KSESS_plasma_mobile
+			chmod 0755 "$ROOT/opt/kde-session.sh"
+			SESSION_CMD='exec /opt/kde-session.sh'
 		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
 			# THE SAME KWIN AS plasma-mobile, AND THE SAME ANSWER: the protocol limits do not
 			# apply to the scanout. MEASURED on this image: the TV launcher grid - the clock and
 			# date, the tool row, and the application tiles - at 1024x768, mean brightness 57.1
 			# with a mean deviation of 23.4. Captured by `read`, like its two siblings.
-			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland'
+			# DPMS ON - see the plasma branch for the three measured failures before
+			# kscreen-doctor-after-settle turned out to be the one that works.
+			cat > "$ROOT/opt/kde-session.sh" <<'KSESS_plasma_bigscreen'
+#!/bin/sh
+(
+	i=0
+	while [ $i -lt 1200 ]; do
+		if kscreen-doctor --dpms on >/dev/null 2>&1; then break; fi
+		i=$((i + 1)); sleep 0.1
+	done
+	while :; do
+		kscreen-doctor --dpms on >/dev/null 2>&1
+		sleep 10
+	done
+) &
+exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland
+KSESS_plasma_bigscreen
+			chmod 0755 "$ROOT/opt/kde-session.sh"
+			SESSION_CMD='exec /opt/kde-session.sh'
 		elif [ "$DESKTOP" = "budgie" ]; then
 			# BUDGIE'S WAYLAND SESSION IS labwc, AND `budgie-desktop` IS NOT ITS ENTRY POINT.
 			#
@@ -1631,6 +1800,176 @@ UNIT
 			"$ROOT/etc/systemd/system/multi-user.target.wants/desktop.service"
 	fi
 
+	# THE CAPTURE PROOF FOR A PORTAL-ONLY DESKTOP, INSTALLED IN THE IMAGE.
+	#
+	# A walkthrough cannot use `see:` for these desktops: `see:` is QEMU's screendump, and
+	# the point of this image is that its evidence comes through the desktop's own portal.
+	# /opt/portal-capture.sh asks easystream for one frame, decodes the PNG, and exits 0 only
+	# when the mean brightness says a desktop was drawn - so a walkthrough's `ssh:` step is
+	# the assertion, and its exit status is the verdict.
+	#
+	# MEASURED on Plasma over virtio-gpu: "portal-capture: PASS mean=133.7 frame=1024x768".
+	# The same script on the same guest reports mean=0.0 when DPMS has blanked the output,
+	# which is what makes it a real test rather than a file-exists check.
+	cat > "$ROOT/opt/portal-capture.sh" <<'PORTALCAP'
+#!/bin/sh
+# Capture ONE frame through the desktop's own portal and report whether it is a real
+# desktop. Runs INSIDE the guest, over ssh, with no screendump anywhere.
+#
+# Exit 0 = a drawn desktop; non-zero = a black/uniform frame, and the output says which.
+#
+# WHY THE MEAN IS THE TEST, MEASURED on this image: a healthy Plasma desktop, a desktop
+# whose output was in DPMS-off, and a stream that never attached ALL produced a PNG of the
+# same 3146804 bytes, because the encoder writes the raw frame size. Size proves nothing;
+# brightness does - a real desktop measures ~128, DPMS-off measures 0.0.
+set -u
+
+PORT="${EAZYSTREAM_PORT:-48079}"
+OUT=/tmp/portal-frame.png
+TMPL=/tmp/est-shot-portal.py
+
+# ALWAYS WRITE OUR OWN, WITH THIS ARGUMENT ORDER. MEASURED: an image can already carry a
+# /tmp/est-shot.py from an earlier probe, and reusing whatever is there made this script call
+# it with the wrong arguments.
+cat > "$TMPL" <<'PY'
+import socket, struct, sys
+port, out = int(sys.argv[1]), sys.argv[2]
+s = socket.create_connection(("127.0.0.1", port), timeout=20)
+s.settimeout(30)
+def recvn(n):
+    b = b""
+    while len(b) < n:
+        c = s.recv(n - len(b))
+        if not c:
+            raise SystemExit("est: connection closed")
+        b += c
+    return b
+s.sendall(struct.pack(">BBI", 0x01, 0, 0))
+typ, flags, ln = struct.unpack(">BBI", recvn(6))
+if ln:
+    recvn(ln)
+s.sendall(struct.pack(">BBI", 0x40, 0, 4) + struct.pack(">I", 1) + struct.pack(">B", 0))
+for _ in range(900):
+    typ, flags, ln = struct.unpack(">BBI", recvn(6))
+    payload = recvn(ln) if ln else b""
+    if typ == 0x41:
+        rid, plen = struct.unpack(">II", payload[:8])
+        open(out, "wb").write(payload[8:8+plen])
+        sys.exit(0)
+raise SystemExit("est: no ShotResp")
+PY
+
+python3 "$TMPL" "$PORT" "$OUT" || exit 2
+[ -s "$OUT" ] || { echo "portal-capture: no png"; exit 3; }
+
+# THE MEAN BRIGHTNESS, DECODED HERE. A fallback by file size was MEASURED WRONG: a black
+# frame and a real desktop both write 3146804 bytes on this image.
+read -r MEAN DIMS <<EOF2
+$(python3 - "$OUT" <<'PY'
+import sys, zlib, struct
+d = open(sys.argv[1], "rb").read()
+pos, idat, w, h, bd, ct = 8, b"", 0, 0, 0, 0
+while pos < len(d):
+    ln = struct.unpack(">I", d[pos:pos+4])[0]
+    typ = d[pos+4:pos+8]
+    data = d[pos+8:pos+8+ln]
+    pos += 12 + ln
+    if typ == b"IHDR":
+        w, h, bd, ct = struct.unpack(">IIBB", data[:10])
+    elif typ == b"IDAT":
+        idat += data
+    elif typ == b"IEND":
+        break
+raw = zlib.decompress(idat)
+ch = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ct]
+stride = w * ch + 1
+total = float(0)
+n = 0
+prev = bytearray(w * ch)
+for y in range(h):
+    off = y * stride
+    f = raw[off]
+    row = bytearray(raw[off+1:off+stride])
+    if f == 2:
+        for i in range(len(row)):
+            row[i] = (row[i] + prev[i]) & 0xFF
+    elif f in (1, 4):
+        for i in range(ch, len(row)):
+            row[i] = (row[i] + row[i-ch]) & 0xFF
+    prev = row
+    if y % 8:
+        continue
+    for x in range(0, w, 8):
+        px = row[x*ch:(x+1)*ch]
+        if ch >= 3:
+            total += (px[0] + px[1] + px[2]) / 3.0
+        else:
+            total += px[0]
+        n += 1
+print("%.1f %dx%d" % (total / max(n, 1), w, h))
+PY
+)
+EOF2
+
+if awk -v m="${MEAN:-0}" 'BEGIN{exit !(m > 5)}'; then
+	echo "portal-capture: PASS mean=$MEAN frame=$DIMS"
+	exit 0
+fi
+echo "portal-capture: FAIL mean=${MEAN:-0} (black or DPMS off) frame=$DIMS"
+exit 4
+PORTALCAP
+	chmod 0755 "$ROOT/opt/portal-capture.sh"
+
+	# THE PORTAL FRONTEND MUST KNOW IT IS RUNNING ON KDE, OR IT LOADS NO KDE BACKEND.
+	#
+	# MEASURED, and this is the fault that survived every other fix: the frontend exposes
+	# RemoteDesktop and ScreenCast ONLY when it has selected a backend that provides them,
+	# and /usr/share/xdg-desktop-portal/portals/kde.portal is gated by `UseIn=KDE`. The
+	# frontend is a systemd user unit, and on this image it starts before the session has
+	# exported XDG_CURRENT_DESKTOP, so it chooses nothing and easystream then gets
+	#
+	#	portal CreateSession: No such interface "org.freedesktop.portal.RemoteDesktop"
+	#	                        on object at path /org/freedesktop/portal/desktop
+	#
+	# while the KDE backend itself is active and healthy on the bus. Restarting the frontend
+	# with XDG_CURRENT_DESKTOP=KDE in its environment makes both interfaces appear and the
+	# capture work - MEASURED: mean brightness 128.6 through the portal, the same as the
+	# scanout. So the variable goes on the UNIT, which is the only place that survives the
+	# unit's own early start.
+	if [ "$DESKTOP_FAMILY" = "wayland" ] && [ "$DESKTOP" != "gnome" ]; then
+		mkdir -p "$ROOT/etc/systemd/user/xdg-desktop-portal.service.d"
+		cat > "$ROOT/etc/systemd/user/xdg-desktop-portal.service.d/20-desktop.conf" <<PORTALENV
+[Service]
+# The KDE portal file is UseIn=KDE; without this the frontend loads no backend and
+# RemoteDesktop/ScreenCast are simply absent from the bus.
+Environment=XDG_CURRENT_DESKTOP=$([ "$DESKTOP" = "plasma" -o "$DESKTOP" = "plasma-mobile" -o "$DESKTOP" = "plasma-bigscreen" ] && echo KDE || echo "$DESKTOP")
+PORTALENV
+	fi
+
+	# THE KDE CONSENT DIALOG IS ANSWERED BEFORE THE CAPTURE UNIT ASKS. A oneshot user unit
+	# writes the backend's mega-authorisation row (see 3b-ii); easystream then orders after it,
+	# so the first portal Start already finds the grant and never opens a dialog. On a
+	# non-KDE session the script finds no permission store and exits 0, which is why this is
+	# installed for every Wayland desktop rather than only the Plasma ones.
+	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
+		cat > "$ROOT/etc/systemd/user/kde-mega-auth.service" <<'KAUTH'
+[Unit]
+Description=grant the portal permission to capture without a consent dialog
+Before=easystream.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/kde-mega-auth.sh
+StandardOutput=journal+console
+StandardError=journal+console
+[Install]
+WantedBy=default.target
+KAUTH
+		mkdir -p "$ROOT/etc/systemd/user/default.target.wants"
+		ln -sf /etc/systemd/user/kde-mega-auth.service \
+			"$ROOT/etc/systemd/user/default.target.wants/kde-mega-auth.service"
+	fi
+
 	# EASYSTREAM IS ITS OWN UNIT, WITH ITS OWN RESTART POLICY. It is joined to the session by
 	# a DEPENDENCY (a socket that must exist), not by a lifecycle: a compositor restart must
 	# reconnect the capture daemon, not kill it.
@@ -1672,16 +2011,56 @@ DROPIN
 	else
 		cat > "$ROOT/etc/systemd/user/easystream.service.d/15-display.conf" <<'DROPIN'
 [Service]
-# THE RUNTIME DIRECTORY IS FIXED, THE SOCKET NAME IS NOT. The compositor chooses its socket
-# name at start-up and session.sh WRITES IT TO A FILE this unit reads, because
-# `systemctl --user set-environment` was MEASURED to reach a different manager than the one the
-# unit runs under (it returned 0 and the next `show-environment` was empty). `-` before the
-# path makes a missing file non-fatal: on the first start it does not exist yet, and the
-# restart below picks it up.
-EnvironmentFile=-/run/user/1000/wl-session.env
+# THE RUNTIME DIRECTORY IS FIXED, THE SOCKET NAME IS NOT, AND `EnvironmentFile=` DOES NOT
+# DELIVER IT. MEASURED on this image: /run/user/1000/wl-session.env contains
+# WAYLAND_DISPLAY=wayland-1, the drop-in names it, and the running process's /proc/<pid>/environ
+# still has only XDG_RUNTIME_DIR - no WAYLAND_DISPLAY at all. A user manager reads its
+# EnvironmentFiles when the unit starts, and on this image that read does not take.
+#
+# So the unit runs a WRAPPER that reads the file itself and execs the daemon with it in the
+# environment. That is one place, it is a plain shell read, and it cannot be skipped.
 Environment=XDG_RUNTIME_DIR=/run/user/1000
-Environment=DISPLAY=:0
+# THE PACKAGED ExecStart IS REPLACED BY THE WRAPPER, WHICH READS wl-session.env ITSELF.
+ExecStart=
+ExecStart=/opt/easystream-run.sh
 DROPIN
+	fi
+
+	# THE WRAPPER THAT ACTUALLY CARRIES WAYLAND_DISPLAY. See the drop-in above for why
+	# EnvironmentFile= was measured not to deliver it. This reads the file, exports what it
+	# finds, and execs the packaged binary - so the daemon sees the compositor's real socket
+	# name, and easystream's startup probe chooses the WAYLAND capture path instead of falling
+	# back to X11 via a stale DISPLAY.
+	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
+		cat > "$ROOT/opt/easystream-run.sh" <<'ESRUN'
+#!/bin/sh
+# Load the compositor's socket name, then become the daemon.
+#
+# WAIT FOR THE FILE, DO NOT JUST TRY IT. MEASURED: easystream ran at 06:30:22 on a boot
+# where session.sh had not written wl-session.env yet, this wrapper read nothing, and the
+# daemon fell back - its log said so in as many words. The unit's ExecStartPre only waits
+# for a socket to EXIST; the file that names it is written by session.sh a moment later.
+ENVF=/run/user/$(id -u)/wl-session.env
+i=0
+while [ $i -lt 1200 ]; do
+	[ -s "$ENVF" ] && break
+	i=$((i + 1)); sleep 0.1
+done
+if [ -r "$ENVF" ]; then
+	# The file is KEY=VALUE lines written by session.sh; exporting it as-is is the point.
+	set -a
+	. "$ENVF"
+	set +a
+fi
+if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+	echo "easystream-run: no WAYLAND_DISPLAY in $ENVF after 120s; the probe will fall back" >&2
+fi
+# DISPLAY MUST NOT WIN THE PROBE. easystream picks X11 when DISPLAY is set and the Wayland
+# socket is not, and its X11 path reads Xvfb - which this desktop does not have - so the
+# result is a black frame from a healthy-looking daemon. MEASURED.
+exec /usr/bin/easystream "$@"
+ESRUN
+		chmod 0755 "$ROOT/opt/easystream-run.sh"
 	fi
 
 	# THE DAEMON'S OWN WORDS REACH THE SERIAL CONSOLE. MEASURED: the packaged unit writes to
