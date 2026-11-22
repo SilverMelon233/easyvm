@@ -1021,26 +1021,43 @@ GENV
 			#
 			# kwin runs the session, so the setting is applied from inside it once the
 			# compositor is up. Space is a long way off, but a guest has no input to wake.
-			# DPMS OFF BY CONFIG, NOT BY A COMMAND. Two other attempts were MEASURED and
-			# both fail on this image:
-			#   * `kscreen-doctor --dpms on` called before the session's bus is up does not
-			#     fail politely - it ABORTS ("Aborted (core dumped)"), and the screen stays off;
-			#   * writing /sys/class/drm/card0-Virtual-1/dpms directly is not permitted to
-			#     vmuser (MEASURED: the attribute is not writable by the session user), even
-			#     though it READS "Off" once Plasma has powered the output down.
+			# DPMS MUST BE TURNED ON, AND `kscreen-doctor` IS WHAT TURNS IT, ONCE THE SESSION
+			# IS UP. Three attempts were MEASURED before this one worked:
 			#
-			# Plasma's own power settings are the supported lever, and they are files under
-			# the user's config directory, so a headless image can simply ship "never turn the
-			# screen off". Space keeps it out of DPMS for the life of the session.
+			#  1. `kscreen-doctor --dpms on` called as the session STARTS: it does not fail
+			#     politely, it ABORTS - "Aborted (core dumped) kscreen-doctor --dpms on" fills
+			#     the console and the screen stays off;
+			#  2. writing /sys/class/drm/card0-Virtual-1/dpms directly: not writable by vmuser
+			#     (it reads "Off" fine, and writing it is refused);
+			#  3. Plasma's power settings (powermanagementprofilesrc, both the Plasma-5
+			#     DPMSControl keys and the Plasma-6 Display/turnOffDisplayWhenIdle keys): the
+			#     file is written correctly and powerdevil is restarted, and `dpms` still
+			#     reads "Off" afterwards.
+			#
+			# What DOES work, MEASURED: the same kscreen-doctor call, issued once the session
+			# has settled. It flips dpms to "On" immediately, and a portal capture taken after
+			# it is the real desktop - mean brightness 128.6, identical to the scanout, where
+			# the same capture was 0.0 with the display off.
+			#
+			# So the session wrapper waits for kwin's own socket, then asserts DPMS on, then
+			# re-asserts it periodically because Plasma can re-arm its idle timer.
 			cat > "$ROOT/opt/kde-session.sh" <<'KSESS'
 #!/bin/sh
-# Never dim or blank: a headless guest has no input to wake the display, and the portal
-# captures exactly what is scanned out - so a powered-down output is a black frame.
-kwriteconfig6 --file powermanagementprofilesrc --group AC --group DimDisplay --key idleTime 0 2>/dev/null
-kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key idleTime 0 2>/dev/null
-kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key mode 0 2>/dev/null
-kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false 2>/dev/null
-kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 0 2>/dev/null
+# Keep the output awake, then run the session. A headless guest has no input to wake a
+# blanked screen, and the portal captures exactly what is scanned out - so DPMS off is a
+# black frame from a stream that insists it is healthy.
+(
+	i=0
+	# Wait for kwin to own the session bus; kscreen-doctor aborts if it is too early.
+	while [ $i -lt 1200 ]; do
+		if kscreen-doctor --dpms on >/dev/null 2>&1; then break; fi
+		i=$((i + 1)); sleep 0.1
+	done
+	while :; do
+		kscreen-doctor --dpms on >/dev/null 2>&1
+		sleep 10
+	done
+) &
 exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland
 KSESS
 			chmod 0755 "$ROOT/opt/kde-session.sh"
@@ -1106,15 +1123,21 @@ KSESS
 			# SO THE ONLY WAY LEFT FOR PLASMA IS ONE HUMAN CLICK on the consent dialog - either
 			# once by hand to mint a restore token, or with an input device in the guest. A headless
 			# boot cannot supply it, and this image cannot forge the token without that first grant.
-			# DPMS OFF BY CONFIG - see the plasma branch for the two measured failures of
-			# the alternatives. Same settings, different session command.
+			# DPMS ON - see the plasma branch for the three measured failures before
+			# kscreen-doctor-after-settle turned out to be the one that works.
 			cat > "$ROOT/opt/kde-session.sh" <<'KSESS_plasma_mobile'
 #!/bin/sh
-kwriteconfig6 --file powermanagementprofilesrc --group AC --group DimDisplay --key idleTime 0 2>/dev/null
-kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key idleTime 0 2>/dev/null
-kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key mode 0 2>/dev/null
-kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false 2>/dev/null
-kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 0 2>/dev/null
+(
+	i=0
+	while [ $i -lt 1200 ]; do
+		if kscreen-doctor --dpms on >/dev/null 2>&1; then break; fi
+		i=$((i + 1)); sleep 0.1
+	done
+	while :; do
+		kscreen-doctor --dpms on >/dev/null 2>&1
+		sleep 10
+	done
+) &
 exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile
 KSESS_plasma_mobile
 			chmod 0755 "$ROOT/opt/kde-session.sh"
@@ -1124,15 +1147,21 @@ KSESS_plasma_mobile
 			# apply to the scanout. MEASURED on this image: the TV launcher grid - the clock and
 			# date, the tool row, and the application tiles - at 1024x768, mean brightness 57.1
 			# with a mean deviation of 23.4. Captured by `read`, like its two siblings.
-			# DPMS OFF BY CONFIG - see the plasma branch for the two measured failures of
-			# the alternatives. Same settings, different session command.
+			# DPMS ON - see the plasma branch for the three measured failures before
+			# kscreen-doctor-after-settle turned out to be the one that works.
 			cat > "$ROOT/opt/kde-session.sh" <<'KSESS_plasma_bigscreen'
 #!/bin/sh
-kwriteconfig6 --file powermanagementprofilesrc --group AC --group DimDisplay --key idleTime 0 2>/dev/null
-kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key idleTime 0 2>/dev/null
-kwriteconfig6 --file powermanagementprofilesrc --group AC --group DPMSControl --key mode 0 2>/dev/null
-kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false 2>/dev/null
-kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 0 2>/dev/null
+(
+	i=0
+	while [ $i -lt 1200 ]; do
+		if kscreen-doctor --dpms on >/dev/null 2>&1; then break; fi
+		i=$((i + 1)); sleep 0.1
+	done
+	while :; do
+		kscreen-doctor --dpms on >/dev/null 2>&1
+		sleep 10
+	done
+) &
 exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland
 KSESS_plasma_bigscreen
 			chmod 0755 "$ROOT/opt/kde-session.sh"
@@ -1836,16 +1865,46 @@ DROPIN
 	else
 		cat > "$ROOT/etc/systemd/user/easystream.service.d/15-display.conf" <<'DROPIN'
 [Service]
-# THE RUNTIME DIRECTORY IS FIXED, THE SOCKET NAME IS NOT. The compositor chooses its socket
-# name at start-up and session.sh WRITES IT TO A FILE this unit reads, because
-# `systemctl --user set-environment` was MEASURED to reach a different manager than the one the
-# unit runs under (it returned 0 and the next `show-environment` was empty). `-` before the
-# path makes a missing file non-fatal: on the first start it does not exist yet, and the
-# restart below picks it up.
-EnvironmentFile=-/run/user/1000/wl-session.env
+# THE RUNTIME DIRECTORY IS FIXED, THE SOCKET NAME IS NOT, AND `EnvironmentFile=` DOES NOT
+# DELIVER IT. MEASURED on this image: /run/user/1000/wl-session.env contains
+# WAYLAND_DISPLAY=wayland-1, the drop-in names it, and the running process's /proc/<pid>/environ
+# still has only XDG_RUNTIME_DIR - no WAYLAND_DISPLAY at all. A user manager reads its
+# EnvironmentFiles when the unit starts, and on this image that read does not take.
+#
+# So the unit runs a WRAPPER that reads the file itself and execs the daemon with it in the
+# environment. That is one place, it is a plain shell read, and it cannot be skipped.
 Environment=XDG_RUNTIME_DIR=/run/user/1000
-Environment=DISPLAY=:0
+# THE PACKAGED ExecStart IS REPLACED BY THE WRAPPER, WHICH READS wl-session.env ITSELF.
+ExecStart=
+ExecStart=/opt/easystream-run.sh
 DROPIN
+	fi
+
+	# THE WRAPPER THAT ACTUALLY CARRIES WAYLAND_DISPLAY. See the drop-in above for why
+	# EnvironmentFile= was measured not to deliver it. This reads the file, exports what it
+	# finds, and execs the packaged binary - so the daemon sees the compositor's real socket
+	# name, and easystream's startup probe chooses the WAYLAND capture path instead of falling
+	# back to X11 via a stale DISPLAY.
+	if [ "$DESKTOP_FAMILY" = "wayland" ]; then
+		cat > "$ROOT/opt/easystream-run.sh" <<'ESRUN'
+#!/bin/sh
+# Load the compositor's socket name, then become the daemon.
+ENVF=/run/user/$(id -u)/wl-session.env
+if [ -r "$ENVF" ]; then
+	# The file is KEY=VALUE lines written by session.sh; exporting it as-is is the point.
+	set -a
+	. "$ENVF"
+	set +a
+fi
+if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+	echo "easystream-run: no WAYLAND_DISPLAY in $ENVF; the capture probe will fall back" >&2
+fi
+# DISPLAY MUST NOT WIN THE PROBE. easystream picks X11 when DISPLAY is set and the Wayland
+# socket is not, and its X11 path reads Xvfb - which this desktop does not have - so the
+# result is a black frame from a healthy-looking daemon. MEASURED.
+exec /usr/bin/easystream "$@"
+ESRUN
+		chmod 0755 "$ROOT/opt/easystream-run.sh"
 	fi
 
 	# THE DAEMON'S OWN WORDS REACH THE SERIAL CONSOLE. MEASURED: the packaged unit writes to
