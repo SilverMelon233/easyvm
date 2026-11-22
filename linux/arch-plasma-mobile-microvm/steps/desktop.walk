@@ -1,0 +1,52 @@
+# AN ARCH LINUX MICROVM RUNNING KDE PLASMA MOBILE ON WAYLAND, ON A virtio-gpu DISPLAY.
+#
+# THE DISPLAY DEVICE IS virtio-gpu OVER PCIe, so card0 carries both a Virtual-1 output and
+# renderD128 - the pair KWin's DRM backend needs. See the long note in arch-rootfs.sh.
+#
+# THE CAPTURE IS THE SCANOUT, AND THAT IS WHAT MAKES THIS VARIANT POSSIBLE AT ALL.
+#
+# MEASURED, and it is the whole reason this image ships no easystream evidence: KWin
+# implements NEITHER zwlr_screencopy NOR ext-image-copy-capture - `strings kwin_wayland` finds
+# zero occurrences of either - so there is no Wayland capture protocol to read. The only other
+# route is KDE's ScreenCast portal, and that stops one step short:
+#
+#	portal: SelectDevices has NO restore token - Start will ask for consent
+#	portal: SelectDevices ok
+#	portal: no Response for /org/freedesktop/portal/desktop/request/1_51/est1
+#
+# Everything up to the consent dialog works; the dialog itself needs a human click that a
+# headless boot cannot give, and the permission store cannot be seeded before the first grant
+# (Set and SetPermission both answer "Id easystream not found" - the id is CREATED by a grant).
+#
+# BOTH LIMITS ARE ABOUT READING THE COMPOSITOR, NOT ABOUT THE PIXELS. virtio-gpu drives a real
+# framebuffer, so qemu's screendump photographs exactly what KWin scanned out. That is what this
+# walkthrough measures.
+
+walkthrough "plasma-mobile microvm - the phone shell on Wayland, captured from the scanout"
+  resolution 1024x768
+  recording_resolution 1024x768
+
+  needs arch-vmlinuz arch-initramfs arch.qcow2
+  disk arch.qcow2
+
+  boot as a microvm from kernel "arch-vmlinuz" and initramfs "arch-initramfs" with "console=ttyS0 root=/dev/vda rw rootfstype=ext4" with a desktop with memory 1536, waiting up to 240s
+
+  the console will say "login"
+  the console will say "vmuser"
+
+  # THE SESSION'S OWN MARKER, printed by the image right before it execs the session command.
+  the console will say "ARCH-SESSION-STARTING: plasma-mobile"
+
+  # THE PHONE SHELL STARTUP: kwin_wayland, plasmashell, plasma-keyboard, then the shell's own
+  # first layout. It is slower than a bare compositor, so the settle is longer than the others'.
+  wait 35s
+
+  # THE PIXELS, FROM THE GUEST'S OWN SCANOUT.
+  read the whole screen as "screen"
+
+  step "the screen is not black"
+    check == {name: screen_is_not_black, from: screen, mode: mean_between, rect: [0, 0, 1024, 768], rect_at: [1024, 768], range: [1, 255]}
+  step "the screen is not one flat colour"
+    check == {name: screen_has_content, from: screen, mode: spread_between, rect: [0, 0, 1024, 768], rect_at: [1024, 768], range: [1, 128]}
+
+  stop the machine by killing it, waiting up to 60s

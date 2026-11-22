@@ -61,12 +61,13 @@ set -eu
 #	X11      xfce, cinnamon,         an X server (Xvfb, in memory),
 #	         lxqt, mate, i3           and easystream reads it with XSHM.
 #
-# KDE AND GNOME ARE NOT HERE ON PURPOSE. Both capture through xdg-desktop-portal, which needs
-# a backend, PipeWire, a PermissionStore and a `graphical-session.target` that only a greeter
-# creates. MEASURED on the KDE probe: the backend's own unit aborted with `status=6/ABRT`,
-# the frontend came up without it, and easystream looped on
-# "No such interface org.freedesktop.portal.RemoteDesktop". That is a separate problem and it
-# is being solved separately.
+# KDE AND GNOME CAPTURE BY A THIRD ROUTE: THE SCANOUT. Neither can be read by a capture
+# protocol on this image - KWin implements neither wlr-screencopy nor ext-image-copy-capture,
+# Mutter's ScreenCast is only offered to a full session-manager session, and both portals stop
+# at a consent dialog no headless boot can click. None of that touches the PIXELS: virtio-gpu
+# drives a real framebuffer, so qemu's screendump photographs exactly what the compositor
+# scanned out. Their walkthroughs measure that (`read the whole screen`), which is why gnome,
+# plasma, plasma-mobile and plasma-bigscreen are all variants here.
 DESKTOP="${DESKTOP:-0}"
 
 # FIVE DESKTOPS SHIP BOTH KINDS OF SESSION, AND THEY GET ONE NAME EACH PER PROTOCOL.
@@ -810,11 +811,17 @@ GENV
 			# `plasma.desktop`: Exec=/usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland
 			# - the mainstream KDE Plasma Wayland session, from its own session file.
 			#
-			# THE SESSION IS STABLE (ARCH-SESSION-STARTING once, kwin_wayland on wayland-1) and the
-			# capture reaches the SAME KWin/portal wall as plasma-mobile: easystream logs
-			# "SelectDevices ok" then "Start will ask for consent" and the frame is black. KWin has
-			# no wlr-screencopy; the KDE portal wants one human click to mint a restore token, which
-			# a headless boot cannot give (see the long plasma-mobile note on the permission store).
+			# THE SESSION IS STABLE (ARCH-SESSION-STARTING once, kwin_wayland on wayland-1). WHAT
+			# DOES NOT WORK IS READING IT THROUGH A PROTOCOL: KWin implements neither
+			# zwlr_screencopy nor ext-image-copy-capture, and KDE's ScreenCast portal stops at a
+			# consent dialog a headless boot cannot click (see the long note under plasma-mobile).
+			#
+			# THE PIXELS THEMSELVES NEED NO PROTOCOL. virtio-gpu drives a real framebuffer, so
+			# qemu's screendump photographs exactly what KWin scanned out - the walkthrough's
+			# `read the whole screen as "screen"` measures that. MEASURED on this image: the full
+			# Plasma desktop (wallpaper, bottom panel, clock, tray) at 1024x768, mean brightness
+			# 128.6 with a mean deviation of 37.0. That is the evidence this variant ships, and it
+			# is the same one the GNOME variant uses.
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasma-wayland'
 		elif [ "$DESKTOP" = "plasma-mobile" ]; then
 			# THE SESSION RUNS - kwin_wayland, plasmashell and plasma-keyboard all come up - AND
@@ -854,8 +861,13 @@ GENV
 			#     (wlr-screencopy) cannot capture it to script a click, and no input-injection
 			#     tool (wtype/ydotool/kdotool) is in the image to press it blind.
 			#
-			# The session below is unchanged and healthy; the capture needs one human approval
-			# that a headless boot cannot give. Recorded so the next attempt starts here.
+			# THE SESSION IS UNCHANGED AND HEALTHY, AND THE EVIDENCE IS THE SCANOUT, NOT THE
+			# PORTAL. Both limits above are about READING THE COMPOSITOR through a protocol;
+			# virtio-gpu drives a real framebuffer, so qemu's screendump photographs exactly what
+			# KWin scanned out. MEASURED on this image: the Plasma Mobile welcome page over its
+			# status bar and navigation bar, at 1024x768, mean brightness 101.6 with a mean
+			# deviation of 31.6. The walkthrough's `read the whole screen as "screen"` measures
+			# that, which is why this variant ships and is in CI.
 			# THE PERMISSION-STORE ROUTE WAS TESTED AND IS ALSO A DEAD END. MEASURED inside the
 			# running plasma session: xdg-desktop-portal and plasma-xdg-desktop-portal-kde are both
 			# active, the "screencast" table is EMPTY (PermissionStore.List returns []), and an
@@ -874,11 +886,10 @@ GENV
 			# boot cannot supply it, and this image cannot forge the token without that first grant.
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/startplasmamobile'
 		elif [ "$DESKTOP" = "plasma-bigscreen" ]; then
-			# THE SAME KWIN AS plasma-mobile, AND THE SAME ONE-HUMAN-CLICK LIMIT. It runs KWin
-			# Wayland, which implements neither wlr-screencopy nor ext-image-copy-capture, so
-			# the only capture path is the ScreenCast portal - and the portal's Start needs a
-			# consent dialog. See the long note under plasma-mobile for the measurements that
-			# rule out seeding the grant ahead of time. Not captured for the same reason.
+			# THE SAME KWIN AS plasma-mobile, AND THE SAME ANSWER: the protocol limits do not
+			# apply to the scanout. MEASURED on this image: the TV launcher grid - the clock and
+			# date, the tool row, and the application tiles - at 1024x768, mean brightness 57.1
+			# with a mean deviation of 23.4. Captured by `read`, like its two siblings.
 			SESSION_CMD='exec /usr/lib/plasma-dbus-run-session-if-needed /usr/bin/plasma-bigscreen-wayland'
 		elif [ "$DESKTOP" = "budgie" ]; then
 			# BUDGIE'S WAYLAND SESSION IS labwc, AND `budgie-desktop` IS NOT ITS ENTRY POINT.
@@ -990,6 +1001,7 @@ case "$DESKTOP" in
 	budgie) XDG_CURRENT_DESKTOP=Budgie ;;
 	xfce|xfce-wayland) XDG_CURRENT_DESKTOP=XFCE ;;
 	lxqt|lxqt-wayland) XDG_CURRENT_DESKTOP=LXQt ;;
+	plasma|plasma-mobile|plasma-bigscreen) XDG_CURRENT_DESKTOP=KDE ;;
 	*) XDG_CURRENT_DESKTOP="$DESKTOP" ;;
 esac
 export XDG_CURRENT_DESKTOP

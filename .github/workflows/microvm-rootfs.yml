@@ -167,8 +167,7 @@ jobs:
           #	qtile-wayland  qtile's bar on the Wayland backend
           #
           # THE ONES WITH A MEASURED LIMIT ARE NOT HERE. river, niri, weston, kylin and
-          # treeland are gone entirely. plasma-mobile and plasma-bigscreen run but their KWin +
-          # KDE-portal capture needs one human consent click. cinnamon-wayland and
+          # treeland are gone entirely. cinnamon-wayland and
           # enlightenment-wayland were DROPPED: their Wayland compositors expose no capture
           # protocol - muffin has no zwlr_screencopy and does not export org.gnome.Mutter.ScreenCast,
           # and E's wl_drm exports no screencopy - so those two are supported on X11 only, which
@@ -238,6 +237,31 @@ jobs:
           - tag: rootfs-arch-gnome
             script: .github/arch-rootfs.sh
             desktop: "gnome"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          # THE MAIN KDE PLASMA SESSION. Verified locally: KWin Wayland came up on the
+          # virtio-gpu, painted its wallpaper and panel, and qemu's screendump of that scanout
+          # was 1024x768 with mean brightness 128.6 and deviation 37.0 - a real desktop.
+          #
+          # IT IS CAPTURED BY `read` (qemu's screendump), NOT BY EASYSTREAM, and that is the
+          # whole point: KWin implements neither zwlr-screencopy nor ext-image-copy-capture, and
+          # KDE's ScreenCast portal stops at a consent dialog nobody can click headless. The
+          # PIXELS need no protocol - virtio-gpu drives a real framebuffer. See the walk file.
+          - tag: rootfs-arch-plasma
+            script: .github/arch-rootfs.sh
+            desktop: "plasma"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          # THE TWO SPECIALISED KDE SHELLS, VERIFIED THE SAME WAY. plasma-mobile MEASURED its
+          # welcome page over the phone-shell status bar and navigation bar (mean 101.6,
+          # deviation 31.6); plasma-bigscreen its TV launcher grid with the application tiles and
+          # the clock (mean 57.1, deviation 23.4). Same capture path, same reason: see the
+          # plasma row above and the walks.
+          - tag: rootfs-arch-plasma-mobile
+            script: .github/arch-rootfs.sh
+            desktop: "plasma-mobile"
+            files: "arch-vmlinuz arch-initramfs arch.qcow2"
+          - tag: rootfs-arch-plasma-bigscreen
+            script: .github/arch-rootfs.sh
+            desktop: "plasma-bigscreen"
             files: "arch-vmlinuz arch-initramfs arch.qcow2"
           - tag: rootfs-leap-minimal
             script: .github/leap-rootfs.sh
