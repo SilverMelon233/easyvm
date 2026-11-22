@@ -1614,6 +1614,24 @@ fi
 # drawn desktop rather than a dead one, and it costs one process that exits immediately.
 xsetroot -solid '#2f4f6f' 2>/dev/null || true
 
+# AND AGAIN AFTER THE SESSION MANAGER HAS TAKEN OVER, because two desktops overwrite it.
+#
+# MEASURED, cinnamon: it draws a GL-composited background through org.Cinnamon.Background,
+# and on this Xorg that fails with
+#
+#	Could not get DRI3 device
+#	Ensure your X server supports DRI3 to get accelerated rendering
+#
+# - the DRI3 device needs virgl, which this QEMU does not have - so the root window is left
+# black and the panel and icons float on it (mean 6.4). The desktop is otherwise complete.
+# Re-applying the solid colour after a delay puts a real background under it without
+# fighting the compositor: anything that CAN draw its own wins, and this fills the gap when
+# nothing did.
+(
+	sleep 12
+	xsetroot -solid '#2f4f6f' 2>/dev/null || true
+) &
+
 echo "ARCH-SESSION-STARTING: $DESKTOP"
 exec $SESSION_EXEC
 DESKTOP
